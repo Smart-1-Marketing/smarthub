@@ -419,9 +419,8 @@ def api_report_send():
     if not customer_id:
         return jsonify({"error": "customer_id is required."}), 400
     schedule = store.report_schedule(customer_id)
-    account = next((a for a in store.deployed_accounts(limit=500)
-                    if a["customer_id"] == customer_id),
-                   {"customer_id": customer_id, "client_name": "", "proposal_id": ""})
+    account = (store.deployed_account(customer_id)
+               or {"customer_id": customer_id, "client_name": "", "proposal_id": ""})
     outcome = monitoring.send_report(
         account, cadence=schedule["cadence"], recipient=schedule["recipient"],
         actor=current_user())

@@ -138,6 +138,42 @@ other panels with it -- the rule `hub/oauth_redirects.py` states for a
 diagnostics panel, applied here. A refusal from the ladder itself is still
 named where it happened, rather than as the page failing.
 
+**And then a review found eight more, all on the error paths.** The happy path
+had been read hard; the paths taken when something refuses had not, and that
+is where the quiet losses were:
+
+* `store.parse_date()` **raises** on a value it cannot read -- it does not
+  answer None, which this file assumed. One unreadable day in one line item
+  threw out of the fold and lost that advertiser's entire report, the exact
+  opposite of the skipped-and-counted rule written three lines below it.
+* Every early return wrote the note with an empty `pending`, wiping the
+  reportIds the last tick was waiting on -- so one throttled night made the
+  next one pay for every report again.
+* A refusal partway through polling dropped that advertiser's carried report,
+  which re-submits, which resets the first-seen stamp. A report that never
+  finishes would have reset its own clock every night and `STUCK_AFTER_HOURS`
+  could never fire for it: the ceiling silently undone by the error path.
+* The check page submitted a report on a plain GET and never wrote the id
+  down -- one orphaned report per refresh -- and could hold one of two
+  gunicorn workers for twenty seconds of polling plus a two-minute download
+  read. It reuses and records now, on its own smaller budget.
+* `sample` was not dict-filtered, and the template calls `.items()` on it.
+  `check()`'s guard wraps `_check()` and not the render, so a single non-object
+  row would have 500'd the one page written never to fall over.
+* The gave-up note sorted the advertiser names and the durations as two
+  separate lists, so with two stale reports each name printed against the
+  other's hours.
+* `pull()` answers `{adv: {report_id, since}}` and accepted only
+  `{adv: report_id}`, so handing a caller's own previous result back formatted
+  a dict into a URL path.
+* Spend was rounded at every fold step rather than once at the end, which
+  compounds -- a fifth of a dollar on a forty-line-item order-day.
+
+Every one of them is pinned now, and reverting a fix fails or crashes the
+suite. The lesson is not about Amazon: a test file that drives the happy path
+and the refusals it *expects* still leaves the paths taken when something
+unexpected refuses, and those are the ones that lose data quietly.
+
 **One advertiser refused is that advertiser's problem.** `not_permitted` on
 one is named and the rest of the entity still lands; the whole entity refused
 is reported as the approval rather than the key. Every call is recorded under

@@ -369,7 +369,7 @@ def _creator_folder() -> str:
 
 def _page_images():
     from modules.page_image_optimizer import archive
-    for r in archive.recent(limit=2000):
+    for r in archive.all_rows():
         yield {"id": r.get("public_id", ""), "client": r.get("company", ""),
                "public_id": r.get("public_id", ""),
                "label": r.get("filename") or "image", "url": r.get("url", ""),

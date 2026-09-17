@@ -7,7 +7,7 @@ say "above" or "below" mean earlier or later files in this list.
 
 | File | Topic | Lines |
 |---|---|---|
-| [`03-traps-every-one-of-these-has-cost-a-working-feature.md`](03-traps-every-one-of-these-has-cost-a-working-feature.md) | Traps — every one of these has cost a working feature | 1281 |
+| [`03-traps-every-one-of-these-has-cost-a-working-feature.md`](03-traps-every-one-of-these-has-cost-a-working-feature.md) | Traps — every one of these has cost a working feature | 1337 |
 | [`04-a-fallback-secret-in-the-source-is-a-forgeable-token.md`](04-a-fallback-secret-in-the-source-is-a-forgeable-token.md) | A fallback secret in the source is a forgeable token | 3523 |
 | [`05-data-sources-and-which-are-stale.md`](05-data-sources-and-which-are-stale.md) | Data sources, and which are stale | 1178 |
 | [`06-wiring-four-call-sites-is-not-wiring-the-module.md`](06-wiring-four-call-sites-is-not-wiring-the-module.md) | Wiring four call sites is not wiring the module | 93 |
@@ -61,12 +61,12 @@ say "above" or "below" mean earlier or later files in this list.
 | [`52-microsoft-advertising-one-consent-and-the-reports-module-pul.md`](52-microsoft-advertising-one-consent-and-the-reports-module-pul.md) | Microsoft Advertising: one consent, and the reports module pulls | 115 |
 | [`53-groundtruth-the-key-arrived-before-the-document.md`](53-groundtruth-the-key-arrived-before-the-document.md) | GroundTruth: the key arrived before the document | 61 |
 | [`54-one-industry-taxonomy-resolved-and-written-down.md`](54-one-industry-taxonomy-resolved-and-written-down.md) | One industry taxonomy, resolved and written down | 33 |
-| [`56-verifying-a-change.md`](56-verifying-a-change.md) | Verifying a change | 1001 |
+| [`56-verifying-a-change.md`](56-verifying-a-change.md) | Verifying a change | 1017 |
 | [`57-smartforecast-moved-to-the-hub-database.md`](57-smartforecast-moved-to-the-hub-database.md) | SmartForecast moved to the Hub database, and what the move found | 133 |
 | [`58-the-check-that-reported-no-json-on-the-disk.md`](58-the-check-that-reported-no-json-on-the-disk.md) | The check that reported no JSON on the disk | 181 |
 | [`59-leads-in-a-table-not-a-file-on-one-instance.md`](59-leads-in-a-table-not-a-file-on-one-instance.md) | Leads in a table, not a file on one instance | 136 |
 | [`60-a-clients-email-campaigns-read-from-their-own-sub-account.md`](60-a-clients-email-campaigns-read-from-their-own-sub-account.md) | A client's email campaigns, read from their own sub-account | 65 |
-| [`61-amazon-dsp-five-claims-and-four-of-them-fail-as-a-working.md`](61-amazon-dsp-five-claims-and-four-of-them-fail-as-a-working.md) | Amazon DSP: five claims, and four of them fail as a working configuration | 146 |
+| [`61-amazon-dsp-five-claims-and-four-of-them-fail-as-a-working.md`](61-amazon-dsp-five-claims-and-four-of-them-fail-as-a-working.md) | Amazon DSP: five claims, and four of them fail as a working configuration | 182 |
 | [`62-a-scanned-business-that-is-not-a-client-is-a-lead.md`](62-a-scanned-business-that-is-not-a-client-is-a-lead.md) | A scanned business that is not a client is a lead | 119 |
 | [`63-the-google-tokens-off-their-own-sqlite-file.md`](63-the-google-tokens-off-their-own-sqlite-file.md) | The Google tokens, off their own SQLite file | 120 |
 | [`64-ask-smarthub-reads-the-fact-table.md`](64-ask-smarthub-reads-the-fact-table.md) | Ask SmartHub reads the fact table: named periods, decided flags, recipes | 174 |

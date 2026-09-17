@@ -57,6 +57,13 @@ python3 test_ads_module.py         # Smart 1 Ads: the Ads Editor handoff, the cl
 python3 test_ads_estimate.py       # the estimate a client reads, and what they can answer
 python3 test_ads_keyword_plan.py   # measured CPC, the access tier, the deploy preflight
 python3 test_ads_explainer.py      # the bubbles, the per-screen tour, the walkthroughs
+python3 test_ads_account_reads.py  # how the Ads Builder reads its live accounts:
+                                   #   uncapped and by key. A cap spent on
+                                   #   PROPOSALS is a cap of roughly half as
+                                   #   many accounts, and past it a scheduled
+                                   #   client report went out with a blank
+                                   #   client name. Same defect class as
+                                   #   test_reports_map_reads.py, same guard
 python3 test_help_layer.py         # every bubble placed has help behind it, both
                                    #   ways one is placed, a key built at runtime
                                    #   named rather than guessed at, the
@@ -426,6 +433,15 @@ python3 test_activity_logging.py   # every module's work is attributable: an
                                    #   import is not a call, a module's own
                                    #   log() wrapper is resolved, and the
                                    #   remainder is declared with its reason
+python3 test_hub_capped_reads.py   # readings in hub/ that have to be COMPLETE
+                                   #   and were a window: the image audit swept
+                                   #   a fifth of the archive, "this module
+                                   #   never logged" was decided off the newest
+                                   #   5000 rows, and a person's own inbox
+                                   #   filtered a few hours of everybody's.
+                                   #   Third file of the capped-read family --
+                                   #   see test_reports_map_reads.py and
+                                   #   test_ads_account_reads.py
 python3 test_radio_builders.py     # the two radio builders: the client's own
                                    #   approval page public and chrome-free,
                                    #   nobody's trademark leaving the building,

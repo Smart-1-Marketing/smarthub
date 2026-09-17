@@ -196,11 +196,31 @@ def _file_in_gallery(fields):
         pass
 
 
-def recent(limit=200, company=None):
-    """Read back what this tool has saved (local fallback store only)."""
+def all_rows(company=None):
+    """Everything this tool has saved, newest first (local fallback store).
+
+    The reading for anything that has to be COMPLETE rather than recent -- the
+    Hub's image audit, which exists to find images nothing else knows about.
+    It used to call ``recent(limit=2000)``, and ``recent`` clamps its limit to
+    1000, so the audit asked for 2000, silently got 1000, and swept at most a
+    fifth of the 5000 rows the file keeps. An audit that quietly stops looking
+    reports an orphan as filed, which is the one answer it must not give --
+    and `_attach_page_image` reads the same file uncapped, so an image the
+    audit said was not there attached perfectly well.
+    """
     rows = jsonstore.read_json(FALLBACK_ARCHIVE, default=[])
     if not isinstance(rows, list):
         return []
     if company:
         rows = [r for r in rows if slug(r.get("company")) == slug(company)]
-    return rows[:clamp_int(limit, 200, 1, 1000)]
+    return rows
+
+
+def recent(limit=200, company=None):
+    """The newest ``limit`` rows -- a BOUNDED read for the screen that pages.
+
+    The limit is clamped to 1000 however large a number is passed, so a caller
+    that needs the whole archive cannot get it by asking for more: use
+    ``all_rows()``.
+    """
+    return all_rows(company)[:clamp_int(limit, 200, 1, 1000)]

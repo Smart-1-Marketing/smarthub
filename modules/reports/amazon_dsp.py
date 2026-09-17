@@ -77,6 +77,11 @@ LOOKBACK_DAYS = 14
 # night, which is bounded and cheap; silence is not.
 STUCK_AFTER_HOURS = 26
 CHECK_PAGE = "/reports/amazon-check"
+# What the check page may spend. The nightly job's budget is twenty seconds
+# and its download read timeout two minutes, which is right for a job nobody
+# is watching and wrong for a request holding one of two gunicorn workers.
+CHECK_BUDGET_SECONDS = 8
+CHECK_TIMEOUT = (10, 20)
 NOT_CONNECTED = ("not connected: nobody has consented as the entity admin yet -- "
                  "open /tools/ads/settings and press Connect Amazon Ads")
 
@@ -180,7 +185,14 @@ def to_facts(raw, advertiser: dict) -> dict:
         if not isinstance(r, dict):
             skipped += 1
             continue
-        day = store.parse_date(_day(r.get(f["date"])))
+        try:
+            day = store.parse_date(_day(r.get(f["date"])))
+        except ValueError:
+            # store.parse_date RAISES on a value it cannot read; it does not
+            # answer None. Unguarded, one unreadable day in one line item threw
+            # out of this loop and lost the whole advertiser's report -- the
+            # opposite of the skipped-and-counted rule three lines below.
+            day = None
         order_id = str(r.get(f["order_id"]) or "").strip()
         if day is None or not order_id or not aid:
             skipped += 1
@@ -206,7 +218,7 @@ def to_facts(raw, advertiser: dict) -> dict:
             # A later line item may carry the order name where the first did
             # not; an order with no name at all waits on /reports/unmapped.
             row["campaign_name"] = str(r.get(f["order_name"]) or "").strip()
-        row["spend"] = round(row["spend"] + (_num(r.get(f["spend"])) or 0.0), 2)
+        row["spend"] += _num(r.get(f["spend"])) or 0.0
         row["impressions"] += _int(r.get(f["impressions"]))
         row["clicks"] += _int(r.get(f["clicks"]))
         completes = _num(r.get(f["completes"]))
@@ -223,6 +235,10 @@ def to_facts(raw, advertiser: dict) -> dict:
             row["extras"]["line_items"].append(name)
     rows = [folded[k] for k in order]
     for row in rows:
+        # Rounded once, here, rather than on every line item: rounding each
+        # step compounds, and an order-day with forty line items can drift a
+        # fifth of a dollar away from what Amazon billed.
+        row["spend"] = round(row["spend"], 2)
         if not row["extras"]["line_items"]:
             row["extras"].pop("line_items")
     return {"rows": rows, "skipped": skipped}
@@ -237,7 +253,15 @@ def _state_path() -> str:
     return os.path.join(jsonstore.data_dir("reports"), "amazon_dsp_status.json")
 
 
-def _remember(state: dict) -> None:
+def _remember(state: dict, *, keep_pending: bool = False) -> None:
+    """Write the note. ``keep_pending`` carries the reports the last tick was
+    waiting on straight through, for a run that returned before it ever looked
+    at them -- a night that stopped at "not configured", or at an entity that
+    would not answer. Overwriting those with this run's empty dict is how one
+    throttled night makes the next one pay for every report again."""
+    if keep_pending:
+        held = _remembered().get("pending")
+        state = {**state, "pending": held if isinstance(held, dict) else {}}
     try:
         from hub import jsonstore
         jsonstore.write_json(_state_path(), state, durable=False)
@@ -253,6 +277,17 @@ def _remembered() -> dict:
         return {}
 
 
+def _remember_pending(advertiser_id: str, report_id: str) -> None:
+    """Record a report this process just asked for, without disturbing the
+    rest of the note -- so a report submitted from the check page is one the
+    nightly pull collects rather than an orphan nobody ever reads."""
+    state = _remembered()
+    held = dict(state.get("pending") or {})
+    held[str(advertiser_id)] = {"report_id": str(report_id),
+                                "since": store.iso(store.now())}
+    _remember({**state, "pending": held})
+
+
 def pending_reports() -> dict:
     """``{advertiser_id: report_id}`` the last tick was still waiting on.
 
@@ -262,6 +297,22 @@ def pending_reports() -> dict:
     """
     out = {}
     for adv, held in (_remembered().get("pending") or {}).items():
+        rid = held.get("report_id") if isinstance(held, dict) else held
+        if rid:
+            out[str(adv)] = str(rid)
+    return out
+
+
+def _carried(pending) -> dict:
+    """``{advertiser_id: report_id}`` from either shape.
+
+    ``pull()`` answers ``{adv: {report_id, since}}`` and used to accept only
+    ``{adv: report_id}``, so handing a caller's own previous result straight
+    back formatted a dict into the report-status URL. Both are read here, in
+    the one place either arrives.
+    """
+    out = {}
+    for adv, held in (pending or {}).items():
         rid = held.get("report_id") if isinstance(held, dict) else held
         if rid:
             out[str(adv)] = str(rid)
@@ -327,18 +378,20 @@ def pull(today: date | None = None, pending: dict | None = None, days: int = LOO
     st = amazon_status()
     if not st["configured"]:
         out["error"] = not_configured_line()
-        _remember({**out, "at": store.iso(store.now()), "reached": False})
+        _remember({**out, "at": store.iso(store.now()), "reached": False},
+                  keep_pending=True)
         return out
     if not st["connected"]:
         out["error"] = NOT_CONNECTED
-        _remember({**out, "at": store.iso(store.now()), "reached": False})
+        _remember({**out, "at": store.iso(store.now()), "reached": False},
+                  keep_pending=True)
         return out
     if not CONFIRMED:
         out["notes"].append("the field map is a transcription nobody has confirmed -- "
                             f"reading it as a claim; confirm on {CHECK_PAGE}")
 
     today = today or date.today()
-    carried = pending_reports() if pending is None else dict(pending)
+    carried = pending_reports() if pending is None else _carried(pending)
     since = pending_since()
     stale = {adv: h for adv, h in stuck_reports().items() if adv in carried}
     for adv in stale:
@@ -349,11 +402,13 @@ def pull(today: date | None = None, pending: dict | None = None, days: int = LOO
         since.pop(adv, None)
     out["gave_up"] = stale
     if stale:
+        # Paired, not two sorted lists: sorting the names and the hours
+        # separately printed each advertiser against another's duration the
+        # moment there were two of them.
         out["notes"].append(
-            "asked for a fresh report for " + ", ".join(sorted(stale))
-            + ": the one being carried had been preparing for "
-            + ", ".join(f"{h:g}h" for h in sorted(stale.values()))
-            + f" (past {STUCK_AFTER_HOURS}h) and nothing had landed for it")
+            "asked for a fresh report for "
+            + ", ".join(f"{adv} (preparing {stale[adv]:g}h)" for adv in sorted(stale))
+            + f", each past {STUCK_AFTER_HOURS}h with nothing landed for it")
     pending = carried
     start = today - timedelta(days=max(1, int(days)))
     end = today - timedelta(days=1)          # complete days only
@@ -364,12 +419,14 @@ def pull(today: date | None = None, pending: dict | None = None, days: int = LOO
     except (amz.AmazonAuthError, amz.AmazonApiError) as exc:
         out["error"] = _entity_error(exc)
         store.record_sync(PLATFORM, rows=0, error=out["error"], source="native")
-        _remember({**out, "at": store.iso(store.now()), "reached": True})
+        _remember({**out, "at": store.iso(store.now()), "reached": True},
+                  keep_pending=True)
         return out
     if not adv.get("ok"):
         out["error"] = amz._redact(adv.get("error") or "the entity's profile is not visible")
         store.record_sync(PLATFORM, rows=0, error=out["error"], source="native")
-        _remember({**out, "at": store.iso(store.now()), "reached": True})
+        _remember({**out, "at": store.iso(store.now()), "reached": True},
+                  keep_pending=True)
         return out
 
     profile = adv["profile_id"]
@@ -398,11 +455,14 @@ def pull(today: date | None = None, pending: dict | None = None, days: int = LOO
             out["skipped"] += parsed["skipped"]
         except amz.AmazonApiError as exc:
             out["failures"].append(f"{name} ({exc.kind}): {amz._redact(exc)}")
+            _keep_carried(out, aid, pending, since)
         except amz.AmazonAuthError as exc:
             out["failures"].append(f"{name}: {amz._redact(exc)}")
+            _keep_carried(out, aid, pending, since)
         except Exception as exc:            # noqa: BLE001 - one advertiser, not the pull
             log.exception("reports: Amazon DSP pull failed for %s", aid)
             out["failures"].append(f"{name}: {type(exc).__name__}: {amz._redact(exc)}")
+            _keep_carried(out, aid, pending, since)
 
     try:
         out["rows"] = store.upsert_rows(rows, today=today) if rows else 0
@@ -421,6 +481,24 @@ def pull(today: date | None = None, pending: dict | None = None, days: int = LOO
         store.record_sync(PLATFORM, rows=out["rows"], error=out["error"], source="native")
     _remember({**out, "at": store.iso(store.now()), "reached": True})
     return out
+
+
+def _keep_carried(out: dict, aid: str, pending: dict, since: dict) -> None:
+    """Hold on to the report this advertiser was already waiting on when the
+    tick refused partway through.
+
+    A throttle or a dropped connection in the middle of polling is not a
+    reason to abandon a report Amazon is still preparing. Dropping it here
+    looked harmless and was not: the next tick submits a fresh one, which
+    resets the first-seen stamp, so a report that never finishes resets its
+    own clock every night and ``STUCK_AFTER_HOURS`` never fires for it -- the
+    ceiling silently undone by the error path.
+    """
+    report_id = pending.get(aid)
+    if not report_id:
+        return
+    out["pending"][aid] = {"report_id": report_id,
+                           "since": since.get(aid) or store.iso(store.now())}
 
 
 def _entity_error(exc) -> str:
@@ -546,20 +624,34 @@ def _check(today: date | None = None) -> dict:
         return out
     adv = pre["advertisers"][0]
     try:
-        report_id = pending_reports().get(adv["id"]) or amz.submit_report(
-            adv["id"], start.isoformat(), end.isoformat(), profile_id=pre["entity_profile_id"])
-        state = amz.poll_report(adv["id"], report_id, profile_id=pre["entity_profile_id"])
+        report_id = pending_reports().get(adv["id"])
+        if not report_id:
+            report_id = amz.submit_report(
+                adv["id"], start.isoformat(), end.isoformat(),
+                profile_id=pre["entity_profile_id"])
+            # Written down the moment it exists. This page is a GET a person
+            # refreshes while Amazon is slow, and a reportId that is asked for
+            # and never recorded is a report nobody collects -- one orphaned
+            # per refresh. Recorded, the next refresh polls this same one and
+            # the nightly pull collects it.
+            _remember_pending(adv["id"], report_id)
+        state = amz.poll_report(adv["id"], report_id, profile_id=pre["entity_profile_id"],
+                                budget=CHECK_BUDGET_SECONDS)
         if state["status"] != "SUCCESS":
             out["error"] = (f"the report for {adv.get('name') or adv['id']} is "
                             f"{state['status'].lower()}"
                             + (f": {amz._redact(state.get('error'))}"
                                if state.get("error") else " -- ask again in a moment"))
             return out
-        raw = amz.download_report(state["location"])
+        raw = amz.download_report(state["location"], timeout=CHECK_TIMEOUT)
     except (amz.AmazonAuthError, amz.AmazonApiError) as exc:
         out["error"] = amz._redact(f"{exc}")
         return out
-    out["sample"] = raw[0] if raw else None
+    # Dict-filtered the way check_map() filters: the template calls
+    # .items() on this, and check()'s guard wraps _check() rather than the
+    # render, so a non-dict row here 500s the one page written never to fall
+    # over.
+    out["sample"] = next((r for r in (raw or []) if isinstance(r, dict)), None)
     out["resolves"] = check_map(raw)
     return out
 

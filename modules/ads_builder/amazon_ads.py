@@ -694,15 +694,21 @@ def poll_report(advertiser_id: str, report_id: str, *, profile_id: str,
         sleep(POLL_EVERY)
 
 
-def download_report(location: str, module: str = "reports") -> list:
+def download_report(location: str, module: str = "reports",
+                    timeout: tuple = (10, 120)) -> list:
     """The report body: a pre-signed URL to a gzip'd JSON array.
 
     **No Authorization header goes to that host.** It is S3, and a bearer
     token sent to somebody else's host is a leak -- the one rule in this
     file that is not about reading a refusal correctly.
+
+    ``timeout`` is the nightly job's by default. A page serving a person
+    passes a shorter one: two minutes of read timeout is a reasonable wait
+    for a job nobody is watching and an unreasonable one to hold a gunicorn
+    worker for, and there are two workers.
     """
     try:
-        resp = requests.get(location, timeout=(10, 120))
+        resp = requests.get(location, timeout=timeout)
     except requests.RequestException as exc:
         _record(location, False, "download", module)
         raise AmazonApiError(f"the report download could not be reached: {type(exc).__name__}",
