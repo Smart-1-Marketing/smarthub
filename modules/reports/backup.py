@@ -32,10 +32,11 @@ which is not a second copy. With Cloudinary unset the card says so.
 ## Restore
 
 ``restore()`` reads the manifest and puts the rows back through
-``store.upsert_rows(screen=False)`` -- the rows passed the screen when they
-first landed -- and a keyed merge for the small tables. It adds and
-updates and never deletes, so it is safe to run against a table that still
-has its rows: the result is the same table. A Render deploy that ends a
+``store.upsert_rows`` -- the one door every writer goes through, screen and
+all, so a figure somebody discarded stays out and a spike is held again for
+a person rather than restored past them -- and a keyed merge for the small
+tables. It adds and updates and never deletes, so it is safe to run against
+a table that still has its rows: the result is the same table. A Render deploy that ends a
 run mid-way leaves a partial copy on the disk and the manifest one step
 behind it; the next run rewrites what differs.
 """
@@ -335,7 +336,7 @@ def run(actor: str = "scheduler", offsite: bool = True) -> dict:
 def restore(actor: str = "", facts: bool = True, tables: bool = True) -> dict:
     """Put the copy back: adds and updates, never deletes. ``{"ok",
     "facts", "tables", "files", "errors"}`` with row counts."""
-    out = {"ok": False, "facts": 0, "tables": 0, "files": 0, "errors": {}, "actor": actor}
+    out = {"ok": False, "facts": 0, "tables": 0, "files": 0, "held": 0, "errors": {}, "actor": actor}
     data = manifest()
     if not data["facts"] and not data["tables"]:
         out["errors"]["manifest"] = "There is no backup on this disk yet."
@@ -350,7 +351,9 @@ def restore(actor: str = "", facts: bool = True, tables: bool = True) -> dict:
                 with open(path, "rb") as fh:
                     rows = _unpack(fh.read())
                 for offset in range(0, len(rows), BATCH):
-                    out["facts"] += store.upsert_rows(rows[offset:offset + BATCH], screen=False)
+                    report: dict = {}
+                    out["facts"] += store.upsert_rows(rows[offset:offset + BATCH], report=report)
+                    out["held"] += int(report.get("quarantined") or 0)
                 out["files"] += 1
             except Exception as exc:                    # noqa: BLE001 - one file, not the restore
                 out["errors"][key] = f"{type(exc).__name__}: {exc}"[:200]

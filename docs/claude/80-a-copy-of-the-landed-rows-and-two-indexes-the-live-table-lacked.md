@@ -59,9 +59,11 @@ only when Cloudinary is ready — `put()`'s disk fallback would be a second
 copy on the same disk, which is not a second copy. Unset, the card says
 "No copy off this disk" with the reason.
 
-`restore()` puts the rows back through `store.upsert_rows(screen=False)`
-(they passed the screen when they landed) and a keyed merge for the small
-tables. It adds and updates and never deletes, so running it against a table
+`restore()` puts the rows back through `store.upsert_rows`, the one door
+every writer goes through, screen and all: a figure somebody discarded stays
+out, and a spike is held again for a person rather than restored past them
+(the restore's result counts what was held). The small tables go back by a
+keyed merge. It adds and updates and never deletes, so running it against a table
 that still has its rows gives the same table, and a row somebody added
 since stays. That is why the button on the Reports index is a button and
 not a ceremony.
