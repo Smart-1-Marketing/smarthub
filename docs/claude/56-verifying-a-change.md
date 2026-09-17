@@ -13,6 +13,10 @@ python tools/pagecheck.py          # the page the browser actually receives
 python tools/menucheck.py          # every link the menu emits, and the anchors it aims at
 python tools/integritycheck.py     # known defect patterns
 python tools/spellcheck.py         # American English in everything a person reads
+python3 test_secret_fields.py      # every box a credential is typed into masks
+                                   #   it, and the check that says so still bites:
+                                   #   the words it must match and the ones it
+                                   #   must not, both driven
 python3 tools/claudedocs.py        # the docs/claude index matches the directory:
                                    #   every file indexed, the title its own heading
                                    #   gives, the line count measured rather than

@@ -708,6 +708,141 @@ def check_template_collisions() -> list[dict]:
         })
     return out
 
+#: What reads as a secret in a field's id, name or placeholder.
+#:
+#: Matched against the identifier split into WORDS rather than as a substring
+#: or with `\b`, and both of those were tried first:
+#:
+#:   * a plain substring reports `compass` and `bypass_cache`;
+#:   * `\bpass\b` fixes those and then MISSES `api_token` and `client_secret`,
+#:     because `_` is a word character — there is no boundary inside them —
+#:     and misses `wpPass` too, because camelCase has no boundary either.
+#:
+#: Splitting on non-letters and on a lower-to-upper transition gets both:
+#: `wpPass` -> wp, pass; `api_token` -> api, token; `compass` -> compass.
+#: `pw` is here because a field called `umPwValue` was found only by the word
+#: "password" in its PLACEHOLDER, and the fourth one -- the admin's "Set a
+#: password" box -- says "Leave blank and the Hub generates one" and so was
+#: matched by nothing. Leaning on the wording of a sentence somebody may edit
+#: is not a check. Across every template it newly matched exactly that field,
+#: which was a real finding rather than a false one.
+SECRET_WORDS = frozenset({"password", "passwd", "pass", "pw", "secret",
+                          "token", "apikey", "credential", "credentials"})
+
+_WORD_SPLIT = re.compile(r"[^A-Za-z0-9]+|(?<=[a-z0-9])(?=[A-Z])")
+
+#: Types that are not a text box, so masking does not apply. `password` is here
+#: because it is the fix, and the rest because a checkbox named "save_token" is
+#: not a place anybody types one.
+NON_TEXT_INPUT = frozenset({"password", "checkbox", "hidden", "radio",
+                            "submit", "button", "file", "range", "color"})
+
+_INPUT_TAG = re.compile(r"<input\b[^>]*>", re.I)
+
+
+def _attr(tag: str, name: str) -> str:
+    m = re.search(rf'{name}\s*=\s*"([^"]*)"', tag, re.I)
+    return m.group(1) if m else ""
+
+
+def _looks_secret(ident: str) -> bool:
+    """Whether this id/name/placeholder names a credential.
+
+    `api key` and `api_key` reach the same word here because the split drops
+    the separator and the pair is rejoined -- otherwise the one spelling
+    somebody used would decide whether the field is checked.
+    """
+    words = [w.lower() for w in _WORD_SPLIT.split(ident) if w]
+    if any(w in SECRET_WORDS for w in words):
+        return True
+    return any(a == "api" and b == "key"
+               for a, b in zip(words, words[1:]))
+
+
+def check_unmasked_secret_fields(root=None) -> list[dict]:
+    """A credential typed into a box that shows it.
+
+    Every one of the Hub's own *sign-in* fields was already `type="password"`,
+    and `modules/skills360` even keys masking off a declared `f.secret`. Four
+    were not, and the pattern in what they held is the point:
+
+      * `seo_client.html` `su_pass` — the **client's own website login**;
+      * `seo_client.html` `wpPass` — their WordPress application password;
+      * `users_admin.html` `umAddPw` — the starting password an admin types for
+        somebody else, which had no `type` at all and so defaulted to text;
+      * `users_admin.html` `umPwValue` — the same, on the "Set a password" box.
+
+    The passwords people type for THEMSELVES were protected and the ones they
+    type for other people were on screen. Neither of the last two was found by
+    reading the page; the third came from this check and the fourth from
+    widening its word list, which is the argument for having one.
+
+    Masking is not encryption and this does not pretend otherwise -- the value
+    is sealed at rest by `hub/cms_credentials.py`. What `type="password"` stops
+    is the shoulder, the screen share, the recorded call and the browser
+    offering to remember it as an ordinary field.
+
+    Read from the markup rather than from a rendered page, so a field built by
+    JavaScript inside a template is covered too -- `wpPass` is one, and a check
+    that only saw server-rendered HTML would have missed it.
+    """
+    # `root` is for the tests, and it is the whole reason they can be trusted:
+    # a check whose finding path is never taken has not been shown to fail, and
+    # this repo is fixed. A test that reimplemented the filtering to get at it
+    # would assert against a COPY -- the first draft of test_secret_fields.py
+    # did exactly that, and a mutation that made an untyped input count as safe
+    # left every check green. The same argument as
+    # `jsonstore.unmirrored_json_writers(root)`, and the same signature.
+    import pathlib as _pl
+    base = _pl.Path(root) if root else _pl.Path(ROOT)
+    roots = [base / "hub" / "templates"]
+    roots += sorted((base / "modules").glob("*/templates"))
+    out = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for f in sorted(root.rglob("*.html")):
+            try:
+                text = f.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            rel = f.relative_to(base).as_posix()
+            for tag in _INPUT_TAG.findall(text):
+                ident = " ".join((_attr(tag, "id"), _attr(tag, "name"),
+                                  _attr(tag, "placeholder")))
+                if not _looks_secret(ident):
+                    continue
+                kind = _attr(tag, "type").lower()
+                if kind in NON_TEXT_INPUT:
+                    continue
+                # A type the template computes -- skills360 writes
+                # `${f.secret?'type="password"':''}` -- is not something this
+                # can read, and guessing would report the file that already
+                # got it right. Only a literal non-password type, or none at
+                # all, counts.
+                if "${" in kind or "{{" in kind or "{%" in kind:
+                    continue
+                line = text[:text.index(tag)].count("\n") + 1
+                out.append({
+                    "file": rel, "module": _module_of_template(rel), "line": line,
+                    "detail": f"{rel}:{line} takes a credential in an input "
+                              f"that is {'type=' + kind if kind else 'untyped, so it defaults to text'}"
+                              f", so it is readable on screen — over a "
+                              f"shoulder, in a screen share, and in a recorded "
+                              f"call.",
+                    "fix": 'Give it type="password". That is about the screen '
+                           'rather than about storage: the value is sealed at '
+                           'rest by hub/cms_credentials.py, and masking is '
+                           'what stops it being read off the page.',
+                })
+    return out
+
+
+def _module_of_template(rel: str) -> str:
+    parts = rel.split("/")
+    return parts[1] if parts[0] == "modules" and len(parts) > 1 else "hub"
+
+
 def check_orphan_templates() -> list[dict]:
     """A template nothing renders.
 
@@ -1535,6 +1670,8 @@ CHECKS = [
     # were deleted in the same change, so it starts empty.
     ("orphan_templates", "A template nothing renders", "low",
      check_orphan_templates),
+    ("unmasked_secret_fields", "A credential typed into a box that shows it",
+     "medium", check_unmasked_secret_fields),
     ("unbacked_json", "JSON on the disk with no backup", "medium", check_unbacked_json),
     ("stale_json_exemptions", "Unbacked-JSON exemption names a missing file",
      "medium", check_stale_json_exemptions),
