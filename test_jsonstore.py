@@ -870,7 +870,7 @@ out = {"root": jsonstore.data_root(),
        "sqlite": extensions.database_url().replace("sqlite:///", ""),
        "lock": scheduler._lock_path(),
        "landing_ads": landing_ads.data_dir(),
-       "tokens": gfinder.TOKEN_DB_PATH}
+       "tokens": gfinder._token_db_path()}
 os.environ["HUB_LEADS_FILE"] = "/tmp/named-leads.jsonl"
 import importlib; importlib.reload(leads)
 out["leads_named"] = leads._path()

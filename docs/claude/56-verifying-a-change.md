@@ -67,6 +67,11 @@ python3 test_lead_store.py         # where a lead actually is: the table, the
                                    #   answer, and the one-time import that does
                                    #   not mark itself done unless every lead in
                                    #   the file is in the table
+python3 test_google_token_store.py # the OAuth refresh tokens off their SQLite
+                                   #   file: moved as ciphertext, never through
+                                   #   _fernet(); ids preserved because an alert
+                                   #   points at a report; and the sequences moved
+                                   #   with them, which counting alone misses
 python3 test_check_reconciliation.py # matching and the QBO payment payload, and
                                    #   where the state lives: the QuickBooks
                                    #   tokens, payer aliases, records and audit
@@ -81,6 +86,13 @@ python3 test_scan_run.py           # what a prospect on somebody else's
                                    #   being polled to the ceiling, no
                                    #   promise of an email nothing here
                                    #   can send, and one unlock per run
+python3 test_scan_lead.py          # a scanned business that is not a client
+                                   #   becomes a lead: an unreadable client
+                                   #   list refuses to answer rather than
+                                   #   filing the client book as prospects,
+                                   #   a website that is already a lead is
+                                   #   linked not re-filed, and a row nobody
+                                   #   can contact is refused by name
 python3 test_prospect_queue.py     # who to call, in the order the work has to happen
 python3 test_upsell_report.py      # what the audit says we could sell each client:
                                    #   coverage named, recorded vs observed kept apart

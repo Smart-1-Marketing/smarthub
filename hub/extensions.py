@@ -474,6 +474,24 @@ def create_all_metadata(metadata, url: str | None = None, *,
     return _locked_create_all(engine, lambda: metadata.create_all(engine), retry)
 
 
+def create_all_sql(run, url: str | None = None, *, retry: bool = True) -> str:
+    """The same protection for DDL written as SQL rather than as metadata.
+
+    `create_all_metadata()` covers a declarative ``Base``. A module that keeps
+    its schema as `CREATE TABLE IF NOT EXISTS` statements -- because it was
+    written against `sqlite3` and moved onto the shared engine with its SQL
+    intact -- needs the identical advisory lock and the identical benign-race
+    handling, and had neither: IF NOT EXISTS is not atomic against a second
+    worker running it at the same moment, which on Postgres is a duplicate key
+    on `pg_type_typname_nsp_index` rather than a no-op.
+
+    ``run`` is called with nothing and does the DDL. Returns "" on success or
+    the error text, and never raises, for the reason above it.
+    """
+    engine = engine_for(url)
+    return _locked_create_all(engine, run, retry)
+
+
 class BootProbe:
     """A boot-time database verdict that a transient failure cannot make final.
 

@@ -237,6 +237,14 @@ def check_amazon_dsp() -> Check:
                      f"Connected; the last pull said: {st['last_error'][:200]}", 0,
                      fix="Open /reports/amazon-check: a 403 there is the Amazon Ads API "
                          "application not being approved for this entity, not a wrong key.")
+    if st.get("stuck"):
+        hours = ", ".join(f"{h:g}h" for h in sorted(st["stuck"].values()))
+        return Check("amazon_dsp", "Amazon DSP", "warn",
+                     f"Connected; {len(st['stuck'])} report(s) have been preparing at Amazon "
+                     f"for {hours} and nothing has landed for them.", 0,
+                     fix="The next run asks Amazon for a fresh report rather than carrying that "
+                         "id again. If it keeps happening, /reports/amazon-check says which "
+                         "rung the connection reaches.")
     if not st.get("confirmed"):
         return Check("amazon_dsp", "Amazon DSP", "warn",
                      f"Connected in {st['region']}; the field map is a transcription nobody has "
@@ -763,6 +771,41 @@ def check_lead_store() -> Check:
                      "shared between instances.")
 
 
+def check_google_token_store() -> Check:
+    """Where the Google refresh tokens are, and whether the import landed.
+
+    These were a SQLite file on the Render disk, which is outside the database
+    backup: losing it means every connected account has to reconnect, and
+    nothing on any screen would say why. The one-time import is reported
+    because a verification that failed leaves it unmarked and retrying -- and
+    a migration that is quietly still pending is one nobody chases.
+    """
+    def go():
+        from modules.google_finder import app as gf
+        st = gf.import_status()
+        if st.get("reason") == "verification failed":
+            v = st.get("verification") or {}
+            return ("warn",
+                    "The one-time import of the legacy token file did not "
+                    "verify, so it is unmarked and will run again. "
+                    f"Short: {v.get('short') or 'none'}; sequences behind: "
+                    f"{v.get('sequences_behind') or 'none'}.")
+        if st.get("ran"):
+            counts = st.get("counts") or {}
+            return ("ok", "In the database. Carried "
+                          f"{counts.get('google_accounts', 0)} account(s) "
+                          "across from the legacy file.")
+        reason = st.get("reason") or ""
+        if reason and reason != "no legacy database" and \
+                reason != "already imported":
+            return ("warn", f"In the database. The legacy import reported: {reason}")
+        return ("ok", "In the database.")
+    (state, detail), ms = _timed(go)
+    return Check("google_token_store", "Google · token store", state, detail, ms,
+                 fix="Set DATABASE_URL so the refresh tokens are in the backup "
+                     "and shared between instances.")
+
+
 def check_public_base_url() -> Check:
     if not settings.public_base_url:
         return Check("public_base_url", "Public base URL", "error",
@@ -854,7 +897,8 @@ def check_google_accounts() -> list[Check]:
         return [Check("google_accounts", "Google · connected accounts", "error",
                       f"Could not read the token store ({type(exc).__name__}).",
                       int((time.time() - started) * 1000),
-                      fix="Check TOKEN_DB_PATH is on a writable, persistent disk.")]
+                      fix="The tokens are in the Hub database now; check "
+                          "DATABASE_URL reaches this service.")]
     if early:
         state, detail = early
         return [Check("google_accounts", "Google · connected accounts", state,
@@ -931,6 +975,7 @@ def check_google_accounts() -> list[Check]:
 
 CHECKS = [
     check_database, check_json_backup, check_activity_log, check_lead_store,
+    check_google_token_store,
     check_public_base_url,
     check_openai, check_cloudinary,
     check_brandfetch, check_places, check_youtube, check_microsoft_ads, check_groundtruth, check_amazon_dsp, check_insites,

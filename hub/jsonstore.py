@@ -1418,6 +1418,16 @@ DISK_SQLITE_EXEMPT: dict[str, str] = {
         "moved to the shared engine in #648; this connect exists to empty that "
         "file, so counting it would report the migration as the thing to "
         "migrate",
+    # Added on this check's first real encounter with a module moving, which
+    # is the case the list has to get right or it starts punishing the fix.
+    # `_copy_legacy_into()` is the same shape as smartforecast's above: the
+    # OAuth tokens are on the shared engine now, and what is left at this call
+    # site is the code that empties the file they were in.
+    "modules/google_finder/app.py":
+        "the read side of the one-time import off google_tokens.db. The tokens "
+        "moved to the shared engine in #674; this connect is _copy_legacy_into(), "
+        "which exists to empty that file, so counting it would report the "
+        "migration as the thing to migrate",
 }
 
 

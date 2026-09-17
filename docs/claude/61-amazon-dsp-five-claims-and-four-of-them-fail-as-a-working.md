@@ -57,7 +57,7 @@ carried between ticks in the module's own note, so the scheduler wires this
 up like every other pull. A pending tick stamps no watermark: nothing landed
 and nothing failed, so the last good pull is still the current one and
 `/status` reads a feed whose age is growing rather than a fault stamped every
-six hours. A run that stopped at "not configured" is not a pull either, and
+night. A run that stopped at "not configured" is not a pull either, and
 does not stamp a last-pull time for a feed nobody has ever read.
 
 **The order is the campaign; the line item is not.** The auto-mapper files a
@@ -107,6 +107,23 @@ page and pasted into chats. The module's test asserted that no credential
 reached a recorded call and passed, because the fixture URL had no signature
 on it. `_bare()` drops the query from anything written down, and the fixture
 now carries a real signed shape so the assertion means something.
+
+**A report that never lands is given up on, and said out loud.** The pending
+reportId is carried with the moment it was first seen -- carried, never
+re-stamped, because a report re-stamped every tick is one that is always
+"pending since a moment ago" and can never be called stuck. Past
+`STUCK_AFTER_HOURS` the run stops asking for that id, asks Amazon for a fresh
+report, and names it in the result, on the `/reports/` line, on `/diagnostics`
+and on the check page. Without the ceiling the shape of the failure is the one
+this codebase keeps meeting: every screen healthy, a line that reads *still
+preparing* every night, and nothing ever arriving.
+
+**And the check page cannot 500.** It is the page somebody opens precisely
+when the connection is behaving oddly, so a raise anywhere under it comes back
+as an error printed on the page rather than as a stack trace that takes the
+other panels with it -- the rule `hub/oauth_redirects.py` states for a
+diagnostics panel, applied here. A refusal from the ladder itself is still
+named where it happened, rather than as the page failing.
 
 **One advertiser refused is that advertiser's problem.** `not_permitted` on
 one is named and the rest of the entity still lands; the whole entity refused

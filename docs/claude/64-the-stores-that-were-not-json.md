@@ -22,8 +22,8 @@ Both were found by somebody grepping. Neither was on any list, on any panel, or
 in any audit. The structure panel read "one store left to move" with two whole
 databases sitting beside it.
 
-The first is being moved as its own change. The second is still there, and is
-what the new check reports.
+The first moved to the shared engine in `docs/claude/63`, while this change was
+open. The second is still there, and is what the check reports today.
 
 ## Why it is `sqlite3.connect` and nothing else
 
@@ -57,14 +57,21 @@ have shown the same thing about a file nobody ships; this shows it about real
 source. Swapping the AST walk for the substring turns four checks red, that one
 among them.
 
-## The one exemption
+## The exemptions, and the one that arrived on its own
 
 `modules/smartforecast/store.py` has a `sqlite3.connect`, and it is the *read*
 side of the one-time import off the legacy file. The store moved to the shared
 engine in `docs/claude/57`; that connect exists to empty the old file. Counting
 it would report the migration as the thing to migrate.
 
-It is exempt by name, with the reason checked against the file rather than
+**`modules/google_finder/app.py` became the second while this change was open**,
+which is the case the list has to get right or it starts punishing the fix. The
+tokens moved in `docs/claude/63`; what is left at that call site is
+`_copy_legacy_into()`, the same shape as smartforecast's. It gets its own
+reason rather than a shared one, because "the read side of an import" is a
+claim about a specific function and has to be checkable against that file.
+
+Each is exempt by name, with the reason checked against the file rather than
 assumed — `stale_sqlite_exemptions()` is the other half, for the same reason
 `stale_exemptions()` exists: a path left in the list after its file is deleted
 goes on covering whatever is written there next, and the audit stays green
@@ -85,6 +92,13 @@ punishing the fix. Written as `== []` it would go quiet the moment the scan
 broke, which is the exact shape that let the lead store hide. This way the row
 has to be there while the work is, and gone when it is done, and neither is
 something a person retypes.
+
+**That was tested by events rather than by argument.** `docs/claude/63` merged
+while this change was open, taking google_finder off its file. The panel went
+from "2 modules open their own SQLite files" to "1 module opens its own SQLite
+file", naming `io_builder`, and the 157 checks passed **with no edit to the
+test at all**. A transcribed list would have gone red for the one reason a
+check never should: somebody did the work.
 
 ## Render environment
 
