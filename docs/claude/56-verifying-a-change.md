@@ -759,6 +759,9 @@ python3 test_reports_amazon_dsp.py # the native Amazon DSP pull and the
                                    #   ticks, the pre-signed download fetched
                                    #   with no Authorization header on it, and
                                    #   purchases kept out of conversions
+python3 test_reports_backfill.py  # history: thirty days further back on request or
+                                   #   nightly until nothing is older; the ledger, a
+                                   #   pending Trade Desk file, and the button on the lane
 python3 test_reports_seo.py        # the organic search section for SEO clients
 python3 test_places.py             # a client's Google listing: proposed once,
                                    #   confirmed by a person, read once a night,

@@ -118,7 +118,7 @@ check("the module serves the staff screens, the picker's search and the client's
               "/markup", "/budgets", "/budgets/1", "/provider-check", "/provider-check/x", "/provider-check/confirm",
               "/provider-check/withdraw", "/audiogo-check", "/groundtruth-check", "/amazon-check",
               "/quarantine", "/quarantine/decide",
-              "/reconcile", "/reconcile/run",
+              "/reconcile", "/reconcile/run", "/refresh/x", "/backfill/x", "/backfill/x/nightly",
               "/pacing", "/pacing.csv", "/cost", "/cost.csv",
               "/api/clients", "/health", "/client/x", "/client/x/campaign", "/client/x/link", "/client/x/push",
               "/client/x/summary", "/client/x/summary/draft",

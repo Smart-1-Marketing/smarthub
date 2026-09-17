@@ -38,7 +38,7 @@ from datetime import date as _date, timedelta as _timedelta
 from decimal import Decimal
 from pathlib import Path
 
-from flask import (Flask, Response, jsonify, redirect, render_template,
+from flask import (Flask, Response, abort, jsonify, redirect, render_template,
                    request, url_for)
 
 from hub.webargs import clamp_int
@@ -165,6 +165,8 @@ def index():
         budgets=store.budget_line_count(),
         clients=store.clients_with_campaigns(),
         native=_native_status(),
+        refresh=_refresh_note(),
+        history=_history_rows(),
         rate_card=products.rate_card_products(),
         health=_health_by_platform(),
         provider=_provider_gate(),
@@ -217,6 +219,94 @@ NATIVE_PULLS = (("ttd", "ttd"), ("google", "google_ads_perf"),
                 ("stackadapt", "stackadapt"), ("audiogo", "audiogo"),
                 ("bing", "bing"), ("groundtruth", "groundtruth"),
                 ("amazon_dsp", "amazon_dsp"))
+
+
+def _refresh_note() -> dict:
+    """The last manual refresh, from hub.scheduler's note -- {} when the Hub
+    cannot be imported, and the index renders without the line."""
+    try:
+        from hub import scheduler
+        return scheduler.refresh_note()
+    except Exception:                      # noqa: BLE001
+        return {}
+
+
+@app.route("/refresh/<platform>", methods=["POST"])
+def refresh_native(platform: str):
+    """Pull one platform, or all of them, from its own API now. A POST,
+    because it spends API calls, and a background one: the pull is minutes
+    of platform requests and the click returns at once. The nightly job is
+    what runs, narrowed to the platform asked for, so the button cannot
+    disagree with 3 AM about what a pull is."""
+    from urllib.parse import quote
+    names = ([p for p, _m in NATIVE_PULLS] if platform == "all"
+             else [p for p, _m in NATIVE_PULLS if p == platform])
+    if not names:
+        abort(404)
+    try:
+        from hub import scheduler
+        res = scheduler.refresh_native(names, actor=actor_name())
+    except Exception as exc:                   # noqa: BLE001
+        app.logger.exception("reports: refresh could not start")
+        return redirect(url_for("index") + "?error="
+                        + quote(f"The refresh could not start ({type(exc).__name__})."))
+    _log("reports_refresh", detail=("started " if res["started"] else "refused: ")
+         + (", ".join(res["platforms"]) if res["started"] else res["note"]))
+    key = "saved" if res["started"] else "error"
+    return redirect(url_for("index") + f"?{key}=" + quote(res["note"]))
+
+
+def _history_rows() -> list[dict]:
+    """The History card's rows, or [] -- the index renders without it."""
+    try:
+        from . import backfill
+        return backfill.rows()
+    except Exception:                      # noqa: BLE001
+        app.logger.exception("reports: history rows could not be read")
+        return []
+
+
+@app.route("/backfill/<platform>", methods=["POST"])
+def backfill_pull(platform: str):
+    """Thirty more days of history for one platform, or all of them, now.
+    A POST because it spends API calls; background because a window is a
+    full pull's worth of them. The nightly job runs the same code."""
+    from urllib.parse import quote
+    from . import backfill
+    names = list(backfill.PULLS) if platform == "all" else [platform]
+    if platform != "all" and platform not in backfill.PLATFORMS:
+        abort(404)
+    try:
+        from hub import scheduler
+        res = scheduler.backfill_now(names, actor=actor_name())
+    except Exception as exc:                   # noqa: BLE001
+        app.logger.exception("reports: history pull could not start")
+        return redirect(url_for("index") + "?error="
+                        + quote(f"The history pull could not start ({type(exc).__name__})."))
+    _log("reports_backfill", detail=("started " if res["started"] else "refused: ")
+         + (", ".join(res["platforms"]) if res["started"] else res["note"]))
+    key = "saved" if res["started"] else "error"
+    return redirect(url_for("index") + f"?{key}=" + quote(res["note"]) + "#history")
+
+
+@app.route("/backfill/<platform>/nightly", methods=["POST"])
+def backfill_nightly(platform: str):
+    """Pull another window every night until the platform has nothing
+    older -- on or off, for one platform or all of them."""
+    from urllib.parse import quote
+    from . import backfill
+    on = (request.form.get("on") or "").strip().lower() in ("1", "true", "on", "yes")
+    names = list(backfill.PULLS) if platform == "all" else [platform]
+    if platform != "all" and platform not in backfill.PLATFORMS:
+        abort(404)
+    try:
+        for name in names:
+            backfill.set_nightly(name, on)
+    except ValueError as exc:
+        return redirect(url_for("index") + "?error=" + quote(str(exc)) + "#history")
+    _log("reports_backfill_nightly", detail=f"{'on' if on else 'off'} for {', '.join(names)}")
+    return redirect(url_for("index") + "?saved="
+                    + quote(f"Nightly history {'on' if on else 'off'} for {', '.join(names)}.") + "#history")
 
 
 def _native_status() -> list[dict]:

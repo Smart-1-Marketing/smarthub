@@ -828,6 +828,22 @@ def _write_values(values: list[dict]) -> int:
         db.close()
 
 
+def oldest_dates(source: str | None = None) -> dict[str, date]:
+    """The earliest day on file per platform -- from every source, or from
+    one (``source="native"`` is how far back the platform's own API has
+    been read). {} when the table cannot be read."""
+    db = SessionLocal()
+    try:
+        q = db.query(AdPerfDaily.platform, func.min(AdPerfDaily.date))
+        if source:
+            q = q.filter(AdPerfDaily.source == source)
+        return {r[0]: r[1] for r in q.group_by(AdPerfDaily.platform).all() if r[1]}
+    except Exception:                  # noqa: BLE001 - a missing table is no history
+        return {}
+    finally:
+        db.close()
+
+
 def fact_count() -> int:
     db = SessionLocal()
     try:

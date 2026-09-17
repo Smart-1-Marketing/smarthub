@@ -288,6 +288,129 @@ check("NO row carries the password itself",
       not any(SECRET in str(r) for r in _rows))
 
 
+# ---------------------------------------------------------------------------
+# The background lane: a long job runs on its own thread, the loop keeps going
+# ---------------------------------------------------------------------------
+print("\n-- the background lane")
+import threading as _threading                                    # noqa: E402
+
+check("the three long jobs are on the lane",
+      sched.BACKGROUND_JOBS == frozenset({"google_index", "reports_native", "reports_backfill"}), sched.BACKGROUND_JOBS)
+
+_gate = _threading.Event()
+_ran = []
+
+
+def _slow_job(app, **kw):
+    _ran.append(kw)
+    _gate.wait(10)
+    return {"done": True}
+
+
+_saved_jobs = dict(sched.JOBS)
+sched.JOBS["google_index"] = (60, _slow_job, "test stand-in")
+try:
+    started = sched._start_background("google_index", lambda: sched._run_job(None, "google_index"))  # noqa: SLF001
+    check("a background start returns at once", started is True)
+    check("...and the job is running", sched.running("google_index"))
+    row = next(j for j in sched.status()["jobs"] if j["name"] == "google_index")
+    check("status shows it running, since when", row["running"] and bool(row.get("running_since")), row)
+    check("...and not overdue while it runs", row["overdue"] is None)
+    second = sched._start_background("google_index", lambda: sched._run_job(None, "google_index"))  # noqa: SLF001
+    check("a second start while it runs is refused", second is False)
+    rn = sched.run_now("google_index", None)
+    check("run_now on a running background job does not start another",
+          rn["started"] is False and "Already running" in rn["note"], rn)
+    _gate.set()
+    sched._background["google_index"].join(5)                        # noqa: SLF001
+    check("when it finishes the state is the run's", not sched.running("google_index")
+          and sched._state["google_index"].get("ok") is True and "running_since" not in sched._state["google_index"])  # noqa: SLF001
+    row = next(j for j in sched.status()["jobs"] if j["name"] == "google_index")
+    check("...and status no longer says running", row["running"] is False and "running_since" not in row)
+    # run_now forces the sweep past its overnight gate and returns immediately.
+    _ran.clear()
+    _gate.set()
+    rn = sched.run_now("google_index", None)
+    sched._background["google_index"].join(5)                        # noqa: SLF001
+    check("run_now starts a background job and says so", rn["started"] is True and "background" in rn["note"], rn)
+    check("...forcing the Google sweep past its overnight gate", _ran == [{"force": True}], _ran)
+finally:
+    sched.JOBS.clear(); sched.JOBS.update(_saved_jobs)
+
+# The Google sweep's gate: overnight, once, never at midday after a deploy.
+print("\n-- the Google sweep runs overnight")
+import types as _types                                            # noqa: E402
+import sys as _sys                                                # noqa: E402
+
+_fake = _types.ModuleType("hub.google_index")
+_fake.age = None
+_fake.built = []
+_fake.age_seconds = lambda: _fake.age
+_fake.build = lambda force=True: (_fake.built.append(force) or {"ok": True, "built": True})
+_real_gi = _sys.modules.get("hub.google_index")
+_sys.modules["hub.google_index"] = _fake
+_hub = _sys.modules["hub"]                     # already imported above, as a package
+_real_attr = getattr(_hub, "google_index", None)
+_hub.google_index = _fake
+_real_hour = sched._eastern_hour                                  # noqa: SLF001
+try:
+    sched._eastern_hour = lambda: 14                              # noqa: SLF001
+    _fake.age = None
+    r = sched.job_refresh_google_index(None)
+    check("an index that has never been built is built at once, whatever the hour", r.get("built") and _fake.built == [True], r)
+    _fake.built.clear(); _fake.age = 3 * 3600
+    r = sched.job_refresh_google_index(None)
+    check("a three-hour-old index is left alone", "rebuilt 3.0 hours ago" in r.get("skipped", "") and not _fake.built, r)
+    _fake.age = 20 * 3600
+    r = sched.job_refresh_google_index(None)
+    check("a twenty-hour-old index at 2 PM waits for the window",
+          "overnight (1-6 AM Eastern)" in r.get("skipped", "") and "20.0 hours old" in r["skipped"] and not _fake.built, r)
+    check("...and the skip says the button sweeps now", "Run now" in r["skipped"])
+    sched._eastern_hour = lambda: 3                               # noqa: SLF001
+    r = sched.job_refresh_google_index(None)
+    check("the same index at 3 AM is swept", r.get("built") and _fake.built == [True], r)
+    _fake.built.clear(); _fake.age = 2 * 3600
+    r = sched.job_refresh_google_index(None)
+    check("a deploy at 5 AM after the 3 AM sweep does not sweep again", "rebuilt" in r.get("skipped", "") and not _fake.built, r)
+    sched._eastern_hour = lambda: 14                              # noqa: SLF001
+    r = sched.job_refresh_google_index(None, force=True)
+    check("force (the button) sweeps at 2 PM with a fresh index", r.get("built") and _fake.built == [True], r)
+    every, _fn, desc = sched.JOBS["google_index"]
+    check("the job is checked hourly and its description says overnight", every == 60 and "overnight" in desc, (every, desc))
+finally:
+    sched._eastern_hour = _real_hour                              # noqa: SLF001
+    if _real_gi is not None:
+        _sys.modules["hub.google_index"] = _real_gi
+    else:
+        _sys.modules.pop("hub.google_index", None)
+    if _real_attr is not None:
+        _hub.google_index = _real_attr
+    elif hasattr(_hub, "google_index"):
+        del _hub.google_index
+
+# The Reports refresh: the note on the shared disk, and a refusal while running.
+print("\n-- the Reports refresh note")
+from hub import jsonstore as _js                                  # noqa: E402
+_js.write_json(sched._refresh_note_path(), {}, durable=False)     # noqa: SLF001
+check("no refresh yet reads as not running", sched.refresh_note()["running"] is False)
+_js.write_json(sched._refresh_note_path(),                        # noqa: SLF001
+               {"started_at": sched._now().isoformat(timespec="seconds"), "actor": "Todd",  # noqa: SLF001
+                "platforms": ["ttd"], "finished_at": ""}, durable=False)
+n = sched.refresh_note()
+check("a refresh started just now and not finished is running", n["running"] is True and not n.get("stalled"))
+r = sched.refresh_native(["ttd"], actor="Ann")
+check("...so another is refused, naming who started it", r["started"] is False and "by Todd" in r["note"], r)
+_js.write_json(sched._refresh_note_path(),                        # noqa: SLF001
+               {"started_at": (sched._now() - timedelta(minutes=90)).isoformat(timespec="seconds"),  # noqa: SLF001
+                "actor": "Todd", "platforms": ["ttd"], "finished_at": ""}, durable=False)
+n = sched.refresh_note()
+check("one started 90 minutes ago and never finished is stalled, not running",
+      n["running"] is False and n.get("stalled") is True)
+r = sched.refresh_native(["nope"], actor="Ann")
+check("an unknown platform is refused by name", r["started"] is False and "No such platform" in r["note"], r)
+_js.write_json(sched._refresh_note_path(), {}, durable=False)     # noqa: SLF001
+
+
 print("\n" + "-" * 60)
 print(f"{PASS} passed, {FAIL} failed")
 shutil.rmtree(_TMP, ignore_errors=True)
