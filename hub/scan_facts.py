@@ -139,6 +139,56 @@ COLOUR_ROLES = [
 ]
 
 
+# Where the scan keeps its page captures. Desktop is one field; the mobile
+# capture has lived under two names across scan versions, first hit wins.
+SCREENSHOT_SOURCES = {
+    "desktop": ("website_screenshot.desktop_screenshot_url",),
+    "mobile":  ("website_screenshot.mobile_screenshot_url",
+                "mobile.mobile_screenshot_url"),
+}
+
+
+def _screenshots(report: dict) -> dict:
+    out = {}
+    for kind, paths in SCREENSHOT_SOURCES.items():
+        for path in paths:
+            url = str(_get(report, path) or "").strip()
+            if url.startswith(("http://", "https://")):
+                out[kind] = url
+                break
+    return out
+
+
+def screenshots(domain: str) -> dict:
+    """The desktop and mobile captures from the newest completed scan.
+
+    Client 360 draws these as two thumbnails in the header. Three answers,
+    kept apart the way every reader in this file keeps them: the scan could
+    not be read (`error`), nothing has been scanned or the scan carried no
+    capture (`found: False`, and the page draws nothing rather than a broken
+    image), and one or both captures (`found: True`). Never raises.
+    """
+    if not domain:
+        return {"found": False, "desktop": "", "mobile": ""}
+    try:
+        report, row, err = _latest(domain)
+    except Exception as exc:                              # noqa: BLE001
+        return {"found": False, "desktop": "", "mobile": "",
+                "error": f"{type(exc).__name__}: {exc}"}
+    if err:
+        return {"found": False, "desktop": "", "mobile": "", "error": err}
+    if not row:
+        return {"found": False, "desktop": "", "mobile": ""}
+    shots = _screenshots(report)
+    return {
+        "found": bool(shots),
+        "desktop": shots.get("desktop", ""),
+        "mobile": shots.get("mobile", ""),
+        "scanned_at": _stamp(row),
+        "scan_url": f"/scans/scan/{row.get('public_id')}" if row.get("public_id") else "",
+    }
+
+
 def brand_observed(domain: str) -> dict:
     """The logo and colours seen on the client's own website.
 
@@ -180,6 +230,7 @@ def brand_observed(domain: str) -> dict:
         "colors": colours,
         "screenshot": str(_get(report, "website_screenshot.desktop_screenshot_url")
                           or _get(report, "mobile.mobile_screenshot_url") or ""),
+        "screenshots": _screenshots(report),
         "detected_name": str(_get(report, "meta.detected_name") or ""),
         "domain": row.get("domain_key") or canonical_domain(domain),
         "scanned_at": _stamp(row),

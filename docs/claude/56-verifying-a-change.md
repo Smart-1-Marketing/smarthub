@@ -650,6 +650,9 @@ python3 test_industry.py           # one taxonomy, resolve()'s matching, and
                                    #   with no Knack tier in this pass
 python3 test_industry_consumers.py # every INDUSTRIES/INDUSTRY_PACKS literal is
                                    #   canonical or in LEGACY_MAP
+python3 test_qb_contacts.py        # the QuickBooks billing contact filed under
+                                   #   Accounting: never over a typed value,
+                                   #   Sunday 2pm Eastern, a refusal stops the pass
 python3 test_client_logos.py       # a logo we found reaches the client's gallery,
                                    #   once, labeled with where it came from
 python3 test_ai_proposals.py       # the model proposes, the code decides, a person

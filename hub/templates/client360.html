@@ -86,11 +86,66 @@ button.c360-nba{width:100%;text-align:left;cursor:pointer;font-family:inherit}
 .c360-view > .grid-2:empty::after{content:"Nothing in this section for this client.";
   display:block;padding:14px;color:#64748b;font-size:13px}
 .c360-actions{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
-.c360-actions button{border:1px solid #cfe2f2;background:#eef5fb;color:#1769AA;border-radius:7px;
-  padding:6px 12px;font:600 12px 'Segoe UI',system-ui,sans-serif;cursor:pointer}
-.c360-actions button:hover{background:#e2eef8}
+.c360-actions button,.c360-actions a{border:1px solid #cfe2f2;background:#eef5fb;color:#1769AA;border-radius:7px;
+  padding:6px 12px;font:600 12px 'Segoe UI',system-ui,sans-serif;cursor:pointer;text-decoration:none;
+  display:inline-block;line-height:1.3}
+.c360-actions button:hover,.c360-actions a:hover{background:#e2eef8}
+/* Refresh, offered wherever a source could not be read: the person should
+   not have to work out that a reload is the fix. */
+.c360-refresh{border:1px solid #f0c36d;background:#fff7e6;color:#8a4b00;border-radius:7px;
+  padding:3px 10px;font:600 12px 'Segoe UI',system-ui,sans-serif;cursor:pointer;margin-left:8px}
+.c360-refresh:hover{background:#ffedcc}
+/* The Smart 1 Internal row: who is on this client on the left, what is
+   wrong with the record on the right. */
+.c360-internal{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(240px,1fr);gap:0 18px;
+  background:#f4f7fc;border:1px solid #dbe4f0;border-radius:12px;padding:10px 14px;margin:0 0 12px;font-size:13px}
+.c360-internal .c360-int-h{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  color:#64748b;margin:0 0 6px}
+.c360-internal .c360-int-roles{display:flex;flex-direction:column;gap:6px}
+.c360-internal .c360-int-roles > div{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.c360-internal .c360-int-warn{border-left:1px solid #dbe4f0;padding-left:16px;min-width:0}
+.c360-warn-list{display:flex;flex-direction:column;gap:5px;margin:0;padding:0;list-style:none}
+.c360-warn-list li{display:flex;gap:8px;align-items:flex-start;font-size:12.5px;line-height:1.35}
+.c360-warn-list .wdot{width:8px;height:8px;border-radius:50%;background:#b45309;flex:none;margin-top:5px}
+.c360-warn-list li.bad .wdot{background:#dc2626}
+.c360-warn-list li.info .wdot{background:#2563eb}
+.c360-warn-list button{border:0;background:none;padding:0;font:inherit;color:#1e293b;text-align:left;cursor:pointer}
+.c360-warn-list button:hover{text-decoration:underline}
+.c360-warn-list .wd{color:#64748b;font-size:11.5px;display:block}
+.c360-warn-none{color:#64748b;font-size:12.5px}
+/* The scan's page captures, as two small thumbnails beside the name. Drawn
+   only once the image has loaded, so a capture the scan host no longer
+   serves is nothing rather than a broken frame. */
+.c360-shots{display:flex;gap:8px;align-items:flex-start}
+.c360-shot{display:block;border:1px solid #dbe4f0;border-radius:8px;overflow:hidden;background:#fff;
+  padding:0;cursor:zoom-in;line-height:0;position:relative}
+.c360-shot img{display:block;object-fit:cover;object-position:top}
+.c360-shot.desktop img{width:96px;height:60px}
+.c360-shot.mobile img{width:34px;height:60px}
+.c360-shot:hover{border-color:#1769aa}
+.c360-shot .sl{position:absolute;left:0;right:0;bottom:0;background:rgba(15,23,42,.62);color:#fff;
+  font:600 9px 'Segoe UI',system-ui,sans-serif;line-height:1;padding:3px 4px;text-align:center;letter-spacing:.04em}
+#shotLightbox{display:none;position:fixed;inset:0;background:rgba(15,23,42,.82);z-index:100002;padding:24px;
+  align-items:center;justify-content:center}
+#shotLightbox.on{display:flex}
+#shotLightbox img{max-width:min(96vw,1200px);max-height:88vh;border-radius:10px;background:#fff;
+  box-shadow:0 30px 80px rgba(0,0,0,.5)}
+#shotLightbox .slx{position:absolute;top:14px;right:18px;border:0;background:none;color:#fff;font-size:26px;cursor:pointer}
+#shotLightbox .slc{position:absolute;bottom:14px;left:0;right:0;text-align:center;color:#cbd5e1;font-size:12.5px}
+/* The contact strip's "nothing on file" is a warning, not a footnote. */
+.c360-contact-warn{display:inline-flex;align-items:center;gap:8px;background:#fffbeb;border:1px solid #fde68a;
+  color:#92400e;border-radius:8px;padding:5px 10px;font-weight:600}
+/* The creative table's third column holds two controls; give them room. */
+.c360-cre-acts{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center}
+.c360-cre-acts .gbtn{white-space:nowrap;margin:0}
+.c360-industry-edit{display:none;gap:6px;align-items:center;flex-wrap:wrap}
+.c360-industry-edit.on{display:inline-flex}
+.c360-industry-edit select,.c360-industry-edit input{padding:5px 8px;border:1px solid #cbd5e1;border-radius:7px;font:12.5px inherit}
+.c360-industry-edit button{border:1px solid #cfe2f2;background:#eef5fb;color:#1769AA;border-radius:7px;padding:5px 10px;font:600 12px inherit;cursor:pointer}
 .c360-actions button.s1-acc-group.on{border-color:#b7e0c2;background:#eaf7ee;color:#1c7a3e}
 @media(max-width:900px){
+  .c360-internal{grid-template-columns:1fr}
+  .c360-internal .c360-int-warn{border-left:0;padding-left:0;margin-top:10px;border-top:1px solid #dbe4f0;padding-top:10px}
   .c360-work{grid-template-columns:1fr}
   .c360-rail{position:static;flex-direction:row;flex-wrap:wrap}
   .c360-rail .rl{width:auto}
@@ -137,6 +192,12 @@ button.c360-nba{width:100%;text-align:left;cursor:pointer;font-family:inherit}
     <div class="muted" style="padding:10px 18px;border-top:1px solid var(--line-soft);font-size:12px">Click a tile to open the file. Drive and image files show previews; other file types open at their source.</div>
   </div>
 </div>
+<!-- Scan screenshot lightbox: one image at a time, closes on the scrim, the button or Escape -->
+<div id="shotLightbox" role="dialog" aria-modal="true" aria-label="Website screenshot" onclick="if(event.target===this)closeShot()">
+  <button type="button" class="slx" onclick="closeShot()" aria-label="Close">&times;</button>
+  <img id="shotLightboxImg" alt="Website screenshot">
+  <div class="slc" id="shotLightboxCap"></div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -171,9 +232,20 @@ window.fetch=function(...args){
     },
     error=>generation===c360Generation?Promise.reject(error):stale());
 };
+/* A source that answered with an error gets said once, with the fix beside
+   it: the Refresh button re-runs the record (run()), the same thing a page
+   reload does without losing the section that was open. */
+function c360RefreshButton(){
+  return '<button type="button" class="c360-refresh" onclick="c360Refresh()">&#8635; Refresh</button>';
+}
+function c360Refresh(){
+  const q=$('q'); if(q&&q.value.trim()){ run(); return; }
+  location.reload();
+}
 function showC360RequestFailure(status){
   const host=document.getElementById('c360-request-status');
-  if(host) host.textContent=`Some Client 360 data could not be loaded (HTTP ${status}). Refresh to try again.`;
+  if(host) host.innerHTML='Some Client 360 data could not be loaded (HTTP '+esc(String(status))+'). '
+    +'Some cards may be empty or out of date.'+c360RefreshButton();
 }
 function fetchJson(...args){
   return fetch(...args).then(async response=>{
@@ -189,17 +261,56 @@ function loadHealth(name){
   const box=$('c360Health'); if(!box) return;
   const gen=c360Generation;
   box.hidden=true;
+  window.__c360queue=null;
   fetchJson('/api/client/health?name='+encodeURIComponent(name),{credentials:'same-origin'})
-    .then(h=>{ if(gen!==c360Generation) return; box.innerHTML=renderC360Health(h); box.hidden=false; })
+    .then(h=>{ if(gen!==c360Generation) return; box.innerHTML=renderC360Health(h); box.hidden=false;
+      window.__c360queue=(h&&h.queue)||[]; renderC360Warnings(); })
     .catch(err=>{ if(gen!==c360Generation) return;
       box.innerHTML=renderC360Health({error:'The health summary could not be read ('+esc(err.message||'')+').'});
-      box.hidden=false; });
+      box.hidden=false; window.__c360queue={error:err.message||'unread'}; renderC360Warnings(); });
+}
+/* ---- c360 warnings (lifted and driven in node by test_client360_layout.py) ---- */
+/* The Client Warnings column of the Smart 1 Internal row. Reads what
+   loadHealth() already fetched -- record_health.client360()'s `queue`, the
+   list the next-action line is picked from -- plus the record's own local
+   findings (a client with no contact on file). Nothing here is a fourth idea
+   of what "bad" means; it is the same list, drawn where somebody reading
+   who is on the client will see it. */
+function renderC360WarningsHtml(queue, local){
+  const items=[];
+  (local||[]).forEach(function(w){ items.push(w); });
+  if(queue&&!Array.isArray(queue)&&queue.error){
+    return '<ul class="c360-warn-list"><li class="warn"><span class="wdot"></span><span>Warnings could not be read'
+      +' <span class="wd">'+esc(queue.error)+'</span></span></li></ul>'+c360RefreshButton();
+  }
+  (Array.isArray(queue)?queue:[]).forEach(function(q){ items.push(q); });
+  if(queue===null||queue===undefined){
+    if(!items.length) return '<div class="c360-warn-none">Checking…</div>';
+  }
+  if(!items.length) return '<div class="c360-warn-none">Nothing flagged on this record.</div>';
+  const order={bad:0,warn:1,info:2};
+  items.sort(function(a,b){ return (order[a.level]??3)-(order[b.level]??3); });
+  return '<ul class="c360-warn-list">'+items.map(function(q){
+    const lvl=(q.level==='bad'||q.level==='info')?q.level:'warn';
+    const body='<b>'+esc(q.title||'')+'</b>'+(q.detail?'<span class="wd">'+esc(q.detail)+'</span>':'');
+    const inner=q.href
+      ? '<a href="'+esc(q.href)+'">'+body+'</a>'
+      : '<button type="button" data-go="'+esc(q.section||q.go||'overview')+'">'+body+'</button>';
+    return '<li class="'+lvl+'"><span class="wdot"></span><span>'+inner+'</span></li>';
+  }).join('')+'</ul>';
+}
+/* ---- end c360 warnings ---- */
+function renderC360Warnings(){
+  const el=document.getElementById('c360Warnings'); if(!el) return;
+  el.innerHTML=renderC360WarningsHtml(window.__c360queue, window.__c360localWarnings||[]);
 }
 document.addEventListener('click',function(e){
   const go=e.target.closest&&e.target.closest('.c360-hp[data-go]');
   if(go) showC360Section(go.dataset.go);
   const nba=e.target.closest&&e.target.closest('.c360-nba[data-go]');
   if(nba) showC360Section(nba.dataset.go);
+  const warn=e.target.closest&&e.target.closest('.c360-warn-list button[data-go]');
+  if(warn) showC360Section(warn.dataset.go);
 });
 /* Fetched apart from the record for the same reason loadHealth() is: a slow
    or refusing source costs this line and never the page. */
@@ -258,12 +369,14 @@ const gbtns=list=>'<div class="gbtns">'+list.map(([t,h])=>`<a class="gbtn" href=
 /* ---- c360 sections (lifted and driven in node by test_client360_layout.py) ---- */
 const C360_SECTIONS=[
   {key:'overview', label:'Overview',          match:['products','orders we have sent','coming up','ad performance','landing pages','google listing','youtube channel','email campaigns','smart 1 suite','pipeline & leads','proposals','client notes','target audience']},
+  // Directly under Overview by request: the work on a client is the second
+  // thing anybody opens the record for.
+  {key:'work',     label:'Work & requests',   match:['work for this','web tickets','execution plan']},
   {key:'billing',  label:'Billing',           match:['invoices']},
   {key:'website',  label:'Website & audits',  match:['website record','site health','what they are already spending','what we know about this business']},
   {key:'google',   label:'Google & traffic',  match:['ga4','gtm container','traffic summary']},
   {key:'creative', label:'Creative & brand',  match:['creative infor','client images','brand']},
   {key:'social',   label:'Social & links',    match:['social media','social content','social suggestions','youtube','tracked links','form submissions','approvals & proof links']},
-  {key:'work',     label:'Work & requests',   match:['work for this','web tickets','execution plan']},
   // Skill-gated cards (modules/skills360). Drawn only for a client whose
   // skill is on; an empty section is the CSS fallback's nothing here.
   {key:'skills',   label:'Skills',            match:['ecommerce','email creator']},
@@ -415,9 +528,16 @@ function render(g,q){
   let head=`
   <div class="c360-head" style="display:flex;align-items:center;gap:14px;margin-bottom:16px;flex-wrap:wrap">
     <div class="avatar" style="width:52px;height:52px;border-radius:12px;font-size:20px">${esc(name[0]||'?').toUpperCase()}</div>
-    <div><h3 style="font-size:19px;color:var(--navy)">${esc(name)}</h3>
-    <div class="muted" style="font-size:13px">${g.products[0]?('Salesperson: '+esc(g.products[0].sales||'—')+' · Partner: '+esc(g.products[0].partner||'—')):''}</div></div>
+    <div><h3 style="font-size:19px;color:var(--navy)">${esc(name)}</h3></div>
+    <div class="c360-shots" id="c360Shots" hidden></div>
     <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">`;
+  /* Salesperson and Partner used to sit under the name AND in the roles row
+     below it. They belong with Assigned, Client Success and Followers -- the
+     Smart 1 Internal row draws them; the salesperson is carried across from
+     the products payload because the roles route does not read Knack's
+     product rows. */
+  window.__c360sales=(g.products||[]).map(p=>String(p.sales||'').trim()).filter(Boolean)[0]||'';
+  window.__c360localWarnings=[];
   head+=`<span id="qbSinceBadge"></span>`;
   if(g.smart1_site) head+=`<span class="pill info" style="font-size:12.5px;padding:5px 12px">&#11041; Smart 1 Site</span>`;
   if(g.billing_monthly) head+=`<span class="pill ok" style="font-size:12.5px;padding:5px 12px">Active billing: ${money(g.billing_monthly)}/mo</span>`;
@@ -617,7 +737,7 @@ function render(g,q){
        reads exactly as it always did. */
     cre.slice(0,12).forEach((c,i)=>{
       const lib=c.library_url?`<a class="gbtn" href="${esc(c.library_gallery||c.library_url)}" title="Copied into this client's library — ${esc(String(c.library_count||1))} file(s)">&#128218; Library (${esc(String(c.library_count||1))}) →</a> `:'';
-      html+=`<tr><td>${esc(c.product||'—')}${memberTag(c.member)}${c.campaign?'<div class="muted" style="font-size:12px">'+esc(c.campaign)+'</div>':''}</td><td class="muted">${esc(c.io||'')}</td><td>${lib}<a class="gbtn" href="#" onclick="openGallery(${i});return false">${KIND_ICON[c.kind]||'&#128206; File'} ${c.library_url?'Drive original':'view'} →</a></td></tr>`;
+      html+=`<tr><td>${esc(c.product||'—')}${memberTag(c.member)}${c.campaign?'<div class="muted" style="font-size:12px">'+esc(c.campaign)+'</div>':''}</td><td class="muted">${esc(c.io||'')}</td><td><div class="c360-cre-acts">${lib}<a class="gbtn" href="#" onclick="openGallery(${i});return false">${KIND_ICON[c.kind]||'&#128206; File'} ${c.library_url?'Drive original':'view'} →</a></div></td></tr>`;
     });
     html+='</tbody></table>';
     if(cre.length>12)html+=`<div class="empty">+${cre.length-12} more creative files in the Clients module</div>`;
@@ -2086,6 +2206,15 @@ function render(g,q){
       +'title="Read from their website. Press “Save these details” to keep it.">'+html+'</span>';
     const prim=(p.contacts||[]).find(c=>c.primary)||(p.contacts||[])[0]||{};
     const others=(p.contacts||[]).filter(c=>c!==prim);
+    if(p.contact_roles) window.__c360contactRoles=p.contact_roles;
+    const roleLabel=k=>{ const r=(window.__c360contactRoles||[]).find(x=>x.key===k); return r?r.label:(k||''); };
+    /* A record with nobody to call is a warning, not a footnote: named
+       here beside the Edit button and in the Client Warnings column. */
+    const hasContact=(p.contacts||[]).some(c=>(c.name||'').trim()||(c.email||'').trim());
+    window.__c360localWarnings=(window.__c360localWarnings||[]).filter(w=>w.kind!=='contact');
+    if(!hasContact) window.__c360localWarnings.push({kind:'contact',level:'warn',section:'overview',
+      title:'No contact on file',detail:'Add a name and email under Client Info.'});
+    if(typeof renderC360Warnings==='function') renderC360Warnings();
     const bits=[];
     if(prim.name)bits.push('<b>'+esc(prim.name)+'</b>');
     else if(sug.name){bits.push(offer('<b>'+esc(sug.name)+'</b>'));offered.push('name');}
@@ -2095,17 +2224,47 @@ function render(g,q){
     else if(sug.email){bits.push(offer('<a href="mailto:'+esc(sug.email)+'">'+esc(sug.email)+'</a>'));offered.push('email');}
     if(p.address)bits.push('&#128205; '+esc(p.address));
     else if(sug.address){bits.push('&#128205; '+offer(esc(sug.address)));offered.push('address');}
-    if(p.category)bits.push('<span class="pill neutral">'+esc(p.category)+'</span>');
+    /* The category is the same string as the header pill (hub.industry
+       .display_label), and clicking it opens the same editor. */
+    if(p.category)bits.push('<a class="pill neutral" href="#" onclick="c360EditIndustry();return false" title="Change the business category">'+esc(p.category)+'</a>');
     else if(sug.category){bits.push(offer('<span class="pill neutral">'+esc(sug.category)+'</span>'));offered.push('category');}
-    others.forEach(c=>{bits.push('<span class="muted">+ '+esc(c.name||c.email||c.phone)+'</span>');});
+    others.forEach(c=>{
+      const who=esc(c.name||c.email||c.phone);
+      const tag=c.role?' <span class="muted" style="font-size:11px">('+esc(roleLabel(c.role))+')</span>':'';
+      bits.push('<span class="muted" title="'+esc([c.email,c.phone].filter(Boolean).join(' · '))+'">+ '+who+tag+'</span>');
+    });
+    const qbBtn='<a class="gbtn" id="profQb" style="cursor:pointer" title="Files the billing contact on the attached QuickBooks customer under Accounting. The same pass runs every Sunday at 2pm Eastern.">&#8681; QuickBooks contact</a>';
     const keep=offered.length
       ? '<a class="gbtn" id="profKeep" style="cursor:pointer" title="Writes '
         +esc(offered.join(', '))+' onto this client record">Save these details</a>' : '';
+    const warn=hasContact?'':'<span class="c360-contact-warn">&#9888; No contact on file — add a name and email'
+      +' <a class="gbtn" id="profAddFirst" style="cursor:pointer">Add contact</a></span>';
     $('c-profile').innerHTML=`<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 16px;font-size:13px">
-      ${bits.length?bits.join('<span class="muted" style="margin:0 2px">·</span>'):'<span class="muted">No contact info on file yet.</span>'}
-      <span style="margin-left:auto;display:flex;gap:8px;align-items:center">${keep}
+      ${warn}${warn&&bits.length?'<span class="muted" style="margin:0 2px">·</span>':''}${bits.join('<span class="muted" style="margin:0 2px">·</span>')}
+      <span style="margin-left:auto;display:flex;gap:8px;align-items:center">${keep}${qbBtn}
       <a class="gbtn" id="profEdit" style="cursor:pointer">&#9998; Edit info</a></span></div>`;
     document.getElementById('profEdit').onclick=openProfileModal;
+    const addFirst=document.getElementById('profAddFirst');
+    if(addFirst) addFirst.onclick=openProfileModal;
+    const qbGo=document.getElementById('profQb');
+    if(qbGo) qbGo.onclick=()=>{
+      qbGo.textContent='Reading QuickBooks…';
+      fetch('/api/client/profile/qb-sync',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({client:name})})
+        .then(r=>r.json()).then(d=>{
+          const r=d.result||{};
+          if(d.profile) renderProfile(d.profile);
+          const msg=d.error?d.error
+            :!r.customers?'No QuickBooks customer is attached to this client yet — use Search & attach customer on the Invoices card.'
+            :r.errors&&r.errors.length&&!r.ok?r.errors.join(' '):
+            (r.added?r.added+' contact'+(r.added>1?'s':'')+' filed under Accounting. ':'')
+            +(r.updated?r.updated+' updated. ':'')
+            +(r.skipped?r.skipped+' skipped (no name, email or phone in QuickBooks). ':'')
+            +(!r.added&&!r.updated&&!r.skipped?'Already on file — nothing to add.':'')
+            +(r.errors&&r.errors.length?' '+r.errors.join(' '):'');
+          alert(msg);
+        }).catch(()=>{ qbGo.textContent='\u2B07 QuickBooks contact'; alert('QuickBooks could not be read.'); });
+    };
     const keepBtn=document.getElementById('profKeep');
     if(keepBtn)keepBtn.onclick=()=>{
       keepBtn.textContent='Saving…';
@@ -2144,16 +2303,22 @@ function render(g,q){
     const p=clientProfile||{contacts:[]};
     const contacts=(p.contacts||[]).slice();
     if(!contacts.length && (sug.name||sug.phone||sug.email))
-      contacts.push({name:sug.name||'',email:sug.email||'',phone:sug.phone||'',primary:true});
+      contacts.push({name:sug.name||'',email:sug.email||'',phone:sug.phone||'',primary:true,role:''});
     return {client:name, contacts:contacts,
             address:(p.address||sug.address||''),
             category:(p.category||sug.category||'')};
   }
 
-  fetch('/api/client/profile?name='+encodeURIComponent(name)
+  function loadProfile(){
+    return fetch('/api/client/profile?name='+encodeURIComponent(name)
         +'&domain='+encodeURIComponent(window.__c360domain||'')).then(r=>r.json())
     .then(d=>renderProfile(d.profile||{}))
     .catch(()=>{$('c-profile').innerHTML='';$('c-notes').innerHTML='<div class="empty">Notes unavailable.</div>';});
+  }
+  /* The header's category editor saves through hub.industry, which writes
+     the profile's category too; this is how the strip learns of it. */
+  window.__c360reloadProfile=loadProfile;
+  loadProfile();
 
   function openProfileModal(){
     // Opened on the merged view: a modal that shows blanks beside a strip
@@ -2165,12 +2330,26 @@ function render(g,q){
     m=document.createElement('div');
     m.id='profModal';
     m.style.cssText='position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px';
-    const contacts=(p.contacts&&p.contacts.length?p.contacts:[{name:'',email:'',phone:'',primary:true}]);
-    const contactRow=(c,i)=>`<div class="prof-contact" style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;margin-bottom:8px">
+    const contacts=(p.contacts&&p.contacts.length?p.contacts:[{name:'',email:'',phone:'',primary:true,role:''}]);
+    /* One primary, chosen from the dropdown ("Make primary") or already
+       there; every other contact carries a role from hub.seo.CONTACT_ROLES.
+       The primary's dropdown reads "Primary" and is disabled -- the primary
+       is the primary, and its role is that. */
+    const ROLES=(window.__c360contactRoles||[]);
+    const roleSel=(c)=>{
+      const cur=c.role||'';
+      return '<select class="pc-role" title="Contact level">'
+        +'<option value="__primary"'+(c.primary?' selected':'')+'>'+(c.primary?'Primary':'Make primary')+'</option>'
+        +ROLES.map(r=>'<option value="'+esc(r.key)+'"'+(!c.primary&&cur===r.key?' selected':'')+'>'+esc(r.label)+'</option>').join('')
+        +(!c.primary&&!cur?'<option value="" selected>— level —</option>':'')
+        +'</select>';
+    };
+    const contactRow=(c,i)=>`<div class="prof-contact" data-role="${esc(c.role||'')}" data-source="${esc(c.source||'')}" data-source-id="${esc(c.source_id||'')}" style="display:grid;grid-template-columns:1.2fr 1.4fr 1fr auto auto;gap:8px;margin-bottom:8px;align-items:center">
       <input class="pc-name" placeholder="Name" value="${esc(c.name||'')}">
       <input class="pc-email" placeholder="Email" value="${esc(c.email||'')}">
       <input class="pc-phone" placeholder="Phone" value="${esc(c.phone||'')}">
-      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:#64748b"><input type="radio" name="pcPrimary" ${c.primary?'checked':''}> primary</label></div>`;
+      ${roleSel(c)}<input type="radio" name="pcPrimary" ${c.primary?'checked':''} hidden>
+      <button type="button" class="pc-del" title="Remove contact" style="border:0;background:none;color:#94a3b8;font-size:18px;cursor:pointer;padding:0 2px">&times;</button></div>`;
     m.innerHTML=`<div style="background:#fff;border-radius:14px;width:640px;max-width:100%;max-height:90vh;display:flex;flex-direction:column">
       <div style="display:flex;justify-content:space-between;align-items:center;padding:13px 18px;border-bottom:1px solid var(--line)">
         <b style="color:var(--navy)">Client Info — ${esc(name)}</b>
@@ -2183,7 +2362,8 @@ function render(g,q){
           <div><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#64748b;margin-bottom:6px">Address</div>
             <input id="profAddr" style="width:100%;box-sizing:border-box" value="${esc(p.address||'')}" placeholder="Street, city, state, zip"></div>
           <div><div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#64748b;margin-bottom:6px">Category</div>
-            <input id="profCat" style="width:100%;box-sizing:border-box" value="${esc(p.category||'')}" placeholder="HVAC, winery, retail…"></div>
+            <input id="profCat" list="c360IndList" style="width:100%;box-sizing:border-box" value="${esc(p.category||'')}" placeholder="Pick one, or type your own" title="The same category as the header pill. Pick a listed industry or type your own wording.">
+            <datalist id="c360IndList">${(window.__c360industryOptions||[]).map(o=>'<option value="'+esc(o.label)+'">').join('')}</datalist></div>
         </div>
       </div>
       <div style="display:flex;justify-content:flex-end;gap:10px;align-items:center;padding:12px 18px;border-top:1px solid var(--line)">
@@ -2193,20 +2373,51 @@ function render(g,q){
     document.body.appendChild(m);
     m.onclick=e=>{if(e.target===m)m.remove();};
     document.getElementById('profClose').onclick=()=>m.remove();
+    const styleRow=row=>{
+      row.querySelectorAll('input:not([type=radio])').forEach(i=>{i.style.cssText+='padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:13px inherit';});
+      row.querySelectorAll('select').forEach(i=>{i.style.cssText+='padding:8px 8px;border:1px solid var(--line);border-radius:8px;font:13px inherit';});
+    };
+    const wireRow=row=>{
+      styleRow(row);
+      const sel=row.querySelector('.pc-role'), radio=row.querySelector('input[type=radio]');
+      sel.onchange=()=>{
+        if(sel.value==='__primary'){
+          document.querySelectorAll('#profModal .prof-contact').forEach(r=>{
+            const rs=r.querySelector('.pc-role'), rr=r.querySelector('input[type=radio]');
+            if(r===row) return;
+            rr.checked=false;
+            if(rs.value==='__primary'){ rs.value=r.dataset.role||''; }
+            rs.querySelector('option[value="__primary"]').textContent='Make primary';
+          });
+          radio.checked=true;
+          sel.querySelector('option[value="__primary"]').textContent='Primary';
+        }else{
+          radio.checked=false;
+          row.dataset.role=sel.value;
+          sel.querySelector('option[value="__primary"]').textContent='Make primary';
+        }
+      };
+      row.querySelector('.pc-del').onclick=()=>{ row.remove(); };
+    };
+    m.querySelectorAll('#profModal .prof-contact, .prof-contact').forEach(wireRow);
     document.getElementById('profAddContact').onclick=()=>{
       const div=document.createElement('div');
-      div.innerHTML=contactRow({name:'',email:'',phone:'',primary:false},99);
+      div.innerHTML=contactRow({name:'',email:'',phone:'',primary:false,role:''},99);
       const row=div.firstChild;
-      row.querySelectorAll('input').forEach(i=>{i.style.cssText+='padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:13px inherit';});
       document.getElementById('profContacts').appendChild(row);
+      wireRow(row);
     };
     document.getElementById('profSave').onclick=()=>{
       const contacts=[];
       document.querySelectorAll('#profModal .prof-contact').forEach(row=>{
+        const sel=row.querySelector('.pc-role');
+        const primary=row.querySelector('input[type=radio]').checked||sel.value==='__primary';
         contacts.push({name:row.querySelector('.pc-name').value.trim(),
           email:row.querySelector('.pc-email').value.trim(),
           phone:row.querySelector('.pc-phone').value.trim(),
-          primary:row.querySelector('input[type=radio]').checked});
+          primary:primary,
+          role:primary?(row.dataset.role||''):(sel.value==='__primary'?'':sel.value),
+          source:row.dataset.source||'', source_id:row.dataset.sourceId||''});
       });
       fetch('/api/client/profile',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({client:name,contacts:contacts,
@@ -3784,14 +3995,18 @@ function renderRoles(d){
   var opts='<option value="">— nobody —</option>'+(d.users||[]).map(function(u){
       return '<option value="'+esc(u.email)+'"'+(u.email===a.email?' selected':'')
         +'>'+esc(u.name)+'</option>'; }).join('');
+  /* An assigned client shows who, and nothing else: the "since <date> by
+     <user>" and "managed from Client Assignments" text that used to follow
+     it was noise on every record and is gone. */
   var assignmentControls=a.email
-    ? '<span class="muted" style="font-size:12px">managed from Client Assignments</span>'
+    ? ''
     : '<select id="c-owner-pick" style="padding:4px 7px;'
       +'border:1px solid #cbd5e1;border-radius:7px;font-size:12.5px">'+opts+'</select>'
       +'<a class="gbtn" id="c-owner-save" style="cursor:pointer">Assign</a>'
       +(a.rule&&a.source!=='rule'
         ? '<a class="gbtn" id="c-owner-follow" style="cursor:pointer">Follow the '
           +'partner rule</a>' : '');
+  var sales=String((typeof window!=='undefined'&&window.__c360sales)||d.salesperson||'').trim();
 
   var cs=d.client_success||{};
   var csLine=cs.raw
@@ -3807,22 +4022,24 @@ function renderRoles(d){
   var followOpts='<option value="">— add a follower —</option>'+(d.users||[]).map(function(u){
       return '<option value="'+esc(u.email)+'">'+esc(u.name)+'</option>'; }).join('');
 
-  el.innerHTML='<div style="display:flex;flex-direction:column;gap:6px;'
-    +'background:#f4f7fc;border:1px solid #dbe4f0;border-radius:12px;padding:10px 14px;'
-    +'margin:0 0 12px;font-size:13px">'
-    +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+  el.innerHTML='<div class="c360-internal">'
+    +'<div>'
+    +'<div class="c360-int-h">Smart 1 Internal</div>'
+    +'<div class="c360-int-roles">'
+    +'<div>'
     +'<span>&#127760; Partner — '+(d.partner?esc(d.partner):'<span class="muted">none on file</span>')+'</span>'
     +'</div>'
-    +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    +'<div>'
+    +'<span>&#128188; Salesperson — '+(sales?esc(sales):'<span class="muted">none on file</span>')+'</span>'
+    +'</div>'
+    +'<div>'
     +'<span>&#128100; Assigned — '+who+'</span>'
-    +(a.at?'<span class="muted">since '+esc(String(a.at).slice(0,10))
-        +(a.by?' · '+esc(a.by):'')+'</span>':'')
     +assignmentControls
     +'</div>'
-    +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    +'<div>'
     +'<span>&#127942; Client Success — '+csLine+'</span>'
     +'</div>'
-    +'<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    +'<div>'
     +'<span>&#128065; Followers — </span>'
     +(followChips||'<span class="muted">none yet</span>')
     +'<select id="c-follow-pick" style="padding:4px 7px;border:1px solid #cbd5e1;'
@@ -3833,7 +4050,13 @@ function renderRoles(d){
         +esc(d.partner_error)+'</div>':'')
     +(d.user_error?'<div style="font-size:12px;color:#7a5b00">'
         +esc(d.user_error)+'</div>':'')
+    +'</div></div>'
+    +'<div class="c360-int-warn">'
+    +'<div class="c360-int-h">Client Warnings</div>'
+    +'<div id="c360Warnings"><div class="c360-warn-none">Checking\u2026</div></div>'
+    +'</div>'
     +'</div>';
+  if(typeof renderC360Warnings==='function') renderC360Warnings();
 
   var follow=document.getElementById('c-owner-follow');
   if(follow) follow.onclick=function(){
@@ -4491,47 +4714,118 @@ function loadIndustry(name){
     .then(function(r){return r.json();}).then(function(d){renderIndustryPill(name, d);})
     .catch(function(){ el.innerHTML=''; });
 }
+function c360EditIndustry(){
+  var el=document.getElementById('c360IndustryPill'); if(!el) return;
+  var pill=el.querySelector('.pill'), ed=el.querySelector('.c360-industry-edit');
+  if(!pill||!ed) return;
+  pill.style.display='none'; ed.classList.add('on');
+  var inp=ed.querySelector('input'); if(inp&&inp.style.display!=='none') inp.focus();
+  el.scrollIntoView({block:'nearest'});
+}
 function renderIndustryPill(name, d){
   var el=document.getElementById('c360IndustryPill');
   if(!el) return;
   var ind=(d&&d.industry)||{};
   var options=(d&&d.options)||[];
+  window.__c360industryOptions=options;
   var label=ind.label||'General Business';
+  var custom=String(ind.custom_label||'');
   var srcWords={manual:'set by hand', scan_primary:'their website', scan_sectors:'their website',
                 gbp:'their Google listing', name:'their name', general:''};
   var src=srcWords[ind.source||'']||'';
   var when=(ind.resolved_at||'').slice(0,10);
   var title=(src?('Source: '+src+'. '):'')+(when?('Resolved '+when+'. '):'')
     +(ind.evidence?('Evidence: '+ind.evidence):'');
+  /* A dropdown of the taxonomy, plus "add your own": a business the table
+     has no row for (a winery) keeps its own wording, and the wording is
+     resolved onto the nearest key underneath so the Image Picker and every
+     other module keyed on the taxonomy still follow the change. */
   var optHtml=options.map(function(o){
-    return '<option value="'+esc(o.key)+'"'+(o.key===ind.key?' selected':'')+'>'+esc(o.label)+'</option>';
-  }).join('');
-  el.innerHTML='<span class="pill neutral" title="'+esc(title)+'" '
-    +'style="font-size:12.5px;padding:5px 12px;cursor:pointer" '
-    +'onclick="this.style.display=\'none\';this.nextElementSibling.style.display=\'inline-flex\'">'
+    return '<option value="'+esc(o.key)+'"'+(o.key===ind.key&&!custom?' selected':'')+'>'+esc(o.label)+'</option>';
+  }).join('')+'<option value="__custom"'+(custom?' selected':'')+'>Other — type your own…</option>';
+  el.innerHTML='<span class="pill neutral" title="'+esc(title)+' Click to change." '
+    +'style="font-size:12.5px;padding:5px 12px;cursor:pointer" onclick="c360EditIndustry()">'
     +esc(label)+(src?(' <span class="muted" style="font-size:11px">('+esc(src)+')</span>'):'')+'</span>'
-    +'<span style="display:none;gap:6px;align-items:center" class="c360-industry-edit">'
-    +'<select onchange="void 0">'+optHtml+'</select>'
+    +'<span class="c360-industry-edit">'
+    +'<select onchange="var i=this.parentNode.querySelector(\'input\');i.style.display=this.value===\'__custom\'?\'\':\'none\';if(this.value===\'__custom\')i.focus();">'+optHtml+'</select>'
+    +'<input type="text" maxlength="80" placeholder="Your own category, e.g. Winery" value="'+esc(custom)+'"'
+    +(custom?'':' style="display:none"')+' onkeydown="if(event.key===\'Enter\')this.parentNode.querySelector(\'button\').click()">'
     +'<button type="button" onclick="saveIndustry(\''+esc(name).replace(/'/g,"\\'")+'\',this)">Save</button>'
+    +'<button type="button" onclick="var e=this.parentNode;e.classList.remove(\'on\');e.previousElementSibling.style.display=\'\'">Cancel</button>'
     +'</span>';
 }
 function saveIndustry(name, btn){
-  var sel=btn.previousElementSibling;
+  var ed=btn.parentNode;
+  var sel=ed.querySelector('select'), inp=ed.querySelector('input');
   var key=sel&&sel.value;
-  if(!key) return;
+  var body={client:name};
+  if(key==='__custom'){
+    var text=(inp&&inp.value||'').trim();
+    if(!text){ if(inp) inp.focus(); return; }
+    body.custom=text;
+  }else{
+    if(!key) return;
+    body.key=key;
+  }
+  btn.textContent='Saving…';
   fetch('/api/client/industry',{method:'POST',credentials:'same-origin',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({client:name, key:key})})
+    body:JSON.stringify(body)})
     .then(function(r){return r.json();})
-    .then(function(){ loadIndustry(name); })
-    .catch(function(){});
+    .then(function(j){
+      if(j&&j.error){ alert(j.error); btn.textContent='Save'; return; }
+      loadIndustry(name);
+      if(window.__c360reloadProfile) window.__c360reloadProfile();
+    })
+    .catch(function(){ btn.textContent='Save'; alert('That category could not be saved.'); });
 }
 
+/* The scan's desktop and mobile captures beside the client's name. Each
+   thumbnail is added only once its image has loaded: a capture the scan
+   host no longer serves is nothing on the page, never a broken frame. */
+function loadScreenshots(name){
+  const box=document.getElementById('c360Shots'); if(!box) return;
+  const domain=window.__c360domain||'';
+  box.hidden=true; box.innerHTML='';
+  if(!domain) return;
+  const gen=c360Generation;
+  fetch('/api/client/screenshots?domain='+encodeURIComponent(domain),{credentials:'same-origin'})
+    .then(r=>r.json()).then(d=>{
+      if(gen!==c360Generation||!d||!d.found) return;
+      [['desktop','Desktop'],['mobile','Mobile']].forEach(([k,lab])=>{
+        const url=safeExternalUrl(d[k]); if(!url) return;
+        const b=document.createElement('button');
+        b.type='button'; b.className='c360-shot '+k;
+        b.title=lab+' screenshot from the site scan'+(d.scanned_at?' ('+d.scanned_at+')':'')+' — click to enlarge';
+        const img=new Image();
+        img.alt=lab+' screenshot of '+domain;
+        img.loading='lazy';
+        img.onload=()=>{ if(gen!==c360Generation) return; box.appendChild(b); box.hidden=false; };
+        img.onerror=()=>{ b.remove(); if(!box.children.length) box.hidden=true; };
+        b.appendChild(img);
+        const cap=document.createElement('span'); cap.className='sl'; cap.textContent=lab; b.appendChild(cap);
+        b.onclick=()=>openShot(url, lab+' · '+domain+(d.scanned_at?' · scanned '+d.scanned_at:''), d.scan_url);
+        img.src=url;
+      });
+    }).catch(()=>{});
+}
+function openShot(url, caption, scanUrl){
+  const lb=$('shotLightbox'); if(!lb) return;
+  $('shotLightboxImg').src=url;
+  $('shotLightboxCap').innerHTML=esc(caption||'')+(scanUrl?' · <a href="'+esc(scanUrl)+'" style="color:#fff">Open the scan →</a>':'');
+  lb.classList.add('on'); document.body.style.overflow='hidden';
+}
+function closeShot(){
+  const lb=$('shotLightbox'); if(!lb) return;
+  lb.classList.remove('on'); $('shotLightboxImg').src=''; document.body.style.overflow='';
+}
+document.addEventListener('keydown',function(e){ if(e.key==='Escape') closeShot(); });
 function loadBrandAndWork(name){
   loadForms(name);
   loadGroup(name);
   loadOwner(name);
   loadIndustry(name);
+  loadScreenshots(name);
   loadOrders(name);
   loadAdPerformance(name);
   wireAskChips();

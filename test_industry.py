@@ -177,6 +177,74 @@ check('industry("boat") is the marine dict', (industry.industry("boat") or {}).g
 check('industry("nonsense") is None', industry.industry("nonsense") is None)
 
 
+# ---------------------------------------------------------------------------
+section("One category string: a custom label, and the profile kept in step")
+client4 = "Fixture Buckeye Lake Xyz"
+_fresh_client(client4)
+with mock.patch("hub.scan_facts.latest_report", return_value=({}, {}, "no scan")):
+    industry.write_industry(client4, industry.resolve_industry(client=client4))
+check("the scan-less record starts on general",
+      industry._stored_industry(client4).get("key") == "general")        # noqa: SLF001
+check("...and the profile's category reads General Business with it",
+      seo.get_profile(client4)["category"] == "General Business")
+check("a typed-your-own label is saved",
+      industry.set_manual(client4, "", actor="todd", custom_label="Winery") is True)
+stored4 = industry._stored_industry(client4)                          # noqa: SLF001
+check("the wording is kept", stored4.get("custom_label") == "Winery", stored4)
+check("and resolved onto the nearest canonical key underneath (winery -> restaurant)",
+      stored4.get("key") == "restaurant", stored4)
+check("it is a manual pick", stored4.get("source") == "manual")
+check("display_label is the wording", industry.display_label(client4) == "Winery")
+check("the profile's category is the same string",
+      seo.get_profile(client4)["category"] == "Winery")
+check("a re-resolve does not move it",
+      industry.write_industry(client4, {"key": "hvac", "source": "scan_primary"}) is False)
+
+# The other direction: Client Info's field is typed into.
+seo.set_profile(client4, {"category": "HVAC"}, actor="todd")
+stored4b = industry._stored_industry(client4)                         # noqa: SLF001
+check("a typed profile category becomes the industry pick",
+      stored4b.get("key") == "hvac" and stored4b.get("source") == "manual", stored4b)
+check("...a label that is a canonical name keeps no custom wording",
+      stored4b.get("custom_label") == "")
+check("...and both screens read HVAC",
+      industry.display_label(client4) == "HVAC" and seo.get_profile(client4)["category"] == "HVAC")
+seo.set_profile(client4, {"category": "hvac"}, actor="todd")
+check("re-saving the same category (case aside) changes nothing",
+      industry._stored_industry(client4).get("resolved_at") == stored4b.get("resolved_at"))  # noqa: SLF001
+seo.set_profile(client4, {"category": ""}, actor="todd")
+check("an empty category submission is not a pick",
+      industry._stored_industry(client4).get("key") == "hvac")           # noqa: SLF001
+industry.set_manual(client4, "general", actor="todd")
+check("General Business picked on purpose reads General Business, not the old typed text",
+      industry.display_label(client4) == "General Business"
+      and seo.get_profile(client4)["category"] == "General Business")
+
+# A record nobody has touched, whose profile was typed before this field
+# existed, keeps the typed wording rather than reading General Business.
+client5 = "Fixture Typed Before Xyz"
+_fresh_client(client5)
+store5 = seo.load_store(client5)
+store5.setdefault("profile", {})["category"] = "Custom Cabinetry"
+seo.save_store(client5, store5)
+with mock.patch("hub.scan_facts.latest_report", return_value=({}, {}, "no scan")):
+    industry.write_industry(client5, industry.resolve_industry(client=client5))
+check("an untouched general record shows the typed wording",
+      industry.display_label(client5) == "Custom Cabinetry"
+      and seo.get_profile(client5)["category"] == "Custom Cabinetry")
+# The scan is the point of truth until somebody picks by hand.
+client6 = "Fixture Scanned Later Xyz"
+_fresh_client(client6)
+store6 = seo.load_store(client6)
+store6.setdefault("profile", {})["category"] = "Something Typed"
+seo.save_store(client6, store6)
+industry.write_industry(client6, {"key": "legal", "source": "scan_primary",
+                                  "confidence": 0.8, "evidence": "Law Firm"})
+check("a scan-resolved industry lands on the profile category too",
+      seo.get_profile(client6)["category"] == "Legal"
+      and industry.display_label(client6) == "Legal")
+
+
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)
