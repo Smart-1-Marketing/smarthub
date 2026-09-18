@@ -30,10 +30,10 @@ The Trade Desk cannot be asked for a window directly: MyReports runs a
 schedule and delivers a file later. ``ttd.pull_window()`` creates a one-off
 schedule for the window and reads it back on the next run, so a Trade Desk
 window is ``pending`` for a day and the ledger does not move until the file
-lands. Amazon DSP is not wired: its reports are asynchronous and the ids
-are carried between nightly ticks in the module's own note, and a second
-reader of that note would collect the night's reports. The page says so
-rather than offering a button that does nothing.
+lands. Amazon DSP is the same shape with a shorter wait: its reports are
+asynchronous, and ``amazon_dsp.pull_window()`` keeps the report ids it is
+waiting on under a lane of their own in the module's note, apart from the
+nightly's, so neither run collects the other's reports.
 
 A backfill run for the ``today``-and-``days`` platforms stamps the platform's
 native watermark like any pull, so the index's "last pull" line reflects it.
@@ -62,12 +62,12 @@ PULLS = {
     "groundtruth": ("groundtruth", "today_days"),
     "callrail": ("callrail", "today_days"),
     "ttd": ("ttd", "window"),
+    "amazon_dsp": ("amazon_dsp", "window"),
 }
-NOT_WIRED = {
-    "amazon_dsp": ("Amazon DSP's reports are asynchronous and their ids are carried "
-                   "between nightly ticks in the module's own note; a second reader "
-                   "would collect the night's reports. Not wired for history yet."),
-}
+# Platforms with a native pull and no history path, with the reason the card
+# prints. Empty today: Amazon DSP was here until its pull_window() kept its
+# pending report ids on a lane of their own.
+NOT_WIRED: dict = {}
 PLATFORMS = tuple(PULLS) + tuple(NOT_WIRED)
 
 
