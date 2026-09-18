@@ -2463,6 +2463,31 @@ def test_the_fourth_round_failure_paths():
     check("and the nightly run asks for it", "E2E_FULL: '1'" in nightly)
 
 
+def test_the_fifth_round_review_send_and_restart():
+    """The review sheet names a failure and offers the way back, keeps polling
+    through a restart, the Send page is walked at night, and a render killed
+    mid-flight is finished by the next process."""
+    review = (MODULE / "public" / "review.html").read_text()
+    e2e = (MODULE / "tests-browser" / "build.e2e.ts").read_text()
+    drill = MODULE / "tests" / "restart-drill.test.ts"
+
+    check("the review page reads every answer once", "async function api(path, body){" in review and "if(!/json/.test(type))" in review)
+    check("a sign-out is named there too", "Your Hub sign-in has ended" in review)
+    check("a dead renderer is named and marked transient", "is not answering right now" in review and "transient:true" in review)
+    check("a poll that misses keeps polling at a widening interval", "misses<6" in review and "2000*Math.pow(2,misses)" in review)
+    check("a failure offers Try again, which repeats the last action", "b.id='retry'" in review and "lastAction=" in review)
+    check("the page's own start is retryable", "async function start()" in review and "lastAction=start" in review)
+
+    check("the nightly walk reaches the Send page", "/display-ad-send?project=" in e2e and "the Send page names the client" in e2e)
+    check("and reads the review id the sheet just built", "review-set`" in e2e and "b.review && b.review.id" in e2e)
+
+    check("there is a restart drill", drill.exists())
+    text = drill.read_text() if drill.exists() else ""
+    check("it kills the process with a render running", "'SIGKILL'" in text and "seen, 'running'" in text)
+    check("and a fresh process finishes every size", "every size was rendered by the second process" in text)
+    check("it reads the boot log for the recovery", "recovered 1 interrupted job" in text)
+
+
 def main():
     print(__doc__.strip().splitlines()[0])
     print()

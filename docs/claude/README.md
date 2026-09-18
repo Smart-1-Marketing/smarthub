@@ -49,7 +49,7 @@ say "above" or "below" mean earlier or later files in this list.
 | [`40-a-clients-photos-are-already-somewhere-and-it-is-not-their-l.md`](40-a-clients-photos-are-already-somewhere-and-it-is-not-their-l.md) | A client's photos are already somewhere, and it is not their laptop | 159 |
 | [`41-one-design-the-whole-size-set-and-the-fourth-copy-it-refused.md`](41-one-design-the-whole-size-set-and-the-fourth-copy-it-refused.md) | One design, the whole size set — and the fourth copy it refused to be | 139 |
 | [`42-the-brandtemplate-decision-resolved-a-pick-not-a-table.md`](42-the-brandtemplate-decision-resolved-a-pick-not-a-table.md) | The BrandTemplate decision, resolved: a pick, not a table | 81 |
-| [`43-the-one-module-that-is-not-python.md`](43-the-one-module-that-is-not-python.md) | The one module that is not Python | 935 |
+| [`43-the-one-module-that-is-not-python.md`](43-the-one-module-that-is-not-python.md) | The one module that is not Python | 962 |
 | [`44-everyone-has-their-own-login-and-there-are-two-levels-of-it.md`](44-everyone-has-their-own-login-and-there-are-two-levels-of-it.md) | Everyone has their own login, and there are two levels of it | 617 |
 | [`45-three-index-pages-and-the-question-each-one-answers.md`](45-three-index-pages-and-the-question-each-one-answers.md) | Three index pages, and the question each one answers | 85 |
 | [`46-one-description-of-what-a-record-page-looks-like.md`](46-one-description-of-what-a-record-page-looks-like.md) | One description of what a record page looks like | 221 |
