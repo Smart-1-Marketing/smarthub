@@ -39,6 +39,7 @@ import { analyzeLandingPage } from './landing';
 import { landingImages } from './landing-images';
 import { checkAuth, denied, rateLimit, sessionCookie, configuredToken, sweepBuckets, intakeCodeOk, intakeAllowed, loadBuckets, flushBuckets } from './auth';
 import { previewCache, previewCacheKey } from './preview-cache';
+import { noteOpen, sweepPresence } from './presence';
 import { runDiagnostics } from './diagnostics';
 import { renderDiagnostics } from './diagnostics-page';
 import { scheduleSweep, sweep } from './retention';
@@ -2624,6 +2625,18 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    // Who else has this campaign open right now. Called by the build screen
+    // every 30s while open; a name that has not pinged for 90s falls off.
+    // No locking; a line under the campaign name is enough to catch the
+    // conflict before it costs work, and the 409 recovery dialog stays the
+    // safety net when it doesn't.
+    const presenceMatch = url.pathname.match(/^\/api\/campaign\/([\w-]+)\/presence$/);
+    if (presenceMatch && req.method === 'POST') {
+      const who = String(req.headers['x-s1-user'] ?? '').trim();
+      const others = noteOpen(presenceMatch[1], who);
+      return json(res, 200, { others });
+    }
+
     /* ------------------------------------------------------------ animation
 
        Three routes, and the shape of them is the answer to "how does this not
@@ -3390,6 +3403,11 @@ startWatchdog((job) => {
 
 // Expired rate-limit buckets would otherwise accumulate for every client seen.
 setInterval(() => sweepBuckets(), 10 * 60 * 1000).unref();
+
+// Presence rows also age out on read, but a long-idle campaign would keep its
+// empty row around until somebody opened it again; sweeping periodically is
+// cheap and keeps the ledger a bounded size.
+setInterval(() => sweepPresence(), 5 * 60 * 1000).unref();
 
 // The rate-limit ceiling used to reset on every deploy, which handed the
 // public proof routes a fresh allowance to anyone climbing them in the
