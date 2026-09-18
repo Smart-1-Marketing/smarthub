@@ -10,9 +10,17 @@ changes. ``/reports/audiogo-check`` is the page that correction is made
 from -- it calls the configured endpoint for yesterday and prints the raw
 JSON keys that came back.
 
-``AUDIOGO_API_KEY`` is the key; ``AUDIOGO_API_BASE`` the origin. The key is
-never logged, never on a result and never in an error -- ``_redact()``
-strips it from any provider message before it leaves this module.
+``AUDIOGO_API_KEY`` is the key; ``AUDIOGO_API_BASE`` is the endpoint, called
+exactly as it is set -- nothing is appended to it unless somebody sets
+``AUDIOGO_REPORT_PATH``, and an invented default path appended to a base
+that was already the whole endpoint is what made every call 404 on
+September 18, 2026 (``docs/claude/87``). An origin that cannot carry a
+credential counts as owed rather than set, the rule GroundTruth's module
+earned in ``docs/claude/53``. The key is never logged, never on a result
+and never in an error -- ``_redact()`` strips it from any provider message
+before it leaves this module, and a refusal names the method and URL it
+called so the next correction is made against what was actually asked
+for.
 
 Rows land as ``platform="audiogo"``, ``source="native"``. AudioGo's
 completion figure is listens / LTR rather than video completes: it lands in
@@ -57,13 +65,26 @@ def cfg() -> dict:
     return {"key": _first_env(KEY_ENV), **audiogo_map.config()}
 
 
+def _carries_a_credential(base: str) -> bool:
+    """https, or http on loopback -- somebody testing against a stub on
+    their own machine. Anything else would hand the key, in a header, in
+    clear, nightly, with nobody watching (docs/claude/53)."""
+    low = (base or "").strip().lower()
+    if low.startswith("https://"):
+        return True
+    return low.startswith("http://localhost") or low.startswith("http://127.0.0.1")
+
+
 def missing() -> list[str]:
     c = cfg()
     out = []
     if not c["key"]:
         out.append("AUDIOGO_API_KEY")
-    if not _first_env(("AUDIOGO_API_BASE", "AUDIO_GO_API_BASE")):
+    base = _first_env(("AUDIOGO_API_BASE", "AUDIO_GO_API_BASE"))
+    if not base:
         out.append("AUDIOGO_API_BASE")
+    elif not _carries_a_credential(base):
+        out.append("AUDIOGO_API_BASE (set, but not https -- the key would go in clear)")
     return out
 
 
@@ -83,28 +104,55 @@ class AudioGoError(Exception):
     """A refusal from the platform, already redacted."""
 
 
+def _wrong_endpoint_hint(status: int) -> str:
+    """What a 404 or a 405 means here, said where the error is read.
+
+    Not a guess about the platform: a 404 on a URL this module composed is
+    first a question about the URL, and the composition is two settings and
+    nothing else. Naming them is the difference between "AudioGo is down"
+    and the ten seconds it takes to look at the Render panel.
+    """
+    if status not in (404, 405):
+        return ""
+    return (" -- nothing is served there. The URL is AUDIOGO_API_BASE exactly as set, plus "
+            "AUDIOGO_REPORT_PATH if one is set (nothing by default); AUDIOGO_METHOD=POST sends "
+            "the report as a query body instead. Try it on /reports/audiogo-check")
+
+
 def headers() -> dict:
     c = cfg()
     return {c["auth_header"]: f"{c['auth_prefix']}{c['key']}", "Accept": "application/json"}
 
 
 def request_shape(start: date, end: date) -> dict:
-    """The call as it would be made -- method, URL, query, header NAME --
-    for the check page and the test. Never the key."""
+    """The call as it would be made -- method, URL, query or body, header
+    NAME -- for the check page and the test. Never the key.
+
+    The dates ride in the query string for a GET and in the JSON body for
+    the POST query the spec describes (``AUDIOGO_METHOD=POST``), on top of
+    whatever ``AUDIOGO_BODY`` carries.
+    """
     c = cfg()
-    params = {c["date_params"]["start"]: start.isoformat(),
-              c["date_params"]["end"]: end.isoformat(), **c["extra_params"]}
-    return {"method": c["method"], "url": c["base"] + c["path"], "params": params,
-            "auth_header": c["auth_header"]}
+    dates = {c["date_params"]["start"]: start.isoformat(),
+             c["date_params"]["end"]: end.isoformat(), **c["extra_params"]}
+    shape = {"method": c["method"], "url": c["url"], "params": {}, "json": None,
+             "auth_header": c["auth_header"]}
+    if c["sends_body"]:
+        shape["json"] = {**c["body"], **dates}
+    else:
+        shape["params"] = dates
+    return shape
 
 
 # ---------------------------------------------------------------------------
 # HTTP -- one seam, so a test can stand in for the platform
 # ---------------------------------------------------------------------------
 
-def _http(method: str, url: str, *, headers: dict, params: dict, timeout: int = TIMEOUT):
+def _http(method: str, url: str, *, headers: dict, params: dict, json=None,
+          timeout: int = TIMEOUT):
     """The one call that reaches the network. Replaced whole by the test."""
-    return requests.request(method, url, headers=headers, params=params, timeout=timeout)
+    return requests.request(method, url, headers=headers, params=params, json=json,
+                            timeout=timeout)
 
 
 def call(start: date, end: date):
@@ -114,11 +162,15 @@ def call(start: date, end: date):
         raise AudioGoError(NOT_CONFIGURED)
     shape = request_shape(start, end)
     try:
-        resp = _http(shape["method"], shape["url"], headers=headers(), params=shape["params"])
+        resp = _http(shape["method"], shape["url"], headers=headers(),
+                     params=shape["params"], json=shape["json"])
     except requests.RequestException as exc:
-        raise AudioGoError(_redact(f"AudioGo could not be reached: {type(exc).__name__}"))
+        raise AudioGoError(_redact(f"AudioGo could not be reached at {shape['url']}: "
+                                   f"{type(exc).__name__}"))
     if resp.status_code >= 400:
-        raise AudioGoError(_redact(f"HTTP {resp.status_code} on {c['path']}: {(resp.text or '')[:200]}"))
+        raise AudioGoError(_redact(f"HTTP {resp.status_code} on {shape['method']} {shape['url']}"
+                                   f"{_wrong_endpoint_hint(resp.status_code)}: "
+                                   f"{(resp.text or '')[:160]}"))
     try:
         return resp.json() if resp.content else {}
     except ValueError:
