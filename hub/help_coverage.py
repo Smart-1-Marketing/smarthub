@@ -172,6 +172,7 @@ PREFIXES: dict[str, str] = {
     "/tools/seo-images/house": "seo_images",
     "/tools/utm/": "utm",
     "/tools/smartforecast/": "smartforecast",
+    "/tools/camhub/": "camhub",
     # Web Development / SEO groups. The seo prefix's bubbles are the schema
     # and FAQ builders on the client record -- the tool's working screen,
     # which is where a tool's help ordinarily lives; the /seo index is the
