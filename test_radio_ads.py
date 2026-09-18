@@ -902,9 +902,25 @@ check("the browser is handed the fades and the rate rather than choosing them",
 _qc = fr.get(f"/api/projects/{FRID}/qc").get_json()["reports"][SID]
 _levels = {c["id"]: c["level"] for c in _qc["checks"]}
 check("a straight read passes the bed check", _levels["bed_source"], "pass")
-check("and the length check has not passed, it has not been taken",
-      _levels["length_match"], "not_measured")
-check("which is never folded into a pass", _qc["measured"], False)
+# Fan Radio's mix panel no longer carries a length row at all. Step 5 fits the
+# READ -- measured on the way in, dead air cut, a rate offered if that was not
+# enough -- and the mix renders to exactly the slot, so by the time anybody is
+# on the Music step the question has been asked and answered against the thing
+# that can be changed. Asking it again here would be a second verdict on a
+# settled question, and the one somebody would have to override to file a spot
+# that is already correct.
+check("Fan Radio's mix panel does not ask about length any more",
+      "length_match" in _levels, False)
+check("...and the row is gone from every list that names checks, not just the panel",
+      [k for k in (_qc["blocking"] + _qc["warnings"] + _qc["not_measured"]
+                   + _qc["pending"]) if k == "length_match"], [])
+# The shared module still carries it, because the Radio Ad Creator still reads
+# it and has not moved its length work into its own Step 5. Dropping it there
+# would leave that tool with nothing watching the clock at all.
+check("but the shared rule still has one, for the tool that still needs it",
+      [c["id"] for c in radio_spec.qc(script=GOOD, target_seconds=30,
+                                      mixed_seconds=34.0)["checks"]
+       if c["id"] == "length_match"], ["length_match"])
 
 # The mix. What arrives is a WAV and the length is read off its own header, so
 # what is filed was measured here rather than reported by the page.
@@ -928,20 +944,48 @@ check("and its length is measured off the file we stored",
       _ok.get_json()["mix"]["seconds"], 30.0)
 check("with the level's own dB pair recorded against it",
       _ok.get_json()["mix"]["level_known"], True)
+# A long mix no longer stops here, and that is the change rather than an
+# oversight: the browser renders to exactly the slot now, and Step 5 fitted the
+# read before a bed existed, so a length that disagrees with the slot cannot
+# come out of the real pipeline. What used to be caught here is caught earlier,
+# against the read, where there is something to do about it.
 _long = _file_mix(38.0)
-check("a mix outside the slot answers 409 with the report rather than filing",
-      (_long.status_code, _long.get_json()["blocked"]), (409, True))
-check("...and the previous mix is untouched",
-      (fr_store.get_spot(fr_store.load(FRID), SID)["mix"]["seconds"]), 30.0)
+check("length alone no longer stops a mix being filed", _long.status_code, 200)
+check("...and the length filed is still measured off the file",
+      _long.get_json()["mix"]["seconds"], 38.0)
+
+# The override machinery is still the override machinery. It was only ever
+# exercised THROUGH the length check here, so it is driven by a real blocking
+# finding instead -- a read with nothing to act on -- rather than deleted along
+# with the check that used to trigger it.
+_proj_cta = fr_store.load(FRID)
+_sp_cta = fr_store.get_spot(_proj_cta, SID)
+_kept_script = _sp_cta["script"]
+_sp_cta["script"] = "Pre-game starts soon and the tailgate is already going."
+fr_app.decorate(_proj_cta, _sp_cta)
+fr_store.save(_proj_cta)
+_blocked_mix = _file_mix(30.0)
+check("a mix with a blocking finding answers 409 with the report",
+      (_blocked_mix.status_code, _blocked_mix.get_json()["blocked"]), (409, True))
+check("...and it is the call to action that stopped it",
+      _blocked_mix.get_json()["qc"]["blocking"], ["cta_present"])
 check("an override with no reason is refused",
-      _file_mix(38.0, override="1").status_code, 400)
-_over = _file_mix(38.0, override="1", override_reason="station accepted it")
+      _file_mix(30.0, override="1").status_code, 400)
+_over = _file_mix(30.0, override="1", override_reason="station accepted it")
 check("an override with one is recorded against a name",
       (_over.status_code, _over.get_json()["mix"]["override"],
        _over.get_json()["mix"]["override_reason"]),
       (200, True, "station accepted it"))
 check("nothing refused the RENDER -- only the filing",
-      "This mix has findings" in (_long.get_json().get("error") or ""), True)
+      "This mix has findings" in (_blocked_mix.get_json().get("error") or ""), True)
+_sp_cta["script"] = _kept_script
+fr_app.decorate(_proj_cta, _sp_cta)
+fr_store.save(_proj_cta)
+# Putting the script back retires the mix made from the old one, which is the
+# rule working rather than a side effect to route around -- so a fresh one is
+# filed for the checks below, which are about what a CLIENT is played.
+_refiled = _file_mix(30.0)
+check("a mix files again once the script is back", _refiled.status_code, 200)
 
 # A file that is not a WAV cannot be measured, so it is refused rather than
 # filed with a length nobody took.
@@ -952,9 +996,13 @@ check("a file whose length cannot be read is refused",
 
 # The client hears the mix, and the page says which of the two it is playing.
 _view = fr_app.public_view(fr_store.load(FRID))
+# Read from the spot rather than hard-coded: what matters is that the client is
+# played the MIX, and a literal here just re-states whatever the last filing
+# happened to be.
+_filed_now = fr_store.get_spot(fr_store.load(FRID), SID)["mix"]
 check("the client is played the finished mix, not the raw read",
       (_view["spots"][0]["audio_is_mix"], _view["spots"][0]["audio_seconds"]),
-      (True, 38.0))
+      (True, _filed_now["seconds"]))
 
 # A mix must not outlive what went into it. It plays perfectly well while being
 # of the wrong script, which is what makes it worth dropping rather than
@@ -1161,13 +1209,19 @@ check("one that only fits because it was sped up says so on the row",
 check("and both still pass -- the rate is a disclosure, not a finding",
       (_row_plain["level"], _row_comp["level"]), ("pass", "pass"))
 
-# --- the route, and what it knows that the page does not ----------------
+# --- the read's own length, which is Step 5's job now -------------------
+# The whole length conversation moved off the Music step and onto the Record
+# step, and in the order that costs least: measure the read on the way in, cut
+# its dead air, measure again, and only then offer a rate. Silence is free to
+# remove and nobody hears it go, where a rate costs a take or costs the pitch.
 _proj = fr_store.load(FRID)
 _sp3 = fr_store.get_spot(_proj, SID)
 _sp3["script"] = ("Northgate Tire has your winter set ready today. "
                   "Call 555-123-4567 or find them at northgatetire.com.")
 _sp3["audio_url"] = "audio/their-own-read.mp3"
 _sp3["audio_provider"] = "upload"
+_sp3["audio_seconds"] = 31.8
+_sp3["audio_measured"] = True
 _sp3["bed"] = {"audio_url": "audio/bed.mp3", "kind": "upload"}
 fr_app.decorate(_proj, _sp3)
 fr_store.save(_proj)
@@ -1177,88 +1231,119 @@ def _ask_speed(**body):
     return fr.post(f"/api/projects/{FRID}/spots/{SID}/speed", json=body)
 
 
-_ask = _ask_speed(vo_seconds=31.8, mixed_seconds=32.1).get_json()
-check("the route answers with a rate for an uploaded read",
-      (_ask["uploaded"], _ask["suggestion"]["speed"]), (True, 1.08))
+_ask = _ask_speed(vo_seconds=31.8).get_json()
+check("the route answers about the READ, not about a mix",
+      (_ask["uploaded"], _ask["suggestion"]["speed"]), (True, 1.06))
+# No bed lead-in is taken off the runway. That 0.3s belongs to a mix, and Step
+# 5 happens before anybody has chosen a bed -- the read has the whole slot.
+check("the read gets the whole slot, with no mix lead-in taken off it",
+      _ask["suggestion"]["lead_seconds"], 0.0)
 check("and the rate is the shared module's, not the route's",
       _ask["suggestion"]["speed"],
-      radio_spec.speed_suggestion(vo_seconds=31.8, mixed_seconds=32.1,
-                                  target_seconds=30,
-                                  lead_in_ms=radio_spec.MIX_LEAD_IN_MS)["speed"])
-# The lead-in only exists where there is a bed to lead in with, and every
-# millisecond of it is a millisecond of the slot the voice does not get. A
-# straight read has the whole :30 to fit into, so it needs less of a push --
-# 1.06x here against the 1.08x above, on the same read.
-_sp3["bed"] = None
-fr_store.save(_proj)
-check("a straight read is given the whole slot, with no lead-in taken off it",
-      _ask_speed(vo_seconds=31.8, mixed_seconds=31.8).get_json()["suggestion"]["speed"],
-      1.06)
-_sp3["bed"] = {"audio_url": "audio/bed.mp3", "kind": "upload"}
-fr_store.save(_proj)
+      radio_spec.speed_suggestion(vo_seconds=31.8, target_seconds=30,
+                                  lead_in_ms=0, mode="resample")["speed"])
+# An uploaded read has no re-record to ask for, so the rate means playing the
+# finished file faster -- and that costs the semitones. A read this tool
+# recorded is simply read again at the pace, which costs a take and no pitch.
+check("an uploaded read is offered a resample, and told what it costs",
+      (_ask["suggestion"]["mode"], _ask["suggestion"]["semitones"] is not None),
+      ("resample", True))
+check("the length already on the spot answers when the page sends none",
+      _ask_speed().get_json()["suggestion"]["speed"], 1.06)
 
-# Whose read it is decides which advice is the right advice, and only the route
-# knows: `audio_provider` is set by the upload and by nothing else. Telling
-# somebody to time-compress a read this tool can simply record again at the
-# right pace is the worse of the two answers.
 _sp3["audio_provider"] = ""
 fr_store.save(_proj)
-_recorded = _ask_speed(vo_seconds=31.8, mixed_seconds=32.1).get_json()
-check("a read recorded here is sent to the re-record rather than the rate",
-      (_recorded["uploaded"], "record it again" in _recorded["alternative"]),
-      (False, True))
-check("...and the rate is still worked out, so the panel can say how far over",
-      _recorded["suggestion"]["over_seconds"], 2.1)
+_recorded = _ask_speed(vo_seconds=31.8).get_json()
+check("a read recorded here is offered a re-read instead",
+      (_recorded["uploaded"], _recorded["suggestion"]["mode"]), (False, "reread"))
+check("...which shifts no pitch, so none is quoted",
+      _recorded["suggestion"]["semitones"], None)
+check("and the alternative offered is the script, not a trip to the booth",
+      "Tightening the script" in _recorded["alternative"], True)
 _sp3["audio_provider"] = "upload"
 fr_store.save(_proj)
 check("a spot nobody has is a 404, not an empty suggestion",
       fr.post(f"/api/projects/{FRID}/spots/nope/speed", json={}).status_code, 404)
 
-# --- and it is actually reachable from the page -------------------------
-# A route with no button on it is the failure this repo keeps having to undo:
-# six tools were invisible for weeks. So the page is checked for the offer, the
-# approval, the undo and the rate riding along on the filing.
-_fr_page = fr.get("/").get_data(as_text=True)
-check("the builder asks the server for the rate rather than working one out",
-      ("/speed\"" in _fr_page and "speed_suggestion" not in _fr_page), True)
-check("the offer, the approval and the undo are all on the panel",
-      ('data-a="speed"' in _fr_page, 'data-a="unspeed"' in _fr_page,
-       "approveSpeed" in _fr_page and "resetSpeed" in _fr_page),
-      (True, True, True))
-check("the approved rate reaches the voice source, not the bed",
-      "voSrc.playbackRate.value = rate" in _fr_page, True)
-# A rate is approved against a particular READ. Re-recording or re-uploading
-# one makes it a different length, so a rate worked out for the old one is a
-# number nobody can account for -- and keying it on the read rather than
-# clearing it at each of the four places a read can change is what stops the
-# fifth one added later being the one that forgets.
-check("and it is held against the read it was approved for",
-      ("function readKey(" in _fr_page and "a.read === readKey(spot)" in _fr_page),
-      True)
-check("and rides along when the mix is filed",
-      'fd.append("speed"' in _fr_page, True)
+# --- the upload keeps what it was handed --------------------------------
+# "Save this going forward so we don't have to re-upload the file every time":
+# the working read is what the mix uses, and the original is kept beside it so
+# *Use the original instead* is a pointer change rather than another trip to
+# the file picker.
+_up = fr.post(f"/api/projects/{FRID}/spots/{SID}/voice-upload",
+              data={"file": (io.BytesIO(wav(29.4)), "trimmed.wav"),
+                    "original": (io.BytesIO(wav(32.1)), "phone-memo.m4a"),
+                    "edit": json.dumps({"trimmed": True, "gaps_closed": 6,
+                                        "saved_seconds": 2.7,
+                                        "original_seconds": 32.1,
+                                        "settings": {"threshold_db": -45}})},
+              content_type="multipart/form-data")
+check("an uploaded read is MEASURED now, because a WAV arrives",
+      (_up.status_code, _up.get_json()["measured"],
+       _up.get_json()["spot"]["audio_seconds"]), (200, True, 29.4))
+_up_spot = _up.get_json()["spot"]
+check("what the cutter did is saved with the spot, not lost on reload",
+      (_up_spot["vo_edit"]["trimmed"], _up_spot["vo_edit"]["gaps_closed"],
+       _up_spot["vo_edit"]["original_seconds"]), (True, 6, 32.1))
+check("...with the settings it used, clamped by the shared rules",
+      _up_spot["vo_edit"]["settings"]["threshold_db"], -45.0)
+check("and the file as it was handed over is kept beside the working read",
+      bool(_up_spot["vo_source"]["audio_url"]), True)
+check("...under its own name", _up_spot["vo_source"]["filename"], "phone-memo.m4a")
+check("the original is reachable through the same-origin proxy",
+      "vo_source" in fr_app._AUDIO_ROLES, True)
+# An edit description that will not parse costs the caption, never the file:
+# failing the upload to protect a sentence would throw away the read.
+_odd = fr.post(f"/api/projects/{FRID}/spots/{SID}/voice-upload",
+               data={"file": (io.BytesIO(wav(29.0)), "read.wav"),
+                     "edit": "not json at all"},
+               content_type="multipart/form-data")
+check("an unreadable edit record costs the caption, not the upload",
+      (_odd.status_code, _odd.get_json()["spot"]["vo_edit"]), (200, {}))
 
-# --- filing it ----------------------------------------------------------
-# The approved rate is recorded against the mix. Without it the file is a
-# commercial at a pace nobody can account for -- and it plays perfectly well,
-# which is what makes it worth recording rather than inferring.
-_filed = _file_mix(30.0, speed="1.08")
-check("a mix filed at an approved rate records the rate",
-      (_filed.status_code, _filed.get_json()["mix"]["speed"]), (200, 1.08))
-check("and what it cost in pitch, beside it",
-      _filed.get_json()["mix"]["speed_semitones"], 1.33)
-check("the stored check says the same thing the panel did",
-      "time-compressed to 1.08x" in [
-          c["detail"] for c in _filed.get_json()["qc"]["checks"]
-          if c["id"] == "length_match"][0], True)
-check("a mix filed at its own pace records 1.0 rather than nothing",
-      _file_mix(30.0).get_json()["mix"]["speed"], 1.0)
-_bad_rate = _file_mix(30.0, speed="1.6")
-check("a rate past the ceiling is refused at the door",
-      (_bad_rate.status_code, "1.15x" in (_bad_rate.get_json().get("error") or "")),
-      (400, True))
-check("...and the mix filed before it is untouched",
-      fr_store.get_spot(fr_store.load(FRID), SID)["mix"]["speed"], 1.0)
+_restored = fr.post(f"/api/projects/{FRID}/spots/{SID}/voice-restore", json={})
+check("the original goes back without another upload", _restored.status_code, 200)
+check("...and the spot says it is the untouched file now",
+      _restored.get_json()["spot"]["vo_edit"]["restored"], True)
+# A read that was recorded here has no original upload to go back to, and the
+# refusal says which rather than half-restoring from a field that is not there.
+_proj_no_src = fr_store.load(FRID)
+_sp_no_src = fr_store.get_spot(_proj_no_src, SID)
+_sp_no_src.pop("vo_source", None)
+fr_store.save(_proj_no_src)
+_no_src = fr.post(f"/api/projects/{FRID}/spots/{SID}/voice-restore", json={})
+check("a read with no original kept says so rather than half-restoring",
+      (_no_src.status_code, "no original kept" in _no_src.get_json()["error"]),
+      (404, True))
+
+# --- and the page carries all of it -------------------------------------
+_fr_page = fr.get("/").get_data(as_text=True)
+check("the only audio decoder in this stack is loaded on the page",
+      "/assets/audio-trim.js" in _fr_page, True)
+check("Step 5 carries the cutter, its advanced controls and the way back",
+      ('data-a="dead-air"' in _fr_page and 'data-a="dead-advanced"' in _fr_page
+       and 'data-a="vo-restore"' in _fr_page and 'data-a="vo-speed"' in _fr_page),
+      True)
+check("the trim vocabulary reaches the page from the shared rules",
+      (fr.get("/api/catalog").get_json()["dead_air"],
+       fr.get("/api/catalog").get_json()["dead_air_limits"]["min_gap_ms"]),
+      (radio_spec.DEAD_AIR_DEFAULTS, list(radio_spec.DEAD_AIR_LIMITS["min_gap_ms"])))
+# The Music step's speed machinery is gone, not hidden. The music must not be
+# sped up, and by then there is nothing left to change but the mix.
+check("and Step 6 has no speed machinery left at all",
+      any(t in _fr_page for t in ("speedPanel", "approveSpeed", "resetSpeed",
+                                  'data-a="unspeed"')), False)
+check("the mix renders to the slot rather than to the longer of the two",
+      "var total = spot.seconds || 30;" in _fr_page, True)
+# The Shape moved out of the middle of every card and became a chip that opens
+# a modal; an uploaded read says so beside the heading rather than in a note.
+check("the shape is a chip beside the heading, opening a modal",
+      ('data-a="shape"' in _fr_page and 'id="shapeDialog"' in _fr_page), True)
+check("and an uploaded read is marked where somebody looks first",
+      "function uploadChip(" in _fr_page, True)
+check("the two pickers share one row",
+      "function pickerRow(" in _fr_page and 'class="pick-row"' in _fr_page, True)
+
 
 
 section("The Radio Ad Creator answers the same read the same way")
