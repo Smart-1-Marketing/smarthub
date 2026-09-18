@@ -489,6 +489,15 @@ function render(g,q){
   } else html+='<div class="empty">No Smart 1 Team IOs matched.</div>';
   html+='</div></div>';
 
+  /* ---------- Account value (hub/client_money.py) ----------
+     What this account is worth (the group's own live monthly, the same
+     figure the Products card and record_health's Billing pill already
+     total) beside what is owed (this client's QuickBooks balance, the
+     same lookup the Invoices card runs). Two numbers Client 360 already
+     held apart, framed as the one question a rep opening the record
+     actually asks. */
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#e7f6ef;color:#147d52">Hub</span><h3>Account value</h3></div><div class="card-b" id="c-money"><div class="empty">Reading the account…</div></div></div>`;
+
   // ---------- Orders we have sent ----------
   // Deliberately its own card rather than a row on Products & IOs. That card
   // is Knack's answer to "what is running"; this is the Hub's answer to "what

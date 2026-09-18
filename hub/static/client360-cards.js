@@ -139,6 +139,37 @@ function loadUpcoming(name){
     .then(r=>r.json()).then(d=>{ if(gen!==c360Generation) return; el.innerHTML=renderUpcoming(d); })
     .catch(()=>{ if(gen!==c360Generation) return; el.innerHTML=renderUpcoming({measured:false,error:'The dates could not be read.'}); });
 }
+
+/* ---- account value (lifted and driven in node by test_client_money.py) ---- */
+function renderMoney(d){
+  d=d||{};
+  const b=d.billing||{}, o=d.owed||{};
+  let h='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:14px">';
+  h+=scStat('Billed monthly', b.measured===false?'Not measured':('$'+Number(b.monthly||0).toLocaleString(undefined,{maximumFractionDigits:0})+'/mo'), '', false);
+  const owedLabel=o.state==='connected'?('$'+Number(o.balance||0).toLocaleString(undefined,{maximumFractionDigits:0}))
+    :(o.state==='not_connected'?'Not connected':'Not measured');
+  h+=scStat('Outstanding balance', owedLabel, '', o.state==='connected'&&o.balance>0);
+  if(o.state==='connected'){
+    h+=scStat('Overdue invoices', o.overdue_count||0, '', (o.overdue_count||0)>0);
+  }
+  h+='</div>';
+  const notes=[];
+  if(b.measured===false&&b.error) notes.push(b.error);
+  if(o.state!=='connected'&&o.error) notes.push(o.error);
+  if(o.state==='connected'&&(o.unmatched||[]).length){
+    notes.push('No QuickBooks customer found for '+o.unmatched.map(esc).join(', ')+' -- that is unmeasured, not zero owed.');
+  }
+  if(notes.length) h+='<div class="muted" style="font-size:11.5px;margin-top:10px">'+notes.map(esc).join(' ')+'</div>';
+  return h;
+}
+/* ---- end account value ---- */
+function loadMoney(name){
+  const el=$('c-money'); if(!el) return;
+  const gen=c360Generation;
+  fetch('/api/client/money?name='+encodeURIComponent(name)+'&url='+encodeURIComponent(window.__c360domain||''),{credentials:'same-origin'})
+    .then(r=>r.json()).then(d=>{ if(gen!==c360Generation) return; el.innerHTML=renderMoney(d); })
+    .catch(()=>{ if(gen!==c360Generation) return; el.innerHTML='<div class="empty">The account value could not be read.</div>'; });
+}
 function socialContentHtml(d,name){
   if(!d||d.measured===false)
     return '<div class="empty">'+esc((d&&d.error)||'Not measured.')+'</div>';
