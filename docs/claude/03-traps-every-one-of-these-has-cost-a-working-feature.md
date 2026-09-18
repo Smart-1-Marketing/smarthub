@@ -1447,3 +1447,30 @@ collided with `ads_builder.store.list_proposals(limit=200)`. Prose is not a
 call site, and neither is a name. `test_capped_reads.py` holds each of the four
 shapes that have actually shipped and each of the look-alikes, so the sweep can
 be shown to find one rather than asserting about nothing.
+
+**A conflicted pull request produces no CI at all — the symptom is silence,
+not a message about conflicts.** GitHub runs `pull_request` workflows against
+the *merge commit*, and for a conflicted branch there is no merge commit to
+build, so the workflow never dispatches. Nothing says why.
+
+This cost a real diagnosis. A PR sat with **two** check runs after thirty
+minutes — both CodeQL, no `checks`, no `smoke` — while other PRs and `main`
+ran normally in the same window. The first theory was a dropped trigger racing
+the PR creation; a second, ordinary push disproved it by also producing
+nothing. What it actually was: the PR had gone conflicted when `main` moved
+underneath it, silently. Confirmed by clearing the conflict and watching a
+`pull_request` run fire immediately.
+
+The tells, if it happens again:
+
+- `pulls/N` reports `mergeable: false, mergeable_state: "dirty"` (and
+  `"unknown"` while GitHub is still computing — that is not the same thing);
+- **CodeQL still runs**, because it uses `refs/pull/N/head` rather than the
+  merge ref, so its presence proves nothing about the gate;
+- a manual `workflow_dispatch` also runs, because it uses the branch directly.
+  That is a legitimate way to establish the code is green while the PR-attached
+  gate is missing — it is not an empty commit and not a re-run to mask a flake.
+
+The fix is to resolve the conflict, not to kick CI. `docs/claude/README.md`
+carries `merge=union` in `.gitattributes` now precisely so the commonest source
+of these conflicts stops producing them.

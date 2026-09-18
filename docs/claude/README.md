@@ -7,7 +7,7 @@ say "above" or "below" mean earlier or later files in this list.
 
 | File | Topic | Lines |
 |---|---|---|
-| [`03-traps-every-one-of-these-has-cost-a-working-feature.md`](03-traps-every-one-of-these-has-cost-a-working-feature.md) | Traps — every one of these has cost a working feature | 1449 |
+| [`03-traps-every-one-of-these-has-cost-a-working-feature.md`](03-traps-every-one-of-these-has-cost-a-working-feature.md) | Traps — every one of these has cost a working feature | 1476 |
 | [`04-a-fallback-secret-in-the-source-is-a-forgeable-token.md`](04-a-fallback-secret-in-the-source-is-a-forgeable-token.md) | A fallback secret in the source is a forgeable token | 3523 |
 | [`05-data-sources-and-which-are-stale.md`](05-data-sources-and-which-are-stale.md) | Data sources, and which are stale | 1178 |
 | [`06-wiring-four-call-sites-is-not-wiring-the-module.md`](06-wiring-four-call-sites-is-not-wiring-the-module.md) | Wiring four call sites is not wiring the module | 93 |
