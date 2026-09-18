@@ -160,6 +160,10 @@ _MIN_PARTIAL_CHARS = 4
 # A near spelling has to start the way the client's name does, this many
 # letters of one word: the gate in front of difflib.
 _PREFIX = 3
+# A word of a client's name is a lead on its own only while few clients
+# carry it: "riverside" leads, "home" in a book of twelve Home-somethings
+# does not. Past this many clients a word is common and leads nobody.
+COMMON_WORD_CLIENTS = 5
 
 # Separators campaign names are built from, made spaces before the words
 # are read: "Acme_Plumbing-Search|2026" is four words, not one.
@@ -328,15 +332,37 @@ def build_index(rows: list[dict], aliases: list[dict] | None = None) -> list[dic
                     "words": words, "joined": "".join(words),
                     "prefixes": {w[:_PREFIX] for w in words if len(w) >= _PREFIX},
                     "domain_label": _domain_label(r)})
+    # How many clients carry each word of a name: a word on more than
+    # COMMON_WORD_CLIENTS of them is common, and common words lead nobody
+    # on their own.
+    carriers: dict[str, set] = {}
+    for cand in out:
+        for w in set(cand["words"]):
+            carriers.setdefault(w, set()).add(cand["key"])
+    common = {w for w, keys in carriers.items() if len(keys) > COMMON_WORD_CLIENTS}
+    for cand in out:
+        cand["partial_words"] = [w for w in cand["words"] if len(w) >= _MIN_PARTIAL_CHARS and w not in common]
     learned: dict[str, dict] = {}
     for a in aliases or ():
         words = _words(a.get("alias") or "")
         if not words:
             continue
         entry = learned.setdefault(" ".join(words), {"alias_words": words, "alias": a.get("alias"),
-                                                     "clients": {}})
+                                                     "clients": {}, "generic": False})
         entry["clients"][a["client"]] = {"name": label_by_key.get(a["client"]) or a.get("client_name")
                                          or a["client"], "count": int(a.get("count") or 0)}
+    # An alias whose every word is in some OTHER client's registry name is
+    # a description ("heating cooling"), not a nickname ("blw"): it is
+    # never a filing, however often it was taught, because the day the
+    # other client's campaign lands it would file under the wrong one.
+    for entry in learned.values():
+        alias_words = set(entry["alias_words"])
+        for cand in out:
+            if cand["key"] in entry["clients"]:
+                continue
+            if alias_words <= set(cand["words"]):
+                entry["generic"] = cand["name"]
+                break
     out.extend(learned.values())
     return out
 
@@ -390,9 +416,10 @@ def _score(cand: dict, words: list[str], tokens: set[str], prefixes: set[str]) -
     if best >= FUZZY_SHOW_SCORE and best < _SCORE_NAME:
         return round(best, 3), "the campaign name is a near spelling of the client's name"
     # A distinctive word of the client's name, on its own: a lead. Never a
-    # filing -- "Acme" is Acme Plumbing and Acme Roofing both.
-    for w in cw:
-        if len(w) >= _MIN_PARTIAL_CHARS and w in tokens:
+    # filing -- "Acme" is Acme Plumbing and Acme Roofing both -- and never
+    # on a word most of the book carries.
+    for w in cand.get("partial_words", [w for w in cw if len(w) >= _MIN_PARTIAL_CHARS]):
+        if w in tokens:
             return _SCORE_PARTIAL, f"the campaign name carries part of the client's name ({w})"
     return 0.0, ""
 
@@ -412,6 +439,9 @@ def _score_alias(cand: dict, words: list[str]) -> dict[str, dict]:
         score = _SCORE_NAME if n >= ALIAS_FILE_COUNT else ALIAS_ONCE_SCORE
         why = (f"{shown!r} was mapped to them {n} time{'' if n == 1 else 's'} before"
                + ("" if n >= ALIAS_FILE_COUNT else " (once: a suggestion until it is taught again)"))
+        if cand.get("generic"):
+            score = min(score, ALIAS_ONCE_SCORE)
+            why += f"; it is also part of {cand['generic']}'s name, so it suggests and never files"
         out[key] = {"key": key, "name": c["name"], "score": score, "pct": int(round(score * 100)),
                     "why": why, "rule": ALIAS_RULE}
         return out
@@ -423,9 +453,18 @@ def _score_alias(cand: dict, words: list[str]) -> dict[str, dict]:
     return out
 
 
+def _excluded(exclude) -> set:
+    """``exclude`` as a set of keys: one key, several, or none."""
+    if not exclude:
+        return set()
+    if isinstance(exclude, str):
+        return {exclude}
+    return {k for k in exclude if k}
+
+
 def suggest_clients(name: str, *, rows: list[dict] | None = None,
                     index: list[dict] | None = None,
-                    limit: int = FUZZY_LIMIT, exclude: str = "") -> list[dict]:
+                    limit: int = FUZZY_LIMIT, exclude="") -> list[dict]:
     """The clients a campaign name looks like, best first, each
     ``{"key", "name", "score", "pct", "why"}``; ``[]`` when nothing scores
     ``FUZZY_SHOW_SCORE``. ``index`` is ``build_index()`` of the registry;
@@ -439,17 +478,18 @@ def suggest_clients(name: str, *, rows: list[dict] | None = None,
     tokens = set(words)
     prefixes = {w[:_PREFIX] for w in words if len(w) >= _PREFIX}
     cands = index if index is not None else build_index(rows if rows is not None else _registry_rows())
+    skip = _excluded(exclude)
     best_by_key: dict[str, dict] = {}
     for cand in cands:
         if "alias_words" in cand:
             for key, hit in _score_alias(cand, words).items():
-                if key == exclude:
+                if key in skip:
                     continue
                 cur = best_by_key.get(key)
                 if cur is None or hit["score"] > cur["score"]:
                     best_by_key[key] = hit
             continue
-        if exclude and cand["key"] == exclude:
+        if cand["key"] in skip:
             continue
         score, why = _score(cand, words, tokens, prefixes)
         if score < FUZZY_SHOW_SCORE:
@@ -499,7 +539,8 @@ def _merge(*lists: list[dict], limit: int = FUZZY_LIMIT) -> list[dict]:
 
 
 def suggest_for_row(row: dict, *, index: list[dict], evidence: dict,
-                    limit: int = FUZZY_LIMIT, exclude: str = "") -> list[dict]:
+                    limit: int = FUZZY_LIMIT, exclude="",
+                    name_cache: dict | None = None) -> list[dict]:
     """Everything the book and the names say about one unmapped campaign,
     merged: the account's confirmed campaigns, the campaign name's likeness
     and the ad account's own name's likeness (the platform's advertiser or
@@ -507,15 +548,25 @@ def suggest_for_row(row: dict, *, index: list[dict], evidence: dict,
     ``rule`` and ``why``; ``decide()`` reads the merged list, so an account
     that says one client and a name that says another are two clients at
     the top and file neither."""
+    skip = _excluded(exclude)
     hits = []
     acct = account_suggestion(row, evidence)
-    if acct and acct["key"] != exclude:
+    if acct and acct["key"] not in skip:
         hits.append([acct])
-    hits.append(suggest_clients(row.get("campaign_name") or "", index=index,
-                                limit=limit, exclude=exclude))
+    # One reading per distinct name across a run: the same campaign name
+    # on ten accounts is one likeness, not ten.
+    cname = row.get("campaign_name") or ""
+    ckey = (cname, tuple(sorted(skip)))
+    if name_cache is not None and ckey in name_cache:
+        hits.append(name_cache[ckey])
+    else:
+        by_campaign = suggest_clients(cname, index=index, limit=limit, exclude=skip)
+        if name_cache is not None:
+            name_cache[ckey] = by_campaign
+        hits.append(by_campaign)
     account_name = (row.get("account_name") or "").strip()
     if account_name:
-        by_name = suggest_clients(account_name, index=index, limit=limit, exclude=exclude)
+        by_name = suggest_clients(account_name, index=index, limit=limit, exclude=skip)
         for h in by_name:
             h["rule"] = ACCOUNT_NAME_RULE
             h["why"] = f"the ad account is named {account_name!r}: " + h["why"].replace("the campaign name", "it")
@@ -638,7 +689,9 @@ def annotate(rows: list[dict], pending: list[dict] | None = None,
             return []
 
     for r in rows:
-        refused = (r.get("refused") or {}).get("client") or ""
+        refused = set(r.get("refused_clients") or ())
+        if (r.get("refused") or {}).get("client"):
+            refused.add(r["refused"]["client"])
         r["suggestions"] = suggestions_for(r, refused)
     for m in pending or ():
         if m["by_evidence"]:
@@ -676,6 +729,7 @@ def run(actor: str = "scheduler", limit: int = 5000) -> dict:
     cache: dict[str, tuple[str, str] | None] = {}
     index: list[dict] | None = None
     evidence: dict | None = None
+    name_cache: dict = {}
     for row in store.unmapped_campaigns(days=3650, limit=limit):
         if row.get("refused"):
             out["refused"] += 1
@@ -692,7 +746,7 @@ def run(actor: str = "scheduler", limit: int = 5000) -> dict:
                     index = build_index(_registry_rows(), store.campaign_aliases())
                 if evidence is None:
                     evidence = store.account_evidence()
-                hits = suggest_for_row(row, index=index, evidence=evidence)
+                hits = suggest_for_row(row, index=index, evidence=evidence, name_cache=name_cache)
             except RegistryUnavailable as exc:
                 out["registry_error"] = str(exc)
                 break
@@ -777,4 +831,6 @@ def run(actor: str = "scheduler", limit: int = 5000) -> dict:
                                         if "unknown_product" in rule else ""))
             except Exception:              # noqa: BLE001 - a log line is not the mapping
                 pass
+    # The board's "look like theirs" count is of the queue as it was.
+    forget_likely()
     return out
