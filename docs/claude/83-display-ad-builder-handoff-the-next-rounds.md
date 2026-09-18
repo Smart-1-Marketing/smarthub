@@ -3,16 +3,20 @@
 Written for whoever picks this module up next -- another Claude session,
 another model, or a person -- after five rounds of "make it bulletproof"
 (September 17-18, 2026; PRs #705, #710, #727, #738, #743) and a sixth pass
-knocking four items off this list (September 18, 2026). It says where
-things stand, what the rounds learned about working in this module, and a
-costed backlog of the next improvements with enough detail to start on any
-one of them cold. The narrative of each round is in `docs/claude/43`; this
-file is the map and the to-do list, not the story.
+knocking six items off this list in overlapping PRs #750 and #752
+(September 18, 2026). It says where things stand, what the rounds learned
+about working in this module, and a costed backlog of the next
+improvements with enough detail to start on any one of them cold. The
+narrative of each round is in `docs/claude/43`; this file is the map and
+the to-do list, not the story.
 
-The sixth pass closed **items 1, 6, 11 and 12** below (staff paged when a
-client leaves a note; the style panel's number boxes track state; nightly
-failures reach the team channel; the decision has its own alert line). The
-remaining eight items stand.
+The sixth pass closed **items 1, 2, 3, 6, 11 and 12** below (staff paged
+when a client leaves a note; the proof page streams its cell images from
+disk instead of inlining base64; bulk approval can accept a size's
+warnings; the style panel's number boxes track state; nightly failures
+reach the team channel; the decision has its own alert line). Items 1, 2
+and 3 landed in PR #752; items 6, 11 and 12 in PR #750. The remaining six
+items stand.
 
 ### Where it stands
 
@@ -133,38 +137,32 @@ rough size (S under an hour, M a few hours, L a day). Ordered by what bites
 first.
 
 **1. Staff are not told when a client leaves a note. ~~(S)~~ DONE (sixth
-pass).** `workflow.commentOnClientProof()` now takes an optional `notifier`
-(default: the real `notify()` from `src/notify.ts`) and pages the team as
-soon as the note saves. The subject names the client and the campaign; the
-body carries the size (or "the whole set") and the version; the URL is
-`${PUBLIC_URL}/build?request=<requestId>&size=<size>` so the team lands on
-the right size. Injected in `tests/third-list.test.ts` with a fake
-notifier; pinned in `test_display_ads.py`.
+pass, PR #752).** `workflow.commentOnClientProof()` now takes an optional
+`notifier: ProofCommentNotifier` that receives `{project, proof, note,
+platform}`; the HTTP handler wires it to `notify()` and phrases the alert
+itself, so `PUBLIC_URL` stays out of the workflow layer. A whole-set note
+links to the campaign; a per-ad note deep-links to that size on the build
+screen. Injected in `tests/third-list.test.ts` with a spy notifier; a
+notifier throw is caught so an alert that cannot go out cannot swallow
+the client's note.
 
-**2. The client proof page inlines every image as base64. (M)**
-`clientProofHtml()` embeds each frozen cell as a data URI. A Meta set with
-the story and the square at 2x is ten megabytes of HTML per open, and the
-page is what a client opens on a phone. Serve the frozen files instead:
-`GET /client-proof/<token>/cell/<i>` (public, streamed from the proof's
-own directory, `cache-control: private, max-age=3600`), and `<img
-src="/client-proof/<token>/cell/<i>">`. The token is the capability, as it
-is for the page. Add the pattern to `PUBLIC_PATTERNS` in the proxy and to
-the renderer's public list, and to `docs/claude/74`. Prove: the page for a
-two-cell proof is under 20 KB; the cell route 404s on a bad index and on
-a token that is not a UUID; a `..` in the index is refused.
-`tests/third-list.test.ts` has the proof fixture to build on.
+**2. The client proof page inlines every image as base64. ~~(M)~~ DONE
+(sixth pass, PR #752).** `GET /client-proof/<token>/cell/<i>` now streams
+the frozen cell from the proof's directory; `clientProofHtml()` writes
+`<img src="/client-proof/<token>/cell/<i>" loading="lazy">`, dropping a
+Meta set to a few kilobytes. Refused at the regex (`[a-f0-9-]{36}` and
+`\d+`), bounds-checked against `proof.cells`, and the file path comes
+from the proof, not the URL. Added to the proxy's `PUBLIC_PATTERNS`, the
+renderer's public list, and `docs/claude/74`.
 
-**3. Bulk approval cannot accept warnings. (M)** "Approve all passing sizes"
-skips any size with a warning, so a set with Meta's text-coverage note on
-every square (now a note, not a warning, but other warnings remain) sends
-the person back to the build screen to approve each one. Add "Approve
-these, accepting their warnings" on the review page: a checklist of the
-warn-only sizes with their plain-English findings, one press, calling
-`/approve-size` per size with `acceptWarnings: true` (the route already
-records `acceptedWarnings`). Never for a `fail`. Prove in
-`tests/http-workflow.test.ts` (it already builds a sheet and approves) and
-in the E2E_FULL walk (click it, assert `#send-next` enables when nothing
-fails).
+**3. Bulk approval cannot accept warnings. ~~(M)~~ DONE (sixth pass, PR
+#752).** The review page has a second panel underneath the pass button:
+every warn-only size (no failures on any bought platform, at least one
+warn, not already approved) is listed with its plain-English findings
+per platform. "Approve these, accepting their warnings" signs off every
+ticked size at once through `/approve-size` with `acceptWarnings: true`.
+A fail on any platform excludes the whole size; a revision mismatch 409s
+the same way the pass button already did.
 
 **4. A staging Hub, so the nightly staging job stops idling. (L, mostly
 operator time)** `nightly-browser.yml`'s second job waits on

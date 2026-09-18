@@ -2316,10 +2316,42 @@ def test_the_third_list_seven_more():
     check("and is not a decision", "a note is not a decision" in workflow_ts.lower() or "Not\n      // a decision" in server or "a note is not a decision" in server.lower() or "the proof stays where it is" in server)
     check("the proof page has a box under each ad", "data-send-note" in workflow_ts and "Add a note about" in workflow_ts)
     check("the route is public through the Hub, like the decision",
-          "(decision|download|comment)" in proxy and "(decision|download|comment)" in server)
+          "(decision|download|comment)" in proxy and "(decision|download|comment|cell)" in server)
     check("the build screen shows them under the size's checks", "function clientNotesBlock" in said and "The client said" in said)
     check("and marks the size on the rail", "The client left a note on this size" in said)
     check("the workflow API carries them", "comments:p.comments??[]" in server)
+    # 2a. A note also tells staff at once, with the size and a link back
+    check("commentOnClientProof takes a notifier",
+          "notifier?:ProofCommentNotifier" in workflow_ts and "export type ProofCommentNotifier" in workflow_ts)
+    check("and the HTTP handler hands it a real notify()",
+          "action==='comment'" in server and "commentOnClientProof(OUT,projects,token,body,(ctx)=>" in server)
+    check("with the size deep-linked into the build screen",
+          "&size=" in server and "encodeURIComponent(ctx.note.size)" in server)
+    check("and a notifier throw does not swallow the client's note",
+          "the note is saved; the alert is on its own" in workflow_ts)
+    # 2b. The cell images stream from disk instead of being inlined as base64
+    check("the proof page links each ad to its own frozen file",
+          '/client-proof/${esc(proof.token)}/cell/${i}' in workflow_ts and "loading=\"lazy\"" in workflow_ts)
+    check("and no cell is inlined as base64 any more", "data:image/" not in workflow_ts)
+    check("the server streams the cell from disk",
+          "action==='cell'" in server and "createReadStream(file).pipe(res)" in server)
+    check("with an out-of-range index refused as 404",
+          "i<0 || i>=proof.cells.length" in server and "No such ad on this proof" in server)
+    check("the URL is public through the Hub",
+          r'r"^client-proof/[a-f0-9-]{36}/cell/\d+$"' in proxy)
+    check("and the inventory names the new path",
+          "/cell/<i>" in (ROOT / "docs" / "claude" / "74-every-link-that-works-without-a-hub-login.md").read_text())
+    # 2c. Warn-only sizes can be approved together with their findings shown
+    review_html = (MODULE / "public" / "review.html").read_text()
+    check("the review page offers a warn-accepting bulk approve",
+          'id="warn-panel"' in review_html and 'id="approve-warnings"' in review_html
+          and "Approve these, accepting their warnings" in review_html)
+    check("only warn-only sizes are offered (never a fail)",
+          "function warnSizes()" in review_html and "g.anyFail" in review_html and "g.anyWarn" in review_html and "!g.allApproved" in review_html)
+    check("the ticked sizes call /approve-size with acceptWarnings",
+          "/approve-size" in review_html and "acceptWarnings:true" in review_html)
+    check("the plain-English findings are drawn beside each size",
+          "q.status==='warn'" in review_html and "esc(c.platform)" in review_html)
 
     # 3. Hold to see before
     check("there is a before chip", 'id="beforeBtn"' in screen and "Hold to see before" in screen)
@@ -2486,29 +2518,6 @@ def test_the_fifth_round_review_send_and_restart():
     check("it kills the process with a render running", "'SIGKILL'" in text and "seen, 'running'" in text)
     check("and a fresh process finishes every size", "every size was rendered by the second process" in text)
     check("it reads the boot log for the recovery", "recovered 1 interrupted job" in text)
-
-
-def test_the_sixth_round_client_note_pages_the_team():
-    """A client note on a proof used to sit unread until someone opened that
-    campaign. commentOnClientProof() now pages the team as soon as a note
-    lands, with the size to jump to and a link to the build screen."""
-    workflow_ts = (MODULE / "src" / "workflow.ts").read_text()
-    tests = (MODULE / "tests" / "third-list.test.ts").read_text()
-
-    check("the notifier is injectable so the test can watch what was sent",
-          "notifier:Notifier=notify" in workflow_ts and "export type Notifier" in workflow_ts)
-    check("the subject names the client and the campaign",
-          "`Client note — ${project.client} / ${project.projectName}`" in workflow_ts)
-    check("the body names the size (or the whole set) and the version",
-          "left a note on ${where}, version ${proof.version}" in workflow_ts)
-    check("the link jumps the build screen to that size",
-          "/build?request=${encodeURIComponent(project.requestId)}" in workflow_ts
-          and "&size=${encodeURIComponent(found.size)}" in workflow_ts)
-    check("a notifier failure is logged and swallowed, not thrown",
-          "[client-note] notify failed" in workflow_ts and ".catch(e=>console.error" in workflow_ts)
-    check("the test proves the page happens with a fake notifier",
-          "a note pages the team with the size and a link to the build screen" in tests
-          and "const fake: Notifier" in tests)
 
 
 def test_the_sixth_round_proof_status_and_decision_are_separate():

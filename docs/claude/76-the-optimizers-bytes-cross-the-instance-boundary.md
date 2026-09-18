@@ -123,6 +123,62 @@ This is also the module's **first test file**. It had none, and no step in
 uncovered. This change covers the store; the rest of the module is still
 unguarded and worth a separate pass.
 
+## The routes, and what a second instance actually is
+
+`test_page_image_routes.py` is the separate pass the paragraph above asked
+for — the same claim one level up, at `api_save`, where a person stands.
+
+It is not the same question. `store.get_bytes()` could be perfect while
+`api_save` still failed, because the route reaches it through a job record, an
+item id and a filename convention (`f"{item['id']}.webp"`) that the store test
+never exercises. Three routes read bytes that way — `api_save`, `api_preview`
+and `api_rename` — and `api_save` is the one that costs something, because the
+person has edited filenames and alt text by the time they press it.
+
+### The fixture got "a second instance" wrong, and it 404'd
+
+Worth recording, because the first draft looked right and passed nothing.
+
+`test_page_image_bytes.py` models a second instance by patching
+`store.DATA_DIR` to a **different path**. That is correct *there*:
+`bytes_store` is keyed on `(job_id, name)` and has no path in it at all.
+
+At the route level the same trick fails, and not for the reason it looks like.
+`DATA_DIR` comes from `HUB_DATA_DIR` — one configured value that every instance
+shares — so a real second instance looks for the job at **exactly the same
+path** and finds an empty disk there. Pointing the module somewhere else also
+moves the `hub/jsonstore.py` mirror key, which is relative to the data root, so
+the **job metadata** went missing too and `_job_or_404` answered 404 before the
+route ever reached the bytes. A green run would have been meaningless and a red
+one blamed the wrong thing.
+
+What a redeployed container actually hands you is the same path with nothing in
+it, so that is what the fixture does now: empty the directory, leave the path
+alone. Both mirrors then have to answer in one request — the job record from
+`jsonstore`, the bytes from `bytes_store` — which is a stronger test than the
+first draft was trying to write.
+
+### The confirm-red is in the suite, not just in the history
+
+`TheHarnessCanSeeTheDefect` puts the module back the way it was — the table
+refusing, the disk answering alone — and asserts the same request then fails
+with *"The optimized file expired before saving."* So the boundary test is
+permanently driven against something that really breaks, rather than against an
+assertion that happens to hold.
+
+Verified out of band the same way, by mutating the real body of
+`bytes_store.get()` to return `None` — not a shadowing redefinition above it,
+which is the trap that made an earlier variant run unbroken code and "pass".
+Two tests go red, and the failure message is the production one.
+
+`ExpiryStillReportsWhenBytesAreReallyGone` is the other direction: the fix must
+not work by making the error unreachable, so a batch whose bytes are genuinely
+swept still has to say so rather than uploading nothing and reporting success.
+
+Still uncovered after this pass: `scan_page`, the optimize path, `naming`, and
+the archive hook. Those are network, image decode and an AI call, which is why
+they are a pass of their own rather than an afterthought here.
+
 ## Render environment
 
 Nothing to add. The table is created through `hub/extensions.py` on the shared
