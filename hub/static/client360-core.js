@@ -220,7 +220,7 @@ const C360_SECTIONS=[
   // is proposed, the leads, the notes. The presence cards (Google listing,
   // YouTube channel, email campaigns), the landing pages and the audience
   // used to sit here too, thirteen cards deep, and live with their kin now.
-  {key:'overview', label:'Overview',          match:['products','orders we have sent','coming up','ad performance','camhub live cam','smart 1 suite','pipeline & leads','proposals','client notes']},
+  {key:'overview', label:'Overview',          match:['products','account value','orders we have sent','coming up','ad performance','camhub live cam','smart 1 suite','pipeline & leads','proposals','client notes']},
   // Directly under Overview by request: the work on a client is the second
   // thing anybody opens the record for.
   {key:'work',     label:'Work & requests',   match:['work for this','web tickets','execution plan']},

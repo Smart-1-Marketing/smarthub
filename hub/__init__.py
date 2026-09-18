@@ -1014,6 +1014,26 @@ def create_hub_app() -> Flask:
         url = request.args.get("url", "")
         return jsonify(next_action.for_client(name, url))
 
+    @app.route("/api/client/money")
+    def api_client_money():
+        """The Account value card on Client 360 -- hub/client_money.py.
+
+        The same two figures the Products and Invoices cards already read
+        (the group's own billing_monthly, this client's QuickBooks balance
+        through the same lookup `/api/qb/invoices?client=` makes), framed
+        as one question. Under `/api/client/` for the reason
+        `/api/client/health` gives.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import client_money
+        name = request.args.get("name", "")
+        if not name.strip():
+            return jsonify({"measured": False, "error": "A client is required."}), 400
+        url = request.args.get("url", "")
+        return jsonify(client_money.for_client(name, url))
+
     @app.route("/api/client/work")
     def api_client_work():
         """Everything the Hub has made for this client, newest first."""
