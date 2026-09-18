@@ -1209,12 +1209,14 @@ REGISTRY: list[Help] = [
        "it ended in."),
     _h("reports.audiogo.check", "Placeholders until the spec arrives",
        "AudioGo publishes its Reporting API as a PDF that has not arrived, "
-       "so every name in audiogo_map.py -- the path, the auth header, the "
-       "date parameters, the field names -- is a placeholder. This page "
-       "calls the endpoint as configured for yesterday and prints the keys "
-       "it answered with, the key itself never among them, so the real "
-       "names can be pasted into the map. Until it resolves the pull lands "
-       "nothing and the Reports page says which field is missing."),
+       "so every name in audiogo_map.py -- the method, the date parameters, "
+       "the field names -- is a placeholder. The URL is not composed here: "
+       "AUDIOGO_API_BASE is called exactly as it is set, and nothing is "
+       "appended unless AUDIOGO_REPORT_PATH says so. This page calls that "
+       "endpoint for yesterday and prints the keys it answered with, the "
+       "key itself never among them, so the real names can be pasted into "
+       "the map. Until it resolves the pull lands nothing and the Reports "
+       "page says which field is missing."),
     _h("reports.groundtruth.check", "The key arrived before the document",
        "GROUND_TRUTH_API is set, and every host that documents the API it "
        "unlocks is one the Hub's own environment cannot reach, so the origin, "

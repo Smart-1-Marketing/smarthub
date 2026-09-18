@@ -115,13 +115,23 @@ ENV: dict[str, list[dict]] = {
              "the x-api-key header, which is now the default; AUDIO_GO_API is read as a twin, so the "
              "spelling Render already carries answers.",
              source="audiogo.com/faqs/api-reporting"),
-        _env("AUDIOGO_API_BASE", "the pull refuses by name. The origin is in the Reporting API spec "
-             "(a PDF downloaded from audiogo.com/how-to/audiogo-reporting-api) and on no public page "
-             "the Hub's environment can read; paste it from the spec.",
-             source="audiogo.com/how-to/audiogo-reporting-api"),
-        _env("AUDIOGO_REPORT_PATH", "the placeholder path is called. The spec names the report "
-             "endpoint; the FAQ says separate Dimensions and Metrics endpoints list what a report "
-             "may ask for.", required=False, source="audiogo.com/how-to/dimensions-metrics-api"),
+        _env("AUDIOGO_API_BASE", "the pull refuses by name. This is the URL that gets called, "
+             "exactly as set -- AudioGo's own page names https://api.adswizz.com/domain as the base "
+             "(its reporting runs on AdsWizz's Domain API), and the report path below it is in the "
+             "spec PDF; set this to the whole report endpoint. Must be https, or the key would go "
+             "in clear.", source="audiogo.com/how-to/api-base-url"),
+        _env("AUDIOGO_REPORT_PATH", "nothing is appended to the base -- which is the right answer "
+             "when the base is already the whole endpoint. Set it only to keep the origin and the "
+             "path apart; `-` clears it again. Appending an invented default here is what made "
+             "every call 404 (docs/claude/87).", required=False,
+             source="docs/claude/87"),
+        _env("AUDIOGO_METHOD", "the endpoint is called with GET and the dates in the query string. "
+             "AudioGo describes a report as a query of filters, splitters and metrics, so POST is "
+             "the shape to try next: it sends the dates, the extra parameters and AUDIOGO_BODY as "
+             "a JSON body.", required=False, source="audiogo.com/how-to/api-based-reporting"),
+        _env("AUDIOGO_BODY", "a POST carries only the dates and the extra parameters. Set it to a "
+             "JSON object to carry the filters, splitters and metrics the query needs.",
+             required=False, source="audiogo.com/how-to/api-based-reporting"),
         _env("AUDIOGO_ROWS_PATH", "rows are looked for under `data`.", required=False),
         _env("AUDIOGO_FIELD_IMPRESSIONS", "the map reads `impressions`. The FAQ names the "
              "impressions metric `demandAudioImp`; set this to it once the check page shows that "
@@ -192,11 +202,13 @@ HOW: dict[str, dict] = {
     "stackadapt": {"line": "GraphQL campaignDelivery, granularity DAILY, paged on records; the key in "
                            "the Authorization header.",
                    "docs": "the SDK's generated schema (dist/gql/graphql.d.ts)", "verified": False},
-    "audiogo": {"line": "Reporting API with the key in an x-api-key header (AudioGo's FAQ). Agency "
-                        "customers request the key from AudioGo Support; the spec is a PDF, and the "
-                        "Dimensions and Metrics endpoints list what a report may ask for. Synchronous "
-                        "reports take up to three dimensions.",
-                "docs": "audiogo.com/how-to/audiogo-reporting-api", "verified": False},
+    "audiogo": {"line": "AdsWizz's Domain API under https://api.adswizz.com/domain, with the key in "
+                        "an x-api-key header (AudioGo's FAQ and its API base URL page). Agency "
+                        "customers request the key from AudioGo Support; the report path is in the "
+                        "spec PDF, and the Dimensions and Metrics endpoints list what a report may "
+                        "ask for. A report is built as a query -- filters, splitters, metrics -- and "
+                        "a synchronous one takes up to three dimensions. All times are UTC.",
+                "docs": "audiogo.com/how-to/api-base-url", "verified": False},
     "groundtruth": {"line": "Public API at api-public.groundtruth.com, JSON, with campaign, ad group "
                             "and creative timeseries endpoints by day, day of week and time of day. "
                             "Metrics update daily; today's spend every two hours. The auth header is "

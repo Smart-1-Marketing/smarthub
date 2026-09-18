@@ -66,7 +66,7 @@ say "above" or "below" mean earlier or later files in this list.
 | [`58-the-check-that-reported-no-json-on-the-disk.md`](58-the-check-that-reported-no-json-on-the-disk.md) | The check that reported no JSON on the disk | 181 |
 | [`59-leads-in-a-table-not-a-file-on-one-instance.md`](59-leads-in-a-table-not-a-file-on-one-instance.md) | Leads in a table, not a file on one instance | 136 |
 | [`60-a-clients-email-campaigns-read-from-their-own-sub-account.md`](60-a-clients-email-campaigns-read-from-their-own-sub-account.md) | A client's email campaigns, read from their own sub-account | 65 |
-| [`61-amazon-dsp-five-claims-and-four-of-them-fail-as-a-working.md`](61-amazon-dsp-five-claims-and-four-of-them-fail-as-a-working.md) | Amazon DSP: five claims, and four of them fail as a working configuration | 182 |
+| [`61-amazon-dsp-five-claims-and-four-of-them-fail-as-a-working.md`](61-amazon-dsp-five-claims-and-four-of-them-fail-as-a-working.md) | Amazon DSP: five claims, and four of them fail as a working configuration | 216 |
 | [`62-a-scanned-business-that-is-not-a-client-is-a-lead.md`](62-a-scanned-business-that-is-not-a-client-is-a-lead.md) | A scanned business that is not a client is a lead | 119 |
 | [`63-the-google-tokens-off-their-own-sqlite-file.md`](63-the-google-tokens-off-their-own-sqlite-file.md) | The Google tokens, off their own SQLite file | 120 |
 | [`64-ask-smarthub-reads-the-fact-table.md`](64-ask-smarthub-reads-the-fact-table.md) | Ask SmartHub reads the fact table: named periods, decided flags, recipes | 174 |
@@ -84,7 +84,7 @@ say "above" or "below" mean earlier or later files in this list.
 | [`76-the-optimizers-bytes-cross-the-instance-boundary.md`](76-the-optimizers-bytes-cross-the-instance-boundary.md) | The optimizer's bytes cross the instance boundary | 190 |
 | [`77-a-half-hour-job-on-the-shared-thread-stalled-every-job-behind-it.md`](77-a-half-hour-job-on-the-shared-thread-stalled-every-job-behind-it.md) | A half-hour job on the shared thread stalled every job behind it | 64 |
 | [`78-last-month-was-not-in-the-fact-table.md`](78-last-month-was-not-in-the-fact-table.md) | Last month was not in the fact table | 72 |
-| [`79-callrail-a-phone-call-is-an-outcome-not-a-conversion.md`](79-callrail-a-phone-call-is-an-outcome-not-a-conversion.md) | CallRail: a phone call is an outcome, not a conversion | 111 |
+| [`79-callrail-a-phone-call-is-an-outcome-not-a-conversion.md`](79-callrail-a-phone-call-is-an-outcome-not-a-conversion.md) | CallRail: a phone call is an outcome, not a conversion | 146 |
 | [`80-the-clients-360-script-in-files-not-a-template.md`](80-the-clients-360-script-in-files-not-a-template.md) | The Client 360 script, in files, not a template | 53 |
 | [`81-a-copy-of-the-landed-rows-and-two-indexes-the-live-table-lacked.md`](81-a-copy-of-the-landed-rows-and-two-indexes-the-live-table-lacked.md) | A copy of the landed rows, and two indexes the live table lacked | 115 |
 | [`82-camhub-a-conditions-page-with-a-sponsor-system-behind-it.md`](82-camhub-a-conditions-page-with-a-sponsor-system-behind-it.md) | CamHub: a conditions page with a sponsor system behind it | 193 |
@@ -93,3 +93,4 @@ say "above" or "below" mean earlier or later files in this list.
 | [`85-camhub-sprint-6-the-cam-builder-and-the-second-page.md`](85-camhub-sprint-6-the-cam-builder-and-the-second-page.md) | CamHub Sprint 6: the Cam Builder wizard, re-probe, and a second location type | 80 |
 | [`86-camhub-hardening-csv-formulas-portal-rotation-and-outbox-in-health.md`](86-camhub-hardening-csv-formulas-portal-rotation-and-outbox-in-health.md) | CamHub hardening: CSV formulas, portal rotation, and the outbox in /health | 72 |
 | [`87-camhub-outbox-smtp-the-last-unmet-sprint-5-done-when.md`](87-camhub-outbox-smtp-the-last-unmet-sprint-5-done-when.md) | CamHub outbox: SMTP is the last unmet Sprint 5 done-when | 78 |
+| [`87-the-404-was-a-url-the-hub-composed.md`](87-the-404-was-a-url-the-hub-composed.md) | The 404 was a URL the Hub composed | 86 |

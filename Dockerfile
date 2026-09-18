@@ -48,20 +48,31 @@ RUN apt-get update \
 #
 # THE COST, stated the way the Node block above states its own: this is
 # roughly 400-500 MB on the image (Chromium's own package plus its shared
-# libraries, and Puppeteer's bundled Chromium download during npm ci below)
-# and it is the heaviest single addition here. The `chromium` package itself
-# is never run directly -- Puppeteer launches its own bundled build -- it is
-# installed purely to pull in the shared libraries (libnss3, libatk,
-# libgbm1, and the rest of the well-known headless-Chrome dependency list)
-# that build needs to launch at all, without this Dockerfile hand-listing
-# thirty exact package names that drift between Debian releases. CI installs
-# the same libraries directly rather than this package -- Ubuntu's own
+# libraries) and it is the heaviest single addition here. CI installs the
+# shared libraries directly rather than this package -- Ubuntu's own
 # `chromium` is a Snap wrapper, which is pointless weight for a runner that
-# never launches it -- and its own real end-to-end render is what proves the
-# download-and-launch path below actually works, on both bases.
+# never launches it -- and relies on Puppeteer's own bundled download
+# instead; its real end-to-end render is what proves that path works there.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends chromium ffmpeg fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
+
+# Puppeteer's own bundled-Chrome download-and-cache path (see
+# PUPPETEER_CACHE_DIR below) has landed a Chrome revision at launch time that
+# does not match what capture.ts's puppeteer.launch() went looking for --
+# "Could not find Chrome (ver. ...)" -- more than once on this platform, in a
+# way nothing here could reproduce off it: a fresh `npm ci` in CI and in a
+# plain dev checkout both download and launch a working Chrome every time.
+# The package installed above already ships a real, working Chromium binary
+# that this Dockerfile was paying the weight of anyway, purely for its shared
+# libraries until now. Pointing Puppeteer straight at it removes the failure
+# mode rather than chasing it: nothing is downloaded at launch time to land in
+# the wrong place or drift from what actually shipped, because what runs is
+# the exact binary this RUN step just installed. capture.ts still falls back
+# to Puppeteer's own resolution when this is unset -- a plain `npm run dev` or
+# `npm test` outside this image has no `/usr/bin/chromium` to point at, and
+# both already download and launch their own Chrome correctly.
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 WORKDIR /app
 

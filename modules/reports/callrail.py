@@ -61,6 +61,9 @@ DAYS = 30
 # Pages per account per pull, a ceiling on a nightly job's own time: 200
 # pages of 250 is fifty thousand calls in a month for one account.
 MAX_PAGES = 200
+# Rows the map is judged against. The question is whether a NAME is real,
+# and a name that is real is answered to by some call in a page of them.
+MAP_SAMPLE = 50
 KEY_ENV = "CALLRAIL_API_KEY"
 BASE_ENV = "CALLRAIL_API_BASE"
 ACCOUNT_ENV = "CALLRAIL_ACCOUNT_ID"
@@ -149,6 +152,23 @@ def _redact(text: str) -> str:
     if key and key in s:
         s = s.replace(key, f"[{KEY_ENV} redacted]")
     return s[:500]
+
+
+def _redact_deep(obj):
+    """``_redact`` through a nested structure, for anything this module
+    hands a template. The map is configuration and holds ``{key}`` rather
+    than the key -- but an override is a person typing a value into Render,
+    and ``CALLRAIL_AUTH_FORMAT`` set to the finished header rather than the
+    pattern would otherwise print the key onto a staff screen."""
+    if isinstance(obj, str):
+        return _redact(obj)
+    if isinstance(obj, dict):
+        return {k: _redact_deep(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_redact_deep(v) for v in obj]
+    if isinstance(obj, tuple):
+        return tuple(_redact_deep(v) for v in obj)
+    return obj
 
 
 class CallRailError(Exception):
@@ -245,6 +265,22 @@ def _dig(obj, path: str | None):
     return cur
 
 
+def _has(obj, path: str | None) -> bool:
+    """Does this row carry this path at all -- a key that is present and
+    ``null`` included? A name nobody answers to is absent from every row;
+    a field the platform simply did not fill on one call is present and
+    empty, and ``_dig`` renders both as ``None``. Telling them apart is
+    the whole of what ``check_map`` is asking."""
+    if path is None or path == "":
+        return False
+    cur = obj
+    for part in str(path).split("."):
+        if not isinstance(cur, dict) or part not in cur:
+            return False
+        cur = cur[part]
+    return True
+
+
 def _list_under(body, path: str) -> list:
     rows = _dig(body, path) if path else body
     if isinstance(rows, dict):
@@ -313,15 +349,24 @@ def check_map(rows: list) -> dict:
     if not rows:
         return {"resolved": False, "missing": list(callrail_map.required_fields(c["fields"])),
                 "rows": 0, "why": f"no rows under rows_path {c['rows_path']!r}"}
-    sample = rows[0]
+    sample = rows[:MAP_SAMPLE]
     missing_ = []
+    empty_ = []
     for k in callrail_map.REQUIRED:
         name = c["fields"].get(k)
         if not name:
             missing_.append(f"{k} (no response field is named for it)")
-        elif _dig(sample, name) is None:
+        elif not any(_has(r, name) for r in sample):
             missing_.append(name)
-    return {"resolved": not missing_, "missing": missing_, "rows": len(rows), "why": ""}
+        elif all(_dig(r, name) in (None, "") for r in sample):
+            empty_.append(name)
+    why = ""
+    if empty_ and not missing_:
+        why = ("answered to, and empty on every call read: "
+               + ", ".join(empty_) + " -- the name is real and the platform filled "
+               "nothing in, so check it is the field you meant")
+    return {"resolved": not missing_, "missing": missing_, "rows": len(rows),
+            "sampled": len(sample), "empty": empty_, "why": why}
 
 
 def _num(value) -> float:
@@ -511,7 +556,7 @@ def check(today: date | None = None) -> dict:
     out = {"configured": configured(), "missing": missing(), "day": day.isoformat(),
            "accounts_request": accounts_request_shape(),
            "request": request_shape(c["account_id"] or "", day, day, per_page=25),
-           "pinned": c["account_id"], "map": callrail_map.config(),
+           "pinned": c["account_id"], "map": _redact_deep(callrail_map.config()),
            "accounts": None, "answer": None, "resolves": None, "error": ""}
     if not out["configured"]:
         out["error"] = not_configured_line()

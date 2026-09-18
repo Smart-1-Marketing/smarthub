@@ -94,14 +94,14 @@ async function browser(): Promise<Browser> {
   if (sharedBrowser && sharedBrowser.connected) return sharedBrowser;
   sharedBrowser = await puppeteer.launch({
     headless: true,
-    // Unset everywhere today — Puppeteer resolves its own downloaded Chrome,
-    // the path the Dockerfile's PUPPETEER_CACHE_DIR pins so that download and
-    // this launch agree regardless of what $HOME resolves to at either
-    // point. Kept as an explicit, named override rather than assumed: the
-    // day something here needs to launch a different binary (the apt
-    // `chromium` package already sitting in the image for its shared
-    // libraries, say), it is one environment variable rather than a code
-    // change.
+    // Set in the Dockerfile to the apt `chromium` package's own binary --
+    // Puppeteer's bundled-download-and-cache path (PUPPETEER_CACHE_DIR,
+    // below) landed a Chrome revision that did not match what this launch
+    // went looking for, more than once, in production specifically; pointing
+    // this at a binary the image installed directly removes the failure
+    // rather than chasing it. Unset outside that image -- a plain `npm run
+    // dev` or `npm test` has no /usr/bin/chromium to point at -- so this
+    // falls back to Puppeteer's own resolution there, which already works.
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
     args: [
       "--no-sandbox", // the container has no setuid sandbox helper
