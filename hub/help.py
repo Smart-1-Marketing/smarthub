@@ -2594,6 +2594,23 @@ REGISTRY: list[Help] = [
        "waiting for ever."),
 
     # ---------------- CamHub ----------------
+    _h("camhub.sponsors", "The advertiser, apart from the slot",
+       "A sponsor is the business; a placement is that business in one "
+       "position on one page for one flight. Keeping them apart is what lets "
+       "a sponsor hold the presenting slot in summer and a tile in winter "
+       "without re-entering creative. The category is what exclusivity is "
+       "judged on, so fill it in."),
+    _h("camhub.placements", "Five positions, and what fills them",
+       "One presenting sponsor and four supporting tiles. A live placement "
+       "fills its slot; an ended, paused or future one does not, and a house "
+       "ad takes the space, so the page never shows an empty box. Supporting "
+       "tiles shuffle by weight on every load so nobody is permanently last."),
+    _h("camhub.placement", "Copy that fits, a flight that ends itself",
+       "Every text field has a cap, because copy that overflows the tile is "
+       "the most common way an ad swap goes wrong. The flight dates decide "
+       "when it shows: a future start is scheduled, a past end is ended, and "
+       "nobody has to remember to swap it. The preview beside the form is the "
+       "real page with this placement forced into its slot."),
     _h("camhub.index", "Every feed, and when it last answered",
        "Each cam page lists its data sources with the last successful read "
        "and the last error. Green is inside the tile's tolerance, amber is "

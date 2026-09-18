@@ -32,6 +32,7 @@
       <div class="row">
         <span class="pill {{ p.health }}">sources {{ p.health }}</span>
         <a class="btn sec" href="{{ mount }}/cam/{{ p.slug }}" target="_blank" rel="noopener">Open the page</a>
+        <a class="btn sec" href="{{ mount }}/pages/{{ p.slug }}/placements">Placements</a>
         <form method="post" action="{{ mount }}/pages/{{ p.slug }}/refresh"><button class="btn" type="submit">Refresh now</button></form>
       </div>
     </div>

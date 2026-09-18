@@ -93,6 +93,57 @@ class ConditionsCache(Base):
     updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
 
 
+class Sponsor(Base):
+    """The advertiser as a business entity. Separate from the placement so a
+    sponsor can hold the presenting slot in summer and a supporting tile in
+    winter, renew without re-entering creative, and run different creative
+    on different cam pages."""
+    __tablename__ = "camhub_sponsors"
+    id = Column(Integer, primary_key=True)
+    name = Column(String(120), nullable=False)
+    category = Column(String(80))         # exclusivity is judged on this
+    contact_name = Column(String(120))
+    email = Column(String(200))
+    phone = Column(String(60))
+    website = Column(String(300))
+    notes = Column(Text)
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
+class Placement(Base):
+    """The sellable unit: a sponsor (or the house) in a position on a page,
+    with its creative and its flight. Status is what a person set -- draft,
+    active, paused -- and what the page shows is derived from the flight
+    dates on read (scheduled / live / ended), so a flight that ends reverts
+    its slot without anybody remembering to."""
+    __tablename__ = "camhub_placements"
+    id = Column(Integer, primary_key=True)
+    page_id = Column(Integer, ForeignKey("camhub_pages.id"), nullable=False, index=True)
+    sponsor_id = Column(Integer, ForeignKey("camhub_sponsors.id"), index=True)
+    position = Column(String(20), nullable=False, default="supporting")  # presenting | supporting
+    is_house = Column(Boolean, default=False)
+    status = Column(String(20), default="draft")                         # draft | active | paused
+    animation = Column(String(20), default="static")  # lower_third | wipe | crossfade | shimmer | static
+    name = Column(String(120))            # the name shown; defaults to the sponsor's
+    headline = Column(String(120))
+    body = Column(Text)
+    cta_label = Column(String(60))
+    url = Column(String(600))
+    logo_url = Column(String(600))
+    image_url = Column(String(600))
+    alt_text = Column(String(200))
+    tagline_2 = Column(String(120))       # the rotating-tagline treatment's extra lines
+    tagline_3 = Column(String(120))
+    start_date = Column(String(10))       # ISO date, or empty for open
+    end_date = Column(String(10))
+    weight = Column(Integer, default=1)
+    sort_order = Column(Integer, default=0)
+    updated_by = Column(String(120))
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
 def _create_tables() -> str:
     return create_all_metadata(Base.metadata)
 

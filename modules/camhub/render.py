@@ -12,12 +12,14 @@ working and never an empty box.
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from .tiles import build_strip, fresh
 from .verdict import verdict
 
+log = logging.getLogger("hub")
 WEATHER_KEYS = ("weather_now", "observation", "lake_level", "alerts", "advisories")
 
 
@@ -91,21 +93,26 @@ def _forecast(cache: dict, page: dict, now: datetime) -> list[dict]:
     return days[:7]
 
 
-def _house_ads(page: dict) -> dict:
-    cfg = page.get("config") or {}
-    house = cfg.get("house_ads") or {}
-    links = cfg.get("links") or {}
-    presenting = dict(house.get("presenting") or {})
-    presenting.setdefault("name", page.get("business_name") or "Sponsorship available")
-    presenting.setdefault("badge", (presenting["name"] or "S")[0].upper())
-    tiles = []
-    for t in house.get("supporting") or []:
-        url = t.get("url") or links.get(t.get("url_key") or "", "")
-        tiles.append({**t, "url": url})
-    while len(tiles) < 4:
-        tiles.append({"name": "Sponsor this tile", "body": "Reach lake visitors while they plan the day.",
-                      "cta": "Get the rate card", "url": ""})
-    return {"presenting": presenting, "supporting": tiles[:4], "sold": False}
+def _sponsor_slots(page: dict, preview: dict | None = None) -> dict:
+    """The five slots as sponsors.py picks them for this page load; a
+    preview claim (a signed token from the editor, plus the unsaved draft)
+    forces one placement into its position."""
+    from . import sponsors
+    try:
+        slots = sponsors.select_slots(page)
+    except Exception as exc:  # noqa: BLE001 -- the page must render with house ads, whatever the tables do
+        log.warning("camhub: placements unreadable for %s: %s", page.get("slug"), exc)
+        cfg = sponsors._config_house(page)
+        slots = {"presenting": sponsors._slot(cfg["presenting"], 0, False, page),
+                 "supporting": [sponsors._slot(t, i + 1, False, page) for i, t in enumerate(cfg["supporting"])],
+                 "sold": False, "sold_supporting": 0}
+        while len(slots["supporting"]) < sponsors.SUPPORTING_SLOTS:
+            slots["supporting"].append(sponsors._slot(
+                {"name": "Sponsor this tile", "body": "Reach lake visitors while they plan the day.",
+                 "cta_label": "Get the rate card"}, len(slots["supporting"]) + 1, False, page))
+    if preview:
+        slots = sponsors.apply_preview(slots, page, preview["claim"], preview.get("draft") or {})
+    return slots
 
 
 def _jsonld(page: dict, ctx: dict) -> list[dict]:
@@ -152,7 +159,8 @@ def _jsonld(page: dict, ctx: dict) -> list[dict]:
     return out
 
 
-def build(page: dict, cache: dict, now: datetime | None = None) -> dict:
+def build(page: dict, cache: dict, now: datetime | None = None,
+          preview: dict | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
     cfg = page.get("config") or {}
     strip = build_strip(page, cache, now)
@@ -186,7 +194,7 @@ def build(page: dict, cache: dict, now: datetime | None = None) -> dict:
         "strip": strip, "verdict": v,
         "advisories": _advisory_bars(cache, now),
         "forecast": _forecast(cache, page, now),
-        "sponsors": _house_ads(page),
+        "sponsors": _sponsor_slots(page, preview),
         "canonical": cfg.get("canonical_url") or "",
         "embed": _embed(page),
         "theme": cfg.get("theme") or {},
