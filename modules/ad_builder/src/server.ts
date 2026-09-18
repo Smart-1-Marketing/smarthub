@@ -3311,6 +3311,11 @@ const server = http.createServer(async (req, res) => {
 
     return json(res, 404, { error: `No route for ${route}` });
   } catch (err: any) {
+    // A body that is not JSON is the caller's mistake, not a crash: a 500
+    // here would page somebody about a request nothing on this side did.
+    if (err instanceof SyntaxError) {
+      return json(res, 400, { error: 'The request body is not valid JSON.' });
+    }
     console.error(`[error] ${route}`, err);
     return json(res, err instanceof CampaignConflict ? 409 : (Number.isInteger(err?.statusCode) && err.statusCode >= 400 && err.statusCode < 500 ? err.statusCode : 500), { error: err?.message ?? 'Internal error' });
   }

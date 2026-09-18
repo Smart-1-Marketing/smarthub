@@ -338,3 +338,33 @@ names* card lists every alias with who taught it, from what, and a
 Forget button. The lesson rides on the person's press, never on the
 auto-mapper's own filings: a proposal that teaches its own alias is a
 guess reinforcing itself.
+
+
+**The queue is worked a client at a time, and the board points at it.**
+`/reports/unmapped?client=<key>` shows one client's proposals and the
+unmapped campaigns that look like theirs; the pacing board's unmapped
+lines link there twice, "N waiting for confirmation" and "N unmapped
+campaigns look like theirs" (`automap.likely_by_client()`, the queue's
+likeness counted per client and held per process for
+`LIKELY_TTL_SECONDS`, forgotten on any mapping press; a reading that
+cannot be made is None and the board draws nothing rather than none).
+**Confirm ticked** confirms a batch in one press, each campaign on its
+own activity row naming the batch, through the same `store.confirm_mapping`
+as the single button, and "Tick the 100% ones" picks the proposals whose
+evidence was exact and leaves the near spellings for a look. The product
+box opens on what the campaign name says (`products.product_hint`: a
+catalog name, else a synonym that means one product on every platform --
+CTV, OTT, pre-roll, podcast, geofence, retargeting, PMax; never "search"
+or "video" alone) and says so; a hint is for the person reading the box,
+and the auto-mapper's own filings still read catalog names only.
+
+
+**The thresholds are tuned on people's decisions, not on a feeling about
+the queue.** `store.automap_scorecard()` counts, per rule family (the
+part of `auto_rule` before any `+`), the filings a person confirmed, the
+ones refused (`MapRefusal.rule`) and the ones still waiting, and the
+queue draws it as a card. A rule whose refusals keep pace with its
+confirmations is filing wrong more than it should, and that reading --
+not the size of the queue -- is what a bar (`FUZZY_FILE_SCORE`,
+`ALIAS_FILE_COUNT`, `ACCOUNT_MIN_CONFIRMED`) is raised on. An unreadable
+store is *not measured*, never a scorecard of noughts.

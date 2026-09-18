@@ -335,7 +335,14 @@ class StoreTests(unittest.TestCase):
         assert not err, err
 
     def test_provision_is_idempotent_and_seeds_the_pool(self):
+        from sqlalchemy import delete
         from modules.camhub import seeds, store
+        from modules.camhub.models import ConditionsCache, session
+        # A refresh elsewhere in this run may already have stamped the pool
+        # row with today; the seed stamp is what a FRESH provision writes.
+        with session() as s:
+            s.execute(delete(ConditionsCache).where(ConditionsCache.key == "pool_elevation"))
+            s.commit()
         first = seeds.provision("buckeye-lake", fetch=False)
         second = seeds.provision("buckeye-lake", fetch=False)
         self.assertFalse(second["page"]["created"])

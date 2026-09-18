@@ -81,7 +81,9 @@ test('a failed autosave keeps edits and a manual retry can finish saving', async
   const first=editor.saveCampaign();
   requests.find(r=>r.url==='/api/campaign/retry-test')!.resolve({ok:false,status:503,json:async()=>({error:'Temporarily unavailable'})});
   await assert.rejects(first,/Temporarily unavailable/);
-  assert.equal(editor.state.dirty,true);assert.match(nodes.get('saveHint').textContent,/Save now to retry/);
+  // A failure that is the link, not a conflict, schedules its own retry and
+  // says so; Save now is still offered.
+  assert.equal(editor.state.dirty,true);assert.match(nodes.get('saveHint').textContent,/Trying again in 10s, or use Save now/);
   const retry=editor.saveCampaign();
   requests.filter(r=>r.url==='/api/campaign/retry-test')[1].resolve({ok:true,json:async()=>({revision:'saved'})});
   await retry;assert.equal(editor.state.dirty,false);assert.equal(nodes.get('saveHint').textContent,'Saved');

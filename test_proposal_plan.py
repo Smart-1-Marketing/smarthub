@@ -687,8 +687,9 @@ with hub_app.app_context():
           client_health._plan_issues([{"id": 1, "title": "x", "url": "/p", "to_review": 0,
                                        "open_questions": 0, "creative_unassigned": 0}]), [])
 
-with open(os.path.join(ROOT, "hub", "templates", "client360.html"), encoding="utf-8") as fh:
-    c360 = fh.read()
+# The record's JavaScript lives in files beside the template now; the whole
+# record is the template plus hub/client360_assets.MODULES.
+c360 = __import__("hub.client360_assets", fromlist=["source_text"]).source_text()
 check("Client 360 draws the plan card", "<h3>Execution plan</h3>" in c360 and "api/client/execution-plan" in c360)
 check("...in the work section", "'execution plan'" in c360.split("/* ---- c360 sections")[1].split("/* ---- end c360 sections")[0])
 

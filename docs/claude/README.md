@@ -49,13 +49,13 @@ say "above" or "below" mean earlier or later files in this list.
 | [`40-a-clients-photos-are-already-somewhere-and-it-is-not-their-l.md`](40-a-clients-photos-are-already-somewhere-and-it-is-not-their-l.md) | A client's photos are already somewhere, and it is not their laptop | 159 |
 | [`41-one-design-the-whole-size-set-and-the-fourth-copy-it-refused.md`](41-one-design-the-whole-size-set-and-the-fourth-copy-it-refused.md) | One design, the whole size set — and the fourth copy it refused to be | 139 |
 | [`42-the-brandtemplate-decision-resolved-a-pick-not-a-table.md`](42-the-brandtemplate-decision-resolved-a-pick-not-a-table.md) | The BrandTemplate decision, resolved: a pick, not a table | 81 |
-| [`43-the-one-module-that-is-not-python.md`](43-the-one-module-that-is-not-python.md) | The one module that is not Python | 895 |
+| [`43-the-one-module-that-is-not-python.md`](43-the-one-module-that-is-not-python.md) | The one module that is not Python | 935 |
 | [`44-everyone-has-their-own-login-and-there-are-two-levels-of-it.md`](44-everyone-has-their-own-login-and-there-are-two-levels-of-it.md) | Everyone has their own login, and there are two levels of it | 617 |
 | [`45-three-index-pages-and-the-question-each-one-answers.md`](45-three-index-pages-and-the-question-each-one-answers.md) | Three index pages, and the question each one answers | 85 |
 | [`46-one-description-of-what-a-record-page-looks-like.md`](46-one-description-of-what-a-record-page-looks-like.md) | One description of what a record page looks like | 221 |
 | [`47-declared-and-never-wired.md`](47-declared-and-never-wired.md) | Declared and never wired | 96 |
 | [`48-a-review-nobody-wrote-down-is-a-review-nobody-can-point-at.md`](48-a-review-nobody-wrote-down-is-a-review-nobody-can-point-at.md) | A review nobody wrote down is a review nobody can point at | 102 |
-| [`49-what-the-ad-report-syncs-propose-and-the-person-who-stands-b.md`](49-what-the-ad-report-syncs-propose-and-the-person-who-stands-b.md) | What the ad-report syncs propose, and the person who stands behind each | 340 |
+| [`49-what-the-ad-report-syncs-propose-and-the-person-who-stands-b.md`](49-what-the-ad-report-syncs-propose-and-the-person-who-stands-b.md) | What the ad-report syncs propose, and the person who stands behind each | 370 |
 | [`50-a-clients-google-listing-read-live-rather-than-remembered-fr.md`](50-a-clients-google-listing-read-live-rather-than-remembered-fr.md) | A client's Google listing, read live rather than remembered from the scan | 87 |
 | [`51-a-clients-youtube-channel-read-live-on-the-same-key.md`](51-a-clients-youtube-channel-read-live-on-the-same-key.md) | A client's YouTube channel, read live, on the same key | 80 |
 | [`52-microsoft-advertising-one-consent-and-the-reports-module-pul.md`](52-microsoft-advertising-one-consent-and-the-reports-module-pul.md) | Microsoft Advertising: one consent, and the reports module pulls | 148 |
@@ -85,4 +85,5 @@ say "above" or "below" mean earlier or later files in this list.
 | [`77-a-half-hour-job-on-the-shared-thread-stalled-every-job-behind-it.md`](77-a-half-hour-job-on-the-shared-thread-stalled-every-job-behind-it.md) | A half-hour job on the shared thread stalled every job behind it | 64 |
 | [`78-last-month-was-not-in-the-fact-table.md`](78-last-month-was-not-in-the-fact-table.md) | Last month was not in the fact table | 72 |
 | [`79-callrail-a-phone-call-is-an-outcome-not-a-conversion.md`](79-callrail-a-phone-call-is-an-outcome-not-a-conversion.md) | CallRail: a phone call is an outcome, not a conversion | 111 |
-| [`80-camhub-a-conditions-page-with-a-sponsor-system-behind-it.md`](80-camhub-a-conditions-page-with-a-sponsor-system-behind-it.md) | CamHub: a conditions page with a sponsor system behind it | 113 |
+| [`80-the-clients-360-script-in-files-not-a-template.md`](80-the-clients-360-script-in-files-not-a-template.md) | The Client 360 script, in files, not a template | 53 |
+| [`81-camhub-a-conditions-page-with-a-sponsor-system-behind-it.md`](81-camhub-a-conditions-page-with-a-sponsor-system-behind-it.md) | CamHub: a conditions page with a sponsor system behind it | 113 |
