@@ -704,7 +704,36 @@ MUSIC_MAX_LENGTH_MS = 600_000
 # which is what `music_length_mismatch` reports when the format comes back as
 # something else.
 AUDIO_OUTPUT_FORMAT = "mp3_44100_128"
-AUDIO_OUTPUT_KBPS = 128
+
+
+def _kbps_of(fmt: str) -> int:
+    """The bitrate named in an ElevenLabs output format, e.g. mp3_44100_128.
+
+    Derived rather than typed a second time. These were two constants that had
+    to agree and nothing checked: bump the format to `mp3_44100_192` and leave
+    the number at 128 and every duration in this module silently comes back
+    1.5x too long -- reported as MEASURED, because the arithmetic is on the
+    byte count and the byte count is fine. The bed's length, the voice take's
+    length and `music_length_mismatch` all read it, so one wrong number is
+    wrong in three places at once with nothing anywhere saying so.
+
+    Only an ``mp3_<rate>_<kbps>`` format parses, because that is the only shape
+    the byte-count arithmetic is valid for: a `pcm_44100` would otherwise hand
+    back 44100 as a "bitrate", which is a confident wrong number where 0 is the
+    true one. Anything else answers 0, and `cbr_seconds()` already refuses a
+    bitrate of 0 by answering `None` -- *not measured*, which is the honest
+    result for a file whose bitrate nobody here can name.
+    """
+    parts = str(fmt or "").split("_")
+    if len(parts) != 3 or parts[0] != "mp3":
+        return 0
+    try:
+        return int(parts[2])
+    except (TypeError, ValueError):
+        return 0
+
+
+AUDIO_OUTPUT_KBPS = _kbps_of(AUDIO_OUTPUT_FORMAT)
 
 # How far a returned track may sit from the length that was asked for before
 # the check says so. OURS, not ElevenLabs' — no published tolerance exists, so
@@ -713,6 +742,20 @@ AUDIO_OUTPUT_KBPS = 128
 # beat: closer than that and a bed still lands under the end card, further and
 # it either runs out early or has to be trimmed.
 MUSIC_LENGTH_TOLERANCE_S = 1.0
+
+# The same question at SCENE grain, and deliberately a different number. One
+# second is a sensible slack for a bed against a :30 runway -- about 3% -- and
+# it is nonsense against a four-second scene, where it is a quarter of the
+# shot. A scene's narration is placed with that scene's own span as a hard
+# duration, so anything over is a line cut mid-word rather than a track running
+# a little long; what is actually forgivable there is a trailing breath, not a
+# word. Three frames at 30fps.
+#
+# It exists because the two readings silently disagreed: the per-scene check
+# flagged an overrun and the rate that would fix it came back "fits", because
+# the rate was being worked out against the bed's tolerance. One number, read
+# by the finding, the offer and the gate alike.
+SCENE_VOICE_TOLERANCE_S = 0.1
 
 # A generated bed is composed to the spot's own runway, and it stops a shade
 # early on purpose: a track that ends on exactly the last frame gets clipped

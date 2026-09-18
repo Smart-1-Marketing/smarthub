@@ -126,6 +126,13 @@ def provision(slug: str):
         return down
     if slug not in seeds.SEEDS:
         abort(404)
+    spec = seeds.SEEDS[slug]
+    # A wizard-only seed carries no sources of its own -- the buoy/tides
+    # adapters resolve their configs from lat/lon, and freezing that in
+    # a file would be a guess. Route it through the wizard, pre-populated,
+    # rather than writing a page with an empty source list.
+    if spec.get("wizard_seed") and not spec.get("sources"):
+        return redirect(url_for("builder_wizard", seed=slug))
     result = seeds.provision(slug, fetch=True)
     _activity("provisioned", client=result["page"].get("client_name"), slug=slug,
               created=result["page"].get("created"), sources=result["sources"])
@@ -133,6 +140,102 @@ def provision(slug: str):
         return jsonify({"ok": True, "slug": slug, "created": result["page"].get("created"),
                         "sources": result["sources"], "refresh": result.get("refresh")})
     return redirect(url_for("page_detail", slug=slug))
+
+
+# ----------------------------------------------------------------- builder
+
+_TIMEZONES = ("America/New_York", "America/Chicago", "America/Denver",
+              "America/Los_Angeles", "America/Phoenix", "America/Anchorage",
+              "Pacific/Honolulu")
+
+
+@app.route("/builder")
+def builder_wizard():
+    """The Cam Builder screens. Every step -- address, location type, probe
+    review, provision -- lives on one page so a person can go back to any of
+    them without losing the ones after. Sprint 6, per docs/camhub-spec.md."""
+    down = _db_or_503()
+    if down:
+        return down
+    types = [{"key": k, "label": k.replace("_", " ").title(),
+              "wants": list(builder.WANTS.get(k, ()))}
+             for k in builder.LOCATION_TYPES]
+    seed = (request.args.get("seed") or "").strip()[:80]
+    return render_template("builder.html", mount=request.script_root or MOUNT,
+                           types=types, timezones=list(_TIMEZONES),
+                           seed=seed if seed in seeds.SEEDS else "")
+
+
+@app.route("/builder/provision", methods=["POST"])
+def builder_provision():
+    """The wizard's POST: answers, the probe payload the browser just ran
+    against, and a `picked` map deciding which candidate to keep per key.
+    Idempotent by slug -- a second submit for the same slug updates in place.
+    """
+    down = _db_or_503()
+    if down:
+        return down
+    payload = request.get_json(silent=True) or {}
+    answers = payload.get("answers") or {}
+    probe_result = payload.get("probe") or {}
+    picked = payload.get("picked") or {}
+    if not answers.get("slug") and not answers.get("title"):
+        return jsonify({"ok": False, "error": "a slug or title is required"}), 400
+    if not probe_result.get("lat") or not probe_result.get("lon"):
+        return jsonify({"ok": False, "error": "the probe payload is missing coordinates"}), 400
+    answers = {**answers, "picked": picked}
+    try:
+        spec = builder.spec_from_answers(answers, probe_result)
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 400
+    if not spec["sources"]:
+        return jsonify({"ok": False, "error":
+                        "no sources were picked from the probe -- go back and check at least one"}), 400
+    try:
+        result = seeds.provision_from_spec(spec, fetch=True)
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"ok": False, "error": f"{type(exc).__name__}: {exc}"}), 400
+    _activity("wizard_provisioned", client=result["page"].get("client_name"),
+              slug=spec["slug"], created=result["page"].get("created"),
+              sources=result["sources"], location_type=spec["location_type"])
+    return jsonify({"ok": True, "slug": spec["slug"], "sources": result["sources"],
+                    "created": result["page"].get("created"),
+                    "refresh": result.get("refresh")})
+
+
+@app.route("/pages/<slug>/reprobe", methods=["POST"])
+def page_reprobe(slug: str):
+    """Re-run every adapter's probe against the page's current lat/lon and
+    location type, and report what would change: new candidates, better
+    distances, a source that stopped answering. Never writes -- turning a
+    probe result into sources is the wizard's step 4."""
+    down = _db_or_503()
+    if down:
+        return down
+    page = store.get_page(slug)
+    if not page:
+        abort(404)
+    try:
+        result = builder.probe(float(page["lat"]), float(page["lon"]),
+                               page.get("location_type") or "inland_lake")
+    except (ValueError, TypeError) as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    current = {row["key"]: row for row in store.list_sources(page["id"])}
+    delta = []
+    for group in result["confirmed"] + result["decide"]:
+        key = group["key"]
+        top = group["candidates"][0]
+        was = current.get(key)
+        if not was:
+            delta.append({"key": key, "kind": "new", "label": top.get("label") or key,
+                          "adapter": top["adapter"]})
+        elif top["adapter"] != was["adapter"] or top.get("config") != was.get("config"):
+            delta.append({"key": key, "kind": "changed", "label": top.get("label") or key,
+                          "adapter": top["adapter"], "was": was["adapter"]})
+    for a in result["absent"]:
+        if a["key"] in current:
+            delta.append({"key": a["key"], "kind": "missing", "reason": a["reason"]})
+    return jsonify({"ok": True, "slug": slug, "probe": result, "delta": delta})
 
 
 # ---------------------------------------------------------------- sponsors

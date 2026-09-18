@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head><title>Cam Builder</title>{% include "_staff_head.html" %}</head>
+<body>
+<div class="wrap">
+  <h1>Cam Builder <span class="dot help-dot" data-help="camhub.builder">?</span></h1>
+  <p class="lede">Address in, page out. Every step is undoable until you press <b>Provision</b>; on
+    Provision the page is written and a first fetch is scheduled. The four steps are one screen so
+    a person can go back to any of them without losing the ones after.</p>
+
+  <ol id="wizard" class="wiz">
+    <li id="step-1" class="on"><b>1</b> Address</li>
+    <li id="step-2"><b>2</b> Location type</li>
+    <li id="step-3"><b>3</b> Review the probe</li>
+    <li id="step-4"><b>4</b> Name and provision</li>
+  </ol>
+
+  <section id="pane-1" class="card">
+    <h2 style="margin-top:0">1. The address</h2>
+    <p class="muted">Freeform US address. The Census geocoder answers with every match it holds; pick the one that names your dock, not the one that names the road it is on.</p>
+    <form id="geo-form" class="row" style="align-items:flex-end">
+      <div style="flex:1;min-width:280px">
+        <label class="muted" style="font-size:11.5px;text-transform:uppercase">Address</label><br>
+        <input name="address" required maxlength="240" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px" placeholder="13750 Rosewood Rd NE, Thornville, OH 43076">
+      </div>
+      <button class="btn" type="submit">Find matches</button>
+    </form>
+    <div id="geo-out" style="margin-top:14px"></div>
+  </section>
+
+  <section id="pane-2" class="card" hidden>
+    <h2 style="margin-top:0">2. What kind of place is this?</h2>
+    <p class="muted">The choice decides which tiles the page tries to fill; a tile with no feed collapses rather than draws blank.</p>
+    <div id="type-out" class="row"></div>
+  </section>
+
+  <section id="pane-3" class="card" hidden>
+    <h2 style="margin-top:0">3. What the probe found</h2>
+    <p class="muted">Sources it is <b>sure of</b> land on the page; sources with more than one candidate need you to pick one; sources with no candidate collapse. You can uncheck any row.</p>
+    <div id="probe-out"><div class="muted">Probing every adapter…</div></div>
+  </section>
+
+  <section id="pane-4" class="card" hidden>
+    <h2 style="margin-top:0">4. Name it and provision</h2>
+    <form id="prov-form" onsubmit="return provision(event)">
+      <div class="row" style="align-items:flex-end;gap:16px">
+        <div style="flex:1;min-width:220px">
+          <label class="muted" style="font-size:11.5px;text-transform:uppercase">Slug (URL)</label><br>
+          <input name="slug" required maxlength="80" pattern="[a-z0-9\-]+" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px" placeholder="location-name">
+        </div>
+        <div style="flex:2;min-width:280px">
+          <label class="muted" style="font-size:11.5px;text-transform:uppercase">Page title</label><br>
+          <input name="title" required maxlength="200" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px">
+        </div>
+      </div>
+      <div class="row" style="align-items:flex-end;gap:16px;margin-top:10px">
+        <div style="flex:1;min-width:220px">
+          <label class="muted" style="font-size:11.5px;text-transform:uppercase">Client name</label><br>
+          <input name="client_name" maxlength="120" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px">
+        </div>
+        <div style="flex:1;min-width:220px">
+          <label class="muted" style="font-size:11.5px;text-transform:uppercase">Business name</label><br>
+          <input name="business_name" maxlength="120" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px">
+        </div>
+      </div>
+      <div class="row" style="align-items:flex-end;gap:16px;margin-top:10px">
+        <div style="flex:2;min-width:260px">
+          <label class="muted" style="font-size:11.5px;text-transform:uppercase">Location display name</label><br>
+          <input name="location_name" maxlength="120" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px">
+        </div>
+        <div style="flex:1;min-width:180px">
+          <label class="muted" style="font-size:11.5px;text-transform:uppercase">Timezone</label><br>
+          <select name="timezone" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px">
+            {% for tz in timezones %}<option value="{{ tz }}">{{ tz }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      <div style="margin-top:14px">
+        <button class="btn" type="submit">Provision this page</button>
+        <button class="btn sec" type="button" onclick="show(3)">Back to the probe</button>
+      </div>
+      <div id="prov-out" style="margin-top:12px"></div>
+    </form>
+  </section>
+</div>
+<style>
+  .wiz{display:flex;gap:6px;list-style:none;padding:0;margin:0 0 18px;flex-wrap:wrap}
+  .wiz li{padding:8px 14px;background:#fff;border:1px solid var(--line);border-radius:20px;font-size:12.5px;color:var(--muted)}
+  .wiz li b{display:inline-block;width:20px;height:20px;border-radius:50%;background:#e2e8f0;color:#334155;text-align:center;line-height:20px;font-size:11.5px;margin-right:6px;font-weight:700}
+  .wiz li.on{background:var(--blue);border-color:var(--blue);color:#fff}
+  .wiz li.on b{background:rgba(255,255,255,.25);color:#fff}
+  .wiz li.done{background:#dcfce7;border-color:#86efac;color:#166534}
+  .wiz li.done b{background:var(--ok);color:#fff}
+  .match{padding:10px 12px;border:1px solid var(--line);border-radius:8px;margin-bottom:6px;cursor:pointer;background:#fff}
+  .match:hover{border-color:var(--blue)}
+  .match.on{border-color:var(--blue);background:#eff4ff}
+  .typechip{padding:8px 14px;border:1px solid var(--line);border-radius:20px;cursor:pointer;background:#fff;font-size:13px}
+  .typechip:hover{border-color:var(--blue)}
+  .typechip.on{background:var(--blue);color:#fff;border-color:var(--blue)}
+  .grp{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:8px}
+  .grp.confirmed{background:#f0fdf4;border-color:#86efac}
+  .grp.decide{background:#fef3c7;border-color:#fcd34d}
+  .grp.absent{background:#f8fafc;color:var(--muted)}
+</style>
+<script>
+const S = {addr:'', match:null, type:null, probe:null, picked:{}};
+
+function show(step){
+  document.querySelectorAll('#wizard li').forEach(li=>li.classList.remove('on'));
+  const cur=document.getElementById('step-'+step); if(cur) cur.classList.add('on');
+  for(let i=1;i<=4;i++){
+    document.getElementById('pane-'+i).hidden = (i !== step);
+    const st=document.getElementById('step-'+i);
+    if(i < step) st.classList.add('done'); else st.classList.remove('done');
+  }
+  if(step===1) cur.classList.add('on');
+}
+
+async function j(url, opts){
+  const r = await fetch(url, opts || {}); const d = await r.json();
+  if(!r.ok || d.ok === false) throw new Error(d.error || ('HTTP ' + r.status));
+  return d;
+}
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+document.getElementById('geo-form').addEventListener('submit', async ev=>{
+  ev.preventDefault();
+  const addr = ev.target.address.value.trim();
+  S.addr = addr;
+  const out = document.getElementById('geo-out');
+  out.innerHTML = '<div class="muted">Asking the Census geocoder…</div>';
+  try{
+    const d = await j('{{ mount }}/api/geocode?address=' + encodeURIComponent(addr));
+    if(!d.matches.length){ out.innerHTML = '<div class="err">No matches — try including the ZIP or the state.</div>'; return; }
+    out.innerHTML = d.matches.map((m,i)=>
+      `<div class="match" data-i="${i}"><b>${esc(m.address)}</b><br><span class="muted">${m.lat.toFixed(4)}, ${m.lon.toFixed(4)} · ${esc(m.city||'')}, ${esc(m.state||'')} ${esc(m.zip||'')}</span></div>`
+    ).join('');
+    out.querySelectorAll('.match').forEach(el => el.onclick = ()=>{
+      out.querySelectorAll('.match').forEach(x=>x.classList.remove('on'));
+      el.classList.add('on');
+      S.match = d.matches[Number(el.dataset.i)];
+      renderTypes();
+      show(2);
+    });
+  }catch(exc){ out.innerHTML = '<div class="err">' + esc(exc.message) + '</div>'; }
+});
+
+const TYPES = {{ types|tojson }};
+function renderTypes(){
+  const box = document.getElementById('type-out');
+  box.innerHTML = TYPES.map(t =>
+    `<button type="button" class="typechip" data-t="${esc(t.key)}"><b>${esc(t.label)}</b><br><span class="muted" style="font-size:11.5px">${esc(t.wants.join(', '))}</span></button>`
+  ).join('');
+  box.querySelectorAll('.typechip').forEach(b => b.onclick = ()=>{
+    box.querySelectorAll('.typechip').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+    S.type = b.dataset.t;
+    show(3);
+    runProbe();
+  });
+}
+
+async function runProbe(){
+  const out = document.getElementById('probe-out');
+  out.innerHTML = '<div class="muted">Every adapter’s probe, in parallel…</div>';
+  try{
+    const d = await j('{{ mount }}/api/probe?lat=' + S.match.lat + '&lon=' + S.match.lon + '&type=' + encodeURIComponent(S.type));
+    S.probe = d;
+    S.picked = {};
+    (d.confirmed || []).forEach(g => { S.picked[g.key] = true; });
+    (d.decide || []).forEach(g => { S.picked[g.key] = 0; });
+    renderProbe();
+  }catch(exc){ out.innerHTML = '<div class="err">' + esc(exc.message) + '</div>'; }
+}
+
+function renderProbe(){
+  const d = S.probe; const box = document.getElementById('probe-out');
+  const conf = (d.confirmed||[]).map(g => {
+    const c = g.candidates[0];
+    return `<div class="grp confirmed"><label><input type="checkbox" data-conf="${esc(g.key)}" checked> <b>${esc(g.key)}</b> — ${esc(c.label||g.key)} <span class="muted">(${esc(c.adapter)}${c.distance_mi?', '+c.distance_mi.toFixed(1)+' mi':''})</span></label></div>`;
+  }).join('');
+  const dec = (d.decide||[]).map(g => `<div class="grp decide"><b>${esc(g.key)}</b> — decide<br>` +
+    g.candidates.map((c,i)=>`<label style="display:block"><input type="radio" name="pick-${esc(g.key)}" data-dec="${esc(g.key)}" value="${i}"${i===0?' checked':''}> ${esc(c.label||g.key)} <span class="muted">${esc(c.adapter)}${c.distance_mi?', '+c.distance_mi.toFixed(1)+' mi':''}</span></label>`).join('') +
+    `<label style="display:block;color:var(--muted)"><input type="radio" name="pick-${esc(g.key)}" data-dec="${esc(g.key)}" value=""> Skip this source</label></div>`).join('');
+  const abs = (d.absent||[]).map(a => `<div class="grp absent"><b>${esc(a.key)}</b> — ${esc(a.reason)}</div>`).join('');
+  box.innerHTML = (conf + dec + abs) + '<div style="margin-top:10px"><button class="btn" type="button" onclick="show(4)">Continue</button></div>';
+  box.querySelectorAll('input[data-conf]').forEach(i => i.onchange = ()=>{ S.picked[i.dataset.conf] = i.checked; });
+  box.querySelectorAll('input[data-dec]').forEach(i => i.onchange = ()=>{
+    S.picked[i.dataset.dec] = i.value === '' ? null : Number(i.value);
+  });
+  const preset = document.getElementById('prov-form');
+  const loc = (S.match.city ? S.match.city + ' ' + (S.match.state||'') : '').trim();
+  preset.slug.value = '';
+  preset.title.value = (loc ? loc + ' ' : '') + 'Live Cam';
+  preset.location_name.value = loc || '';
+}
+
+async function provision(ev){
+  ev.preventDefault();
+  const form = ev.target;
+  const out = document.getElementById('prov-out');
+  out.innerHTML = '<div class="muted">Writing the page and running a first fetch…</div>';
+  const answers = {slug: form.slug.value.trim(), title: form.title.value.trim(),
+                   client_name: form.client_name.value.trim(),
+                   business_name: form.business_name.value.trim(),
+                   location_name: form.location_name.value.trim(),
+                   timezone: form.timezone.value,
+                   address: S.match ? S.match.address : S.addr};
+  try{
+    const d = await j('{{ mount }}/builder/provision', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({answers: answers, probe: S.probe, picked: S.picked})});
+    out.innerHTML = '<div style="color:var(--ok)"><b>Provisioned:</b> <a href="{{ mount }}/pages/' + esc(d.slug) + '">Open in CamHub</a> · <a href="{{ mount }}/cam/' + esc(d.slug) + '" target="_blank">Open the live page</a></div>';
+  }catch(exc){ out.innerHTML = '<div class="err">' + esc(exc.message) + '</div>'; }
+  return false;
+}
+
+show(1);
+</script>
+</body></html>

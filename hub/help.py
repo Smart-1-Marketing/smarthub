@@ -2662,6 +2662,14 @@ REGISTRY: list[Help] = [
        "stale but still served with its timestamp, red has collapsed off the "
        "page. A source that is red here is why a tile is missing there; "
        "Refresh now pulls every feed at once."),
+    _h("camhub.builder", "Address in, page out",
+       "Four steps on one screen: the Census geocoder answers with every match "
+       "for the address so a wrong pin cannot silently take a whole page; the "
+       "location type decides which tiles the page tries to fill; every "
+       "adapter's probe runs at once and the review names what was found, "
+       "what needs a decision and what has no adapter here; provision writes "
+       "the page and runs a first fetch. Idempotent by slug -- a second "
+       "submit for the same slug updates in place."),
     _h("camhub.reports", "One PDF a sponsor could audit",
        "One row per sponsor per month, run automatically on the 1st for the "
        "prior month. Rendered files the PDF on Cloudinary; sent tries to "
