@@ -19,10 +19,24 @@
     <label>Client<input name="client" maxlength="160"
            placeholder="Leave blank for a one-off"></label>
     <p class="mr-src" id="mr-brand-preview"></p>
-    <label>Image Creator project id
-      {{ help_dot('magic_resize.source') if help_dot is defined else '' }}
-      <input name="from_image_creator"
-             placeholder="Paste the id of the design to resize"></label>
+
+    <div class="mr-src-pick">
+      <label>Start from a design already in Image Creator
+        {{ help_dot('magic_resize.source') if help_dot is defined else '' }}
+        <input id="mr-ic-search" type="text" autocomplete="off"
+               placeholder="Search by name or client…"></label>
+      <div id="mr-ic-results" class="mr-ic-results" hidden></div>
+      <p class="mr-src" id="mr-ic-picked"></p>
+    </div>
+
+    <div class="mr-src-pick">
+      <label>Or upload a finished design to resize
+        <input id="mr-upload" type="file" accept="image/png,image/jpeg,image/webp"></label>
+      <p class="mr-src" id="mr-upload-status">JPG, PNG or WebP. It becomes one
+         full-size background layer that scales to fill each size — nothing
+         is re-typed, so any words on it stay exactly as drawn.</p>
+    </div>
+
     <label>Size bundle
       {{ help_dot('magic_resize.bundle') if help_dot is defined else '' }}
       <select name="bundle">
@@ -125,19 +139,131 @@
       })
       .catch(function(){ preview.textContent = ''; });
   });
+  // Image Creator picker: search-as-you-type against that module's own
+  // project index (modules/image_creator/projects.py), proxied through
+  // this module's own /api/image-creator-projects so nobody ever has to
+  // know, let alone paste, that a design there has an id at all.
+  var icSearch = document.getElementById('mr-ic-search');
+  var icResults = document.getElementById('mr-ic-results');
+  var icPicked = document.getElementById('mr-ic-picked');
+  var pickedProjectId = '';
+  var icTimer = null;
+
+  function clearIcPick(){
+    pickedProjectId = '';
+    icPicked.textContent = '';
+  }
+
+  function renderIcResults(rows){
+    if(!rows.length){
+      icResults.hidden = false;
+      icResults.innerHTML = '<p class="mr-src mr-ic-empty">No matching designs.</p>';
+      return;
+    }
+    icResults.hidden = false;
+    icResults.innerHTML = '';
+    rows.forEach(function(p){
+      var row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'mr-ic-row';
+      row.innerHTML = (p.preview_url
+          ? '<img src="' + p.preview_url + '" alt="">'
+          : '<span class="mr-ic-noimg"></span>') +
+        '<span class="mr-ic-row-text"><strong>' +
+        (p.name || 'Untitled') + '</strong>' +
+        (p.client ? ' — ' + p.client : '') + '</span>';
+      row.addEventListener('click', function(){
+        pickedProjectId = p.id;
+        clearUpload();
+        icSearch.value = '';
+        icResults.hidden = true;
+        icPicked.textContent = 'Using "' + (p.name || 'Untitled') +
+          '"' + (p.client ? ' (' + p.client + ')' : '') + '. ' ;
+        var change = document.createElement('a');
+        change.href = '#'; change.textContent = 'Change';
+        change.addEventListener('click', function(e){ e.preventDefault(); clearIcPick(); });
+        icPicked.appendChild(change);
+      });
+      icResults.appendChild(row);
+    });
+  }
+
+  if(icSearch){
+    icSearch.addEventListener('input', function(){
+      var q = icSearch.value.trim();
+      window.clearTimeout(icTimer);
+      if(!q){ icResults.hidden = true; return; }
+      icTimer = window.setTimeout(function(){
+        fetch('api/image-creator-projects?q=' + encodeURIComponent(q))
+          .then(function(r){ return r.json(); })
+          .then(function(d){ renderIcResults(d.projects || []); })
+          .catch(function(){ icResults.hidden = true; });
+      }, 250);
+    });
+    document.addEventListener('click', function(ev){
+      if(!icResults.contains(ev.target) && ev.target !== icSearch) icResults.hidden = true;
+    });
+  }
+
+  // Upload-and-resize: the file becomes one full-frame background object
+  // through /api/upload-source (Pillow reads its size, hub.storage files
+  // the bytes), so it goes through the exact same size engine as an
+  // Image Creator canvas rather than a second code path.
+  var uploadInput = document.getElementById('mr-upload');
+  var uploadStatus = document.getElementById('mr-upload-status');
+  var uploadedSource = null;
+  var uploadDefaultText = uploadStatus ? uploadStatus.textContent : '';
+
+  function clearUpload(){
+    uploadedSource = null;
+    if(uploadInput) uploadInput.value = '';
+    if(uploadStatus) uploadStatus.textContent = uploadDefaultText;
+  }
+
+  if(uploadInput){
+    uploadInput.addEventListener('change', function(){
+      var file = uploadInput.files && uploadInput.files[0];
+      if(!file) return;
+      clearIcPick();
+      uploadStatus.textContent = 'Reading ' + file.name + '…';
+      var body = new FormData();
+      body.append('file', file);
+      fetch('api/upload-source', {method:'POST', body: body})
+        .then(function(r){ return r.json().then(function(d){ return {ok:r.ok, d:d}; }); })
+        .then(function(res){
+          if(!res.ok){
+            uploadStatus.textContent = res.d.error || 'That could not be read.';
+            uploadedSource = null;
+            return;
+          }
+          uploadedSource = res.d.source;
+          uploadStatus.textContent = 'Using ' + file.name + ' (' +
+            res.d.source.width + '×' + res.d.source.height +
+            ') as the design to resize.';
+        })
+        .catch(function(err){
+          uploadStatus.textContent = 'That could not be read: ' + err;
+          uploadedSource = null;
+        });
+    });
+  }
+
   form.addEventListener('submit', function(ev){
     ev.preventDefault();
+    if(!pickedProjectId && !uploadedSource){
+      msg.textContent = 'Pick an Image Creator design or upload an image first.';
+      return;
+    }
     var wait = (window.S1Think && window.S1Think.attach)
       ? window.S1Think.attach(msg, {kind:'wait'}) : null;
     msg.textContent = 'Building the set…';
     var fd = new FormData(form);
+    var body = {name: fd.get('name'), client: fd.get('client'), bundle: fd.get('bundle')};
+    if(uploadedSource) body.source = uploadedSource;
+    else body.from_image_creator = pickedProjectId;
     fetch('api/projects', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({
-        name: fd.get('name'), client: fd.get('client'),
-        bundle: fd.get('bundle'),
-        from_image_creator: (fd.get('from_image_creator')||'').trim()
-      })
+      body: JSON.stringify(body)
     }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, d:d}; }); })
       .then(function(res){
         if(wait) wait.done();

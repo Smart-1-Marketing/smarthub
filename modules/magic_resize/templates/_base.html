@@ -34,6 +34,20 @@
   .mr-swatch{display:inline-block;width:14px;height:14px;border-radius:3px;
              border:1px solid rgba(16,32,52,.15);vertical-align:middle;
              margin-right:3px}
+  .mr-src-pick{position:relative;margin:10px 0}
+  .mr-ic-results{position:absolute;z-index:5;left:0;right:0;top:100%;
+                 background:#fff;border:1px solid #d7dee8;border-radius:6px;
+                 box-shadow:0 4px 14px rgba(16,32,52,.14);max-height:260px;
+                 overflow-y:auto}
+  .mr-ic-row{display:flex;align-items:center;gap:8px;width:100%;text-align:left;
+            padding:6px 8px;border:0;background:none;cursor:pointer;font-size:13px}
+  .mr-ic-row:hover{background:#eef3fa}
+  .mr-ic-row img{width:32px;height:32px;object-fit:cover;border-radius:3px;
+                 border:1px solid #d7dee8;flex:0 0 auto}
+  .mr-ic-noimg{width:32px;height:32px;border-radius:3px;background:#eef1f6;
+              flex:0 0 auto}
+  .mr-ic-row-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mr-ic-empty{margin:0;padding:8px}
 </style>
 </head>
 <body{% block body_attrs %}{% endblock %}>
