@@ -372,21 +372,26 @@ check("nor google_finder, skills360 or youtube_studio, which moved in this "
 # "Every module has moved across" and "the scan silently stopped scanning"
 # render identically, and this repo has paid for that difference before. So a
 # file with the defect in it is planted, found, and removed.
-_planted = os.path.join(ROOT, "modules", "_keyring_drift_probe.py")
-try:
-    with open(_planted, "w", encoding="utf-8") as _fh:
-        _fh.write("from cryptography.fernet import Fernet\n\n\n"
-                  "def cipher():\n    return Fernet(b'x')\n")
-    _probe = {f["file"] for f in integrity.check_own_fernet()}
-    check("a module building its own Fernet IS found — the empty list above is "
-          "a real answer and not a scan that has stopped running",
-          "modules/_keyring_drift_probe.py" in _probe, _probe)
-finally:
-    if os.path.exists(_planted):
-        os.remove(_planted)
-check("and the probe is gone again, so the repo is left as it was",
-      not os.path.exists(_planted))
-check("with it gone the audit is empty once more",
+# It is handed to the check rather than written into modules/ and deleted
+# again: a probe in the working tree races every concurrent sweep (a
+# `tools/preflight.py` run listed one and read it after the delete), and a run
+# killed between the write and the `finally` leaves it behind.
+_planted = "modules/_keyring_drift_probe.py"
+_probe = {f["file"] for f in integrity.check_own_fernet(sources=[
+    (_planted, "from cryptography.fernet import Fernet\n\n\n"
+               "def cipher():\n    return Fernet(b'x')\n")])}
+check("a module building its own Fernet IS found — the empty list above is "
+      "a real answer and not a scan that has stopped running",
+      _planted in _probe, _probe)
+check("and nothing was written to the repository to find it",
+      not os.path.exists(os.path.join(ROOT, _planted)), _planted)
+# Handing it sources means the empty audit above no longer proves the default
+# walk reaches anything, so that is asserted rather than assumed.
+_walked = {rel for rel, _ in integrity._sources()}
+check("the default walk reaches hub/ and modules/",
+      "hub/keyring.py" in _walked
+      and any(r.startswith("modules/") for r in _walked), len(_walked))
+check("with nothing planted the audit is empty once more",
       integrity.check_own_fernet() == [])
 check("it is registered on /api/integrity", any(
     g["key"] == "own_fernet" for g in integrity.run()["groups"]))

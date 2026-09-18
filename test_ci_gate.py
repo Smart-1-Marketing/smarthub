@@ -33,6 +33,7 @@ Two directions, because either alone goes stale:
 `check_stale_json_exemptions()` works to. It is empty, which is the only way
 this was worth adding.
 """
+import ast
 import pathlib
 import re
 import sys
@@ -97,6 +98,173 @@ check("every exemption says why", all(str(v).strip() for v in EXEMPT.values()),
       [k for k, v in EXEMPT.items() if not str(v).strip()])
 stale = sorted(f for f in EXEMPT if f not in here)
 check("and no exemption outlives the file it exempted", stale == [], stale)
+
+# ------------------------------------------- no test writes into the repo
+#
+# A test that plants a fixture file in the working tree and deletes it in a
+# `finally` is two failures waiting:
+#
+#   * it races every concurrent sweep. `tools/preflight.py`'s "compile every
+#     module" step listed `hub/_integrity_orphan_caller.py` and read it after
+#     test_env_config.py had deleted it, and failed with FileNotFoundError on a
+#     file that had never been committed. Nothing about that error names the
+#     test that caused it, and re-running serially makes it disappear -- which
+#     is the shape of a defect that gets called a flake for a year.
+#   * it survives a run that dies. SIGKILL, a failed assertion outside the
+#     try, a debugger -- any of them leaves the probe in the working tree, and
+#     the next `git status` shows an untracked file in hub/ that nobody wrote.
+#
+# Three files did this and all three had the same excuse, which was a real one:
+# the check under test walked the repository and took no argument, so a probe
+# had nowhere else to go. That is the thing to fix -- `check_orphan_templates`,
+# `check_provider_key_drift`, `check_own_fernet` and this file's own
+# `unwired()` now take a root or a list of sources, the way
+# `check_ai_callers(root)` and `check_shadowed_model_query(sources=)` always
+# did -- so the fixture is a temporary directory or a string, and the repo is
+# never touched.
+#
+# Read by AST rather than by text, because the paragraph you are reading names
+# `write_text` and `ROOT` in the same file as the check. A name is repository-
+# rooted if it is derived from `__file__`, transitively: the write is almost
+# never on `ROOT` itself but on `_probe = ROOT / "hub" / "x.py"` three lines
+# later. `.replace` is deliberately not a write attribute -- `str.replace` is
+# everywhere in these files, and a check with thirteen false findings in it is
+# a check nobody reads.
+print("\nno test writes into the repository it is checking")
+print("-" * 50)
+
+WRITE_ATTRS = {"write_text", "write_bytes", "mkdir", "touch", "unlink",
+               "rmdir", "rename", "symlink_to", "hardlink_to"}
+TEMP_CALLS = {"mkdtemp", "TemporaryDirectory", "gettempdir", "mkstemp",
+              "NamedTemporaryFile"}
+
+# Tests allowed to write into the tree, with the reason. Empty on purpose --
+# the same discipline EXEMPT above and check_stale_json_exemptions() work to.
+WRITES_EXEMPT: dict[str, str] = {}
+
+
+def _names(node):
+    return {n.id for n in ast.walk(node) if isinstance(n, ast.Name)}
+
+
+def _temp(node):
+    return any((isinstance(n, ast.Attribute) and n.attr in TEMP_CALLS)
+               or (isinstance(n, ast.Name) and n.id in TEMP_CALLS)
+               for n in ast.walk(node))
+
+
+def _bindings(tree):
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Assign) and n.value is not None:
+            for t in n.targets:
+                if isinstance(t, ast.Name):
+                    yield t.id, n.value
+        elif isinstance(n, ast.AnnAssign) and n.value is not None \
+                and isinstance(n.target, ast.Name):
+            yield n.target.id, n.value
+
+
+def repo_rooted(tree):
+    """Names bound to a path inside the repository, transitively."""
+    pairs = list(_bindings(tree))
+    rooted = {name for name, val in pairs
+              if any(isinstance(n, ast.Name) and n.id == "__file__"
+                     for n in ast.walk(val))}
+    for _ in range(len(pairs) + 1):          # to a fixed point
+        grew = False
+        for name, val in pairs:
+            if name not in rooted and not _temp(val) and _names(val) & rooted:
+                rooted.add(name)
+                grew = True
+        if not grew:
+            break
+    # ...and a name rebound to a temporary path is no longer the repository.
+    for name, val in pairs:
+        if name in rooted and _temp(val):
+            rooted.discard(name)
+    return rooted
+
+
+def repo_writes(source):
+    """(line, what) for every write this source aims at its own repository."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []
+    rooted = repo_rooted(tree)
+    if not rooted:
+        return []
+    out = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        f = node.func
+        if isinstance(f, ast.Attribute) and f.attr in WRITE_ATTRS:
+            if _names(f.value) & rooted:
+                out.add((node.lineno, f.attr + "()"))
+        elif isinstance(f, ast.Name) and f.id == "open" and len(node.args) >= 2:
+            mode = node.args[1]
+            if isinstance(mode, ast.Constant) and isinstance(mode.value, str) \
+                    and any(c in mode.value for c in "wax") \
+                    and _names(node.args[0]) & rooted:
+                out.add((node.lineno, "open() for writing"))
+    return sorted(out)
+
+
+writers = []
+for _p in sorted(ROOT.glob("test_*.py")):
+    if _p.name in WRITES_EXEMPT:
+        continue
+    for _line, _what in repo_writes(_p.read_text(encoding="utf-8",
+                                                 errors="ignore")):
+        writers.append(f"{_p.name}:{_line} {_what}")
+check("no test plants a file in the working tree", writers == [],
+      "; ".join(writers[:8]))
+
+check("every exemption says why",
+      all(str(v).strip() for v in WRITES_EXEMPT.values()),
+      [k for k, v in WRITES_EXEMPT.items() if not str(v).strip()])
+_stale_writes = sorted(f for f in WRITES_EXEMPT if f not in here)
+check("and no exemption outlives the file it exempted",
+      _stale_writes == [], _stale_writes)
+
+# An empty finding list is only worth something if the reading behind it can be
+# shown to find the thing. All four shapes, on source that is never written
+# anywhere -- including the two that made it miss the real cases first time:
+# the write is on a name derived from ROOT rather than on ROOT, and `.replace`
+# is a string method.
+_FIXTURES = [
+    ("a write straight onto the root", True,
+     'import pathlib\nROOT = pathlib.Path(__file__).parent\n'
+     '(ROOT / "x.py").write_text("y")\n'),
+    ("a write onto a name derived from it", True,
+     'import pathlib\nROOT = pathlib.Path(__file__).parent\n'
+     'probe = ROOT / "hub" / "x.py"\nprobe.write_text("y")\n'),
+    ("the delete that follows it", True,
+     'import pathlib\nROOT = pathlib.Path(__file__).parent\n'
+     'probe = ROOT / "hub" / "x.py"\nprobe.unlink(missing_ok=True)\n'),
+    ("an open() for writing under it", True,
+     'import os\nROOT = os.path.dirname(__file__)\n'
+     'p = os.path.join(ROOT, "x.py")\nopen(p, "w").write("y")\n'),
+    ("a read of the repository is not a write", False,
+     'import pathlib\nROOT = pathlib.Path(__file__).parent\n'
+     'src = (ROOT / "hub" / "app.py").read_text()\n'),
+    ("nor is str.replace on what it read", False,
+     'import pathlib\nROOT = pathlib.Path(__file__).parent\n'
+     'src = (ROOT / "hub" / "app.py").read_text()\n'
+     'out = src.replace("a", "b")\n'),
+    ("a temporary directory is not the repository", False,
+     'import pathlib, tempfile\nROOT = pathlib.Path(__file__).parent\n'
+     'tmp = pathlib.Path(tempfile.mkdtemp())\n'
+     '(tmp / "x.py").write_text("y")\n'),
+    ("...even when it was derived from the repository's own name", False,
+     'import pathlib, tempfile\nROOT = pathlib.Path(__file__).parent\n'
+     'tmp = pathlib.Path(tempfile.mkdtemp(prefix=ROOT.name))\n'
+     '(tmp / "x.py").write_text("y")\n'),
+]
+for _label, _want, _src in _FIXTURES:
+    check(_label, bool(repo_writes(_src)) is _want, repo_writes(_src))
+
 
 # ---------------------------------------------------------------- no secrets
 #

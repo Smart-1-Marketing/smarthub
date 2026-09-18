@@ -1038,7 +1038,7 @@ def _module_of_template(rel: str) -> str:
     return parts[1] if parts[0] == "modules" and len(parts) > 1 else "hub"
 
 
-def check_orphan_templates() -> list[dict]:
+def check_orphan_templates(root=None) -> list[dict]:
     """A template nothing renders.
 
     A page that exists is not a page anybody can reach — this file already
@@ -1078,8 +1078,18 @@ def check_orphan_templates() -> list[dict]:
     """
     import re
 
+    # `root` is the repository to read, defaulting to this one. It exists so a
+    # test can drive this check against a throwaway tree instead of writing
+    # probe files into the repo it is checking -- which is what this file's own
+    # test used to do, and which raced `tools/preflight.py`: the sweep listed
+    # hub/_integrity_orphan_caller.py and the test deleted it before the sweep
+    # read it, so `compile every module` failed with FileNotFoundError on a
+    # file that had never been committed. Same shape as
+    # check_unmasked_secret_fields(root=...) and check_ai_callers(root).
+    root = pathlib.Path(root) if root is not None else ROOT
+
     rendered: set[str] = set()
-    for py in ROOT.rglob("*.py"):
+    for py in root.rglob("*.py"):
         if any(d in py.parts for d in SKIP_DIRS) or "__pycache__" in py.parts:
             continue
         # A test naming a template is not a route rendering it. This is the
@@ -1102,7 +1112,7 @@ def check_orphan_templates() -> list[dict]:
                     rendered.add(node.value.split("/")[-1])
 
     files: list[pathlib.Path] = []
-    for tpl in list(ROOT.glob("*/templates")) + list(ROOT.glob("modules/*/templates")):
+    for tpl in list(root.glob("*/templates")) + list(root.glob("modules/*/templates")):
         if any(d in tpl.parts for d in SKIP_DIRS):
             continue
         files.extend(tpl.rglob("*.html"))
@@ -1132,7 +1142,7 @@ def check_orphan_templates() -> list[dict]:
         for ref in re.findall(r"[\w./-]+\.html", src):
             if ref.split("/")[-1] != f.name:            # not its own name
                 rendered.add(ref.split("/")[-1])
-    for js in ROOT.rglob("*.js"):
+    for js in root.rglob("*.js"):
         if any(d in js.parts for d in SKIP_DIRS) or "node_modules" in js.parts:
             continue
         for ref in re.findall(r"[\w./-]+\.html",
@@ -1143,7 +1153,7 @@ def check_orphan_templates() -> list[dict]:
     for f in sorted(files):
         if f.name in rendered:
             continue
-        rel = f.relative_to(ROOT).as_posix()
+        rel = f.relative_to(root).as_posix()
         out.append({
             "file": rel,
             "module": rel.split("/")[1] if rel.startswith("modules/") else "hub",
@@ -1415,7 +1425,7 @@ def _unwired_allow() -> set:
     return set()
 
 
-def check_own_fernet() -> list[dict]:
+def check_own_fernet(sources=None) -> list[dict]:
     """A module building its own single-key Fernet instead of the key ring.
 
     Seven files in this repo each wrote `Fernet(key)`, six of them over the
@@ -1435,9 +1445,13 @@ def check_own_fernet() -> list[dict]:
     Low severity, and deliberately so: a module here works exactly as it always
     has. What it cannot do is survive a key rotation, and the rotation is the
     event nobody schedules.
+
+    `sources` is an iterable of (relative path, source text) pairs, defaulting
+    to this repository, so the test that proves this check still bites can hand
+    it a module rather than write one into modules/ and delete it again.
     """
     out = []
-    for rel, src in _sources():
+    for rel, src in (sources if sources is not None else _sources()):
         if rel in SELF or rel in KEYRING_EXEMPT:
             continue
         # A test builds a key to make a fixture -- it seals nothing that
@@ -1916,7 +1930,7 @@ def _env_names_read(src: str) -> set[str]:
     return out
 
 
-def check_provider_key_drift() -> list[dict]:
+def check_provider_key_drift(sources=None) -> list[dict]:
     """A module reading one spelling of a key that is set under another.
 
     This is the defect that took the Commercial Builder's stock video search
@@ -1948,6 +1962,13 @@ def check_provider_key_drift() -> list[dict]:
     routed its font key through settings and its Brandfetch key through
     os.environ on the next screen up, and the skip covered the second because
     of the first.
+
+    `sources` is an iterable of (relative path, source text) pairs, defaulting
+    to this repository. It is here for the same reason
+    check_shadowed_model_query() takes one: a test proving that prose is not a
+    call site needs a file that reads the wrong spelling, and the only place to
+    put one used to be the repo itself -- which raced any concurrent sweep and
+    left a probe behind if the run died.
     """
     try:
         from .config import ALIASES
@@ -1958,7 +1979,7 @@ def check_provider_key_drift() -> list[dict]:
     alias_of = {name: names for names in ALIASES.values() for name in names}
 
     out, seen = [], set()
-    for rel, src in _sources():
+    for rel, src in (sources if sources is not None else _sources()):
         if not (rel.startswith("modules/") or rel.startswith("hub/")):
             continue
         read_here = _env_names_read(src)
