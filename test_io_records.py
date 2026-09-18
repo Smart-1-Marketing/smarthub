@@ -308,8 +308,17 @@ check("an anonymous request is refused — these are client names and money",
       Client(wsgi.application).get("/api/client/orders?name=x").status_code
       in (401, 403))
 
-tpl = open(os.path.join(ROOT, "hub", "templates", "client360.html"),
-           encoding="utf-8").read()
+def _c360_source():
+    """The Client 360 record as one text: the template plus its script modules
+    (hub/client360_assets.MODULES), because the record's JavaScript lives in
+    files now and a check that asks what the record does reads all of it."""
+    _os, _sys = __import__("os"), __import__("sys")
+    _root = _os.path.dirname(_os.path.abspath(__file__))
+    if _root not in _sys.path:
+        _sys.path.insert(0, _root)
+    return __import__("hub.client360_assets", fromlist=["source_text"]).source_text()
+
+tpl = _c360_source()
 check("the card is on the record", 'id="c-orders"' in tpl
       and "function loadOrders" in tpl)
 check("it says which kind of empty it is rather than drawing a clean nothing",

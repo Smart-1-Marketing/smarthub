@@ -426,7 +426,9 @@ MARKED = {
     "modules/sales_builder/templates/index.html": ("ai", "scan"),
     "modules/ads_builder/templates/ads_proposal.html": ("ai", "scan"),
     "modules/ads_builder/templates/ads_generator.html": ("ai",),
-    "hub/templates/client360.html": ("scan",),
+    # The brand lookup's wait, in the record's audience module since the
+    # Client 360 script was cut into files (hub/client360_assets.py).
+    "hub/static/client360-audience.js": ("scan",),
 }
 for rel, kinds in MARKED.items():
     src = (ROOT / rel).read_text(encoding="utf-8")

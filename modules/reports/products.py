@@ -233,6 +233,48 @@ def default_display_name(campaign_name: str, product: str | None = None) -> str:
     return cleaned or (product or "") or "Campaign"
 
 
+# What a campaign name calls a product when it does not use the catalog
+# name: the box on the unmapped queue opens on the product these words
+# point at, and says the name said so. Only words that mean one product
+# whatever the platform -- "search" on a Meta campaign is not Paid Search
+# and "video" on one is not Online Video, so neither is here -- and only
+# for the box a person reads before pressing Map. The auto-mapper's own
+# filings read catalog names alone (automap.product_from_name).
+PRODUCT_SYNONYMS: dict[str, str] = {
+    "ctv": "Streaming TV", "ott": "Streaming TV", "connected tv": "Streaming TV",
+    "olv": "Online Video", "youtube": "Online Video", "preroll": "Online Video", "pre roll": "Online Video",
+    "podcast": "Streaming Audio", "podcasts": "Streaming Audio", "spotify": "Streaming Audio",
+    "pandora": "Streaming Audio", "iheart": "Streaming Audio",
+    "banner": "Programmatic Display", "banners": "Programmatic Display", "programmatic": "Programmatic Display",
+    "geofence": "Geofencing", "geo fence": "Geofencing", "geofencing": "Geofencing",
+    "retargeting": "Retargeting", "remarketing": "Retargeting", "rlsa": "Retargeting",
+    "pmax": "Paid Search", "performance max": "Paid Search", "sem": "Paid Search", "ppc": "Paid Search",
+    "facebook": "Facebook & Instagram", "instagram": "Facebook & Instagram",
+    "tiktok": "Short-Form Video", "reels": "Short-Form Video", "shorts": "Short-Form Video",
+    "amazon": "Amazon Ads",
+    "newsletter": "Email Marketing",
+}
+
+
+def product_hint(campaign_name: str) -> tuple[str, str]:
+    """(product, why) the unmapped queue's product box opens on from the
+    campaign name alone: a catalog name in it whole, else a synonym in it
+    whole, else ("", ""). A hint for a person, never a filing."""
+    import re as _re
+    words = _re.sub(r"[^a-z0-9]+", " ", str(campaign_name or "").lower()).split()
+    if not words:
+        return "", ""
+    joined = " " + " ".join(words) + " "
+    for known in PRODUCTS:
+        kw = " " + " ".join(_re.sub(r"[^a-z0-9]+", " ", known.lower()).split()) + " "
+        if kw.strip() and kw in joined:
+            return known, f"the name says {known}"
+    for word, product in PRODUCT_SYNONYMS.items():
+        if f" {word} " in joined:
+            return product, f"the name says {word!r}"
+    return "", ""
+
+
 def normalize(product: str | None) -> str:
     """A typed product, matched case-insensitively against the catalog so
     "streaming tv" files as "Streaming TV"; free text is kept as typed."""

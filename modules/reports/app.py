@@ -708,12 +708,25 @@ def unmapped():
     # over at read time, never stored -- a registry that cannot be read
     # leaves the lists empty and the page says so.
     likeness = automap.annotate(rows, pending)
+    # ?client=<key> works one client's queue: the proposals filed under
+    # them and the unmapped campaigns that look like theirs. The pacing
+    # board's "look like theirs" link lands here.
+    client_filter = (request.args.get("client") or "").strip()[:200]
+    client_filter_name = ""
+    if client_filter:
+        pending = [m for m in pending if m.get("client") == client_filter]
+        rows = [r for r in rows if any(s["key"] == client_filter for s in r.get("suggestions") or ())]
+        client_filter_name = (next((m.get("client_name") for m in pending if m.get("client_name")), "")
+                              or next((s["name"] for r in rows for s in r["suggestions"] if s["key"] == client_filter), "")
+                              or _client_name_for(client_filter))
     return render_template(
         "reports_unmapped.html",
         rows=rows, pending=pending,
+        client_filter=client_filter, client_filter_name=client_filter_name,
         likeness_error=likeness.get("error", ""),
         file_pct=int(round(automap.FUZZY_FILE_SCORE * 100)),
         aliases=store.campaign_aliases(), alias_file_count=automap.ALIAS_FILE_COUNT,
+        scorecard=store.automap_scorecard(),
         days=days, shape=store.RENAME_SHAPE,
         products=products.catalog(),
         defaults=products.DEFAULT_PRODUCT_FOR_PLATFORM,
@@ -752,6 +765,7 @@ def map_campaign():
     except ValueError as exc:
         return redirect(back + "?error=" + str(exc).replace(" ", "+"))
     moved = before is not None and before.get("client") != row.client
+    automap.forget_likely()
     # A person's filing teaches what this campaign calls the client.
     automap.learn(f.get("campaign_name") or row.display_name or "", client=row.client,
                   client_name=client_name or row.client_name or "", by=actor_name())
@@ -811,6 +825,52 @@ def confirm_mapping():
     return redirect(back + "?saved=confirmed")
 
 
+@app.route("/unmapped/confirm-many", methods=["POST"])
+def confirm_many():
+    """Confirm the proposals a person ticked, each on its own row of the
+    activity log: a bulk press is still one person standing behind each
+    campaign, and the record says so per campaign. A key that is not
+    mapped or cannot be read is counted and named, never a stop for the
+    rest."""
+    f = request.form
+    keys = [k for k in f.getlist("keys") if k]
+    back = url_for("unmapped") + (("?client=" + f.get("client", "")) if f.get("client") else "")
+    if not keys:
+        return redirect(back + ("&" if "?" in back else "?") + "error=Tick+at+least+one+campaign+first.")
+    done, skipped = 0, []
+    for key in keys[:500]:
+        parts = key.split("|", 2)
+        if len(parts) != 3:
+            skipped.append(key)
+            continue
+        platform, account_id, campaign_id = parts
+        try:
+            row = store.confirm_mapping(platform, account_id, campaign_id, by=actor_name())
+        except ValueError:
+            row = None
+        if row is None:
+            skipped.append(campaign_id)
+            continue
+        name = row.client_name or row.client
+        try:
+            taught_from = (store.campaign_map(row.platform, row.account_id, row.campaign_id) or {}).get("campaign_name") or ""
+        except Exception:              # noqa: BLE001 - a lesson is not the confirmation
+            taught_from = ""
+        automap.learn(taught_from, client=row.client, client_name=name, by=actor_name())
+        _log("campaign_confirmed", client=name, client_key=row.client,
+             platform=row.platform, campaign_id=row.campaign_id, product=row.product or None,
+             detail=f"{store.platform_label(row.platform)} campaign {row.campaign_id} confirmed "
+                    f"as {name}'s ({row.product or 'no product'}) in a batch of {len(keys)}; "
+                    f"it is on their page from now")
+        done += 1
+    automap.forget_likely()
+    sep = "&" if "?" in back else "?"
+    if skipped:
+        return redirect(back + sep + f"saved=confirmed-{done}&error=" +
+                        f"{len(skipped)}+not+confirmed+(not+mapped+or+unreadable):+{'+'.join(skipped[:5])}")
+    return redirect(back + sep + f"saved=confirmed-{done}")
+
+
 @app.route("/unmapped/refuse", methods=["POST"])
 def refuse_mapping():
     """Not theirs: the proposal is deleted, the refusal remembered so the
@@ -826,6 +886,7 @@ def refuse_mapping():
     if gone is None:
         return redirect(back + "?error=That+campaign+is+not+mapped.")
     name = gone["client_name"] or gone["client"]
+    automap.forget_likely()
     automap.forget(gone["campaign_name"], client=gone["client"], client_name=name)
     _log("campaign_refused", client=name, client_key=gone["client"],
          platform=gone["platform"], campaign_id=gone["campaign_id"],

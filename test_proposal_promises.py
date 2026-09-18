@@ -466,7 +466,17 @@ check("the page decides no state of its own -- it reads the server's",
 check("the monthly list carries a bubble",
       'data-help="proposal_execution.plan.promises"' in tpl
       and "proposal_execution.plan.promises" in hub_help.as_json()["help"])
-c360 = _read("hub", "templates", "client360.html")
+def _c360_source():
+    """The Client 360 record as one text: the template plus its script modules
+    (hub/client360_assets.MODULES), because the record's JavaScript lives in
+    files now and a check that asks what the record does reads all of it."""
+    _os, _sys = __import__("os"), __import__("sys")
+    _root = _os.path.dirname(_os.path.abspath(__file__))
+    if _root not in _sys.path:
+        _sys.path.insert(0, _root)
+    return __import__("hub.client360_assets", fromlist=["source_text"]).source_text()
+
+c360 = _c360_source()
 check("Client 360 prints missed and due promises as pills", "monthly promise" in c360 and "pr.due" in c360)
 check("...and prints nothing where there is no launch date to measure from", "pr.measured!==false" in c360)
 qat = _read("hub", "templates", "qa_report.html")

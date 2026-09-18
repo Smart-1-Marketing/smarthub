@@ -150,7 +150,26 @@ export const BUDGETS: Record<string, Budget> = {
   'POST /api/landing/analyze': { limit: 20, windowMs: 3_600_000 },
   'POST /api/brand/discover': { limit: 40, windowMs: 3_600_000 },
   'POST /api/preview': { limit: 600, windowMs: 3_600_000 },
+  // The public proof routes. Whoever holds a proof link can call these with
+  // no token, so each has a ceiling that a client clicking through a proof
+  // never meets and a script replaying the link does. A note is written to
+  // the project record, which is why it is the tightest of the three.
+  'POST /client-proof/:token/comment': { limit: 30, windowMs: 3_600_000 },
+  'POST /client-proof/:token/decision': { limit: 20, windowMs: 3_600_000 },
+  'POST /api/proof/:id/approve': { limit: 20, windowMs: 3_600_000 },
+  'POST /api/proof/:id/revision': { limit: 20, windowMs: 3_600_000 },
 };
+
+/**
+ * The budget key for a route: a proof token or project id in the path is
+ * replaced by a placeholder, so one budget covers every proof rather than
+ * each link getting a fresh allowance.
+ */
+export function budgetKey(route: string): string {
+  return route
+    .replace(/^(\w+ \/client-proof\/)[a-f0-9-]{36}/, '$1:token')
+    .replace(/^(\w+ \/api\/proof\/)[\w.-]+(?=\/)/, '$1:id');
+}
 
 /**
  * Behind Render or nginx the socket address is the proxy, so the forwarded
@@ -169,10 +188,11 @@ export interface LimitResult {
 }
 
 export function rateLimit(route: string, req: IncomingMessage): LimitResult {
-  const budget = BUDGETS[route];
+  const budgeted = budgetKey(route);
+  const budget = BUDGETS[budgeted];
   if (!budget) return { allowed: true, remaining: Infinity, retryAfterSec: 0 };
 
-  const key = `${route}|${clientKey(req)}`;
+  const key = `${budgeted}|${clientKey(req)}`;
   const now = Date.now();
   const bucket = buckets.get(key);
 
