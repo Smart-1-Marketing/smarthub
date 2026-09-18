@@ -665,7 +665,7 @@ def call(store, service: str, path: str, body: dict, *, account_id: str = "",
     return payload
 
 
-def get_user(store=None, *, module: str = "ads_builder") -> dict:
+def connected_user(store=None, *, module: str = "ads_builder") -> dict:
     """The user the consent belongs to: ``{"id", "name", "customers"}``
     off Customer Management's ``User/Query`` asked with no id, which
     answers the authenticated user. ``customers`` is every customer id the
@@ -736,7 +736,7 @@ def discover_accounts(store=None, *, module: str = "ads_builder") -> dict:
     out = {"accounts": [], "strategy": "", "user": {}, "raw_keys": [], "notes": [], "skipped": []}
     found: list[dict] = []
     try:
-        out["user"] = get_user(store, module=module)
+        out["user"] = connected_user(store, module=module)
     except BingAdsError as exc:
         if exc.code == "REFUSED":
             # The credentials themselves: nothing after this answers
