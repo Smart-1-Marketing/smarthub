@@ -33,23 +33,82 @@ PORTAL_MAX_AGE = 400 * 24 * 60 * 60      # a bookmarked link survives a year
 
 def mint(sponsor_id: int) -> str:
     from hub.signing import timed_serializer
+    # The token itself carries no `iat` -- URLSafeTimedSerializer signs
+    # a timestamp alongside the payload and returns it from .loads() as
+    # `return_timestamp=True`. That is what read() checks against the
+    # sponsor's `portal_rotated_at`.
     return timed_serializer(PORTAL_SALT).dumps({"sponsor": int(sponsor_id)})
 
 
 def read(token: str) -> int | None:
+    """Resolve a token to a sponsor id, or None when the token is invalid,
+    expired, or predates the sponsor's most recent rotation."""
     from itsdangerous import BadSignature
     from hub.signing import timed_serializer
     try:
-        claim = timed_serializer(PORTAL_SALT).loads(token, max_age=PORTAL_MAX_AGE)
+        claim, issued_at = timed_serializer(PORTAL_SALT).loads(
+            token, max_age=PORTAL_MAX_AGE, return_timestamp=True)
     except BadSignature:
         return None
     if not isinstance(claim, dict):
         return None
     sid = claim.get("sponsor")
     try:
-        return int(sid) if sid is not None else None
+        sid = int(sid) if sid is not None else None
     except (TypeError, ValueError):
         return None
+    if sid is None:
+        return None
+    # Rotation cutoff: reject a token that predates the sponsor's most
+    # recent rotation. `portal_rotated_at` is set by the staff rotate
+    # button on /sponsors/<id>; a sponsor that has never been rotated
+    # has None here and every unexpired token stays valid.
+    with session() as s:
+        sponsor = s.get(Sponsor, sid)
+        if sponsor is None:
+            return None
+        rotated = getattr(sponsor, "portal_rotated_at", None)
+    if rotated is not None:
+        # itsdangerous returns a naive UTC datetime; SQLite hands back
+        # naive UTC too (its DateTime(timezone=True) has no effect there),
+        # while Postgres hands back aware UTC. Normalize both to aware
+        # UTC before comparing so a mix of backends can't mis-reject.
+        from datetime import timezone as _tz
+        if issued_at.tzinfo is None:
+            issued_at = issued_at.replace(tzinfo=_tz.utc)
+        if rotated.tzinfo is None:
+            rotated = rotated.replace(tzinfo=_tz.utc)
+        # Strict less-than: itsdangerous timestamps have one-second
+        # precision, so a token minted in the same wall-clock second as
+        # `rotate()` sets the cutoff shares that second. Only the freshly
+        # minted token can be issued in the rotation's own second (an
+        # older token was minted earlier, in an earlier second), so `<`
+        # rejects the old ones and admits the new one.
+        if issued_at < rotated:
+            return None
+    return sid
+
+
+def rotate(sponsor_id: int, *, actor: str = "") -> str:
+    """Turn off every portal link previously issued for this sponsor by
+    setting `portal_rotated_at = now()`, then mint a fresh one and return
+    it. Called from the staff `/sponsors/<id>/rotate-portal` route."""
+    from datetime import datetime, timezone
+    with session() as s:
+        sponsor = s.get(Sponsor, int(sponsor_id))
+        if sponsor is None:
+            raise LookupError(f"sponsor {sponsor_id} not found")
+        # itsdangerous timestamps have one-second precision; keeping
+        # microseconds on the rotation cutoff would mean a freshly-minted
+        # token from the same second reads as strictly earlier and gets
+        # rejected. Truncate.
+        sponsor.portal_rotated_at = datetime.now(timezone.utc).replace(microsecond=0)
+        s.commit()
+    log.info("camhub_portal_rotated sponsor=%s actor=%s", sponsor_id, actor or "unknown")
+    # A freshly-minted token carries a timestamp >= now, so the very next
+    # read() beats the rotation cutoff and hands the sponsor back a
+    # working link.
+    return mint(int(sponsor_id))
 
 
 def _default_range(today: date | None = None) -> tuple[str, str]:

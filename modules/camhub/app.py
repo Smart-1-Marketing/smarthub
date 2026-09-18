@@ -265,6 +265,23 @@ def sponsors_index():
                            saved=request.args.get("saved"))
 
 
+@app.route("/sponsors/<int:sponsor_id>/rotate-portal", methods=["POST"])
+def sponsor_rotate_portal(sponsor_id: int):
+    """Turn off every portal link previously issued for this sponsor and
+    mint a fresh one. Used when a bookmarked link is thought to be leaked
+    or when a sponsor stops being one and their portal should stop
+    working."""
+    down = _db_or_503()
+    if down:
+        return down
+    try:
+        portal_lib.rotate(sponsor_id, actor=_user())
+    except LookupError:
+        abort(404)
+    _activity("portal_rotated", sponsor_id=sponsor_id)
+    return redirect(url_for("sponsor_edit", sponsor_id=sponsor_id, rotated=1))
+
+
 @app.route("/sponsors/<int:sponsor_id>", methods=["GET", "POST"])
 def sponsor_edit(sponsor_id: int):
     down = _db_or_503()
@@ -607,8 +624,39 @@ def health():
              "sources": [{"key": h["key"], "state": h["state"], "age_minutes": h["age_minutes"],
                           "error": h["last_error"]} for h in store.health(p["id"])]}
             for p in pages]
-    ok = all(r["health"] != "red" for r in rows)
-    return jsonify({"tool": "camhub", "ok": ok, "pages": rows}), 200 if ok else 503
+    # The rollup and the outbox are as important as the sources: a rollup
+    # stuck a week ago serves a placement page with numbers a week old,
+    # and an outbox with only failed rows for the last month is exactly
+    # the state the reports page exists to make visible from this endpoint
+    # rather than from a log dig.
+    from .models import DailyStat, SponsorReport, session as db_session
+    from sqlalchemy import func, select
+    now = _now_utc()
+    with db_session() as s:
+        last_rollup = s.execute(select(func.max(DailyStat.updated_at))).scalar()
+        recent = s.execute(select(SponsorReport).order_by(
+            SponsorReport.id.desc()).limit(20)).scalars().all()
+    reports = {"total": len(recent),
+               "rendered": sum(1 for r in recent if r.status == "rendered"),
+               "sent": sum(1 for r in recent if r.status == "sent"),
+               "failed": sum(1 for r in recent if r.status == "failed")}
+    rollup_age = None
+    if last_rollup is not None:
+        # SQLite hands back naive UTC; Postgres aware UTC. Both compare
+        # cleanly once the naive one is made aware.
+        if last_rollup.tzinfo is None:
+            from datetime import timezone as _tz
+            last_rollup = last_rollup.replace(tzinfo=_tz.utc)
+        rollup_age = int((now - last_rollup).total_seconds() // 60)
+    ok = all(r["health"] != "red" for r in rows) and reports["failed"] == 0
+    return jsonify({"tool": "camhub", "ok": ok, "pages": rows,
+                    "reports": reports,
+                    "rollup_age_minutes": rollup_age}), 200 if ok else 503
+
+
+def _now_utc():
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc)
 
 
 # ----------------------------------------------------------------- public
@@ -719,11 +767,18 @@ def _portal_common(sid: int, token: str) -> dict:
 
 @app.route("/portal/<token>")
 def portal_index(token: str):
+    """The sponsor's read of their own numbers. cam_missing.html speaks to
+    visitors of the live cam page; a sponsor arriving here needs to see a
+    page that names them as a sponsor rather than a lost visitor."""
     if boot_error():
-        return render_template("cam_missing.html", reason="temporarily unavailable"), 503
+        return render_template("portal_unavailable.html",
+                               reason="The portal cannot reach its database. "
+                               "Reload in a few minutes."), 503
     sid = _portal_sponsor_id(token)
     if sid is None:
-        return render_template("cam_missing.html", reason="portal link expired"), 404
+        return render_template("portal_unavailable.html",
+                               reason="This link has been rotated or has "
+                               "expired. Ask Smart 1 for a fresh one."), 404
     ctx = _portal_common(sid, token)
     resp = Response(render_template("portal.html", **ctx))
     resp.headers["X-Robots-Tag"] = "noindex, nofollow"

@@ -91,3 +91,4 @@ say "above" or "below" mean earlier or later files in this list.
 | [`83-display-ad-builder-handoff-the-next-rounds.md`](83-display-ad-builder-handoff-the-next-rounds.md) | Display Ad Builder: handoff for the next rounds | 273 |
 | [`84-camhub-sprint-5-reporting-portal-the-hub-card-and-the-mcp-tool.md`](84-camhub-sprint-5-reporting-portal-the-hub-card-and-the-mcp-tool.md) | CamHub Sprint 5: reporting, the portal, the Client 360 card and the MCP tool | 105 |
 | [`85-camhub-sprint-6-the-cam-builder-and-the-second-page.md`](85-camhub-sprint-6-the-cam-builder-and-the-second-page.md) | CamHub Sprint 6: the Cam Builder wizard, re-probe, and a second location type | 80 |
+| [`86-camhub-hardening-csv-formulas-portal-rotation-and-outbox-in-health.md`](86-camhub-hardening-csv-formulas-portal-rotation-and-outbox-in-health.md) | CamHub hardening: CSV formulas, portal rotation, and the outbox in /health | 72 |
