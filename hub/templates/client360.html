@@ -336,7 +336,7 @@ function render(g,q){
   <div class="c360-head" style="display:flex;align-items:center;gap:14px;margin-bottom:16px;flex-wrap:wrap">
     <div class="avatar" style="width:52px;height:52px;border-radius:12px;font-size:20px">${esc(name[0]||'?').toUpperCase()}</div>
     <div><h3 style="font-size:19px;color:var(--navy)">${esc(name)}</h3></div>
-    <div class="c360-shots" id="c360Shots" hidden></div>
+    <div class="c360-shots" id="c360Shots" hidden></div>{{ help_dot('hub.client360.screenshots') if help_dot is defined else '' }}
     <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">`;
   /* Salesperson and Partner used to sit under the name AND in the roles row
      below it. They belong with Assigned, Client Success and Followers -- the
@@ -349,7 +349,7 @@ function render(g,q){
   if(g.smart1_site) head+=`<span class="pill info" style="font-size:12.5px;padding:5px 12px">&#11041; Smart 1 Site</span>`;
   if(g.billing_monthly) head+=`<span class="pill ok" style="font-size:12.5px;padding:5px 12px">Active billing: ${money(g.billing_monthly)}/mo</span>`;
   if(liveCount) head+=`<span class="pill neutral" style="font-size:12.5px;padding:5px 12px">${liveCount} live product${liveCount>1?'s':''}</span>`;
-  head+='<span id="c360IndustryPill"></span>';
+  head+=`<span id="c360IndustryPill"></span>{{ help_dot('hub.client360.industry') if help_dot is defined else '' }}`;
   if(g.dash_url) head+=`<a class="btn-primary" style="padding:8px 16px;font-size:13px;text-decoration:none" href="${esc(g.dash_url)}" target="_blank" rel="noopener">Smart 1 Dashboard →</a>`;
   head+='</div></div>';
   /* A client whose only trace is an insertion order. Said out loud, because
@@ -368,11 +368,11 @@ function render(g,q){
       +'real record appears it takes over.'
       +'</div>';
   }
-  head+='<div id="c-owner"></div>';
+  head+=`<div id="c-owner">{{ help_dot('hub.client360.internal') if help_dot is defined else '' }}</div>`;
   head+='<div id="c-group"></div>';
   head+='<div id="c-profile" style="margin:-6px 0 14px"></div>';
   head+='<div id="c360LatestNote" hidden></div>';
-  head+='<div id="c360-request-status" class="muted" role="status" style="margin:-6px 0 10px;font-size:12px;color:#b45309"></div>';
+  head+=`<div id="c360-request-status" class="muted" role="status" style="margin:-6px 0 10px;font-size:12px;color:#b45309">{{ help_dot('hub.client360.refresh') if help_dot is defined else '' }}</div>`;
 
   /* Page actions. hub-accordion.js used to bolt these onto its
      Expand/Collapse bar; the accordion stays off this page now (see
@@ -2155,7 +2155,7 @@ function render(g,q){
     const warn=hasContact?'':'<span class="c360-contact-warn">&#9888; No contact on file — add a name and email'
       +' <button type="button" class="gbtn" id="profAddFirst">Add contact</button></span>';
     $('c-profile').innerHTML=`<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 16px;font-size:13px">
-      ${warn}${warn&&bits.length?'<span class="muted" style="margin:0 2px">·</span>':''}${bits.join('<span class="muted" style="margin:0 2px">·</span>')}
+      {{ help_dot('hub.client360.contacts') if help_dot is defined else '' }}${warn}${warn&&bits.length?'<span class="muted" style="margin:0 2px">·</span>':''}${bits.join('<span class="muted" style="margin:0 2px">·</span>')}
       <span id="c360EmailInline"></span>
       <span style="margin-left:auto;display:flex;gap:8px;align-items:center">${keep}${qbBtn}
       <button type="button" class="gbtn" id="profEdit">&#9998; Edit info</button></span></div>`;
