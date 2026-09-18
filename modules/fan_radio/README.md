@@ -149,16 +149,17 @@ Turn the link off, or issue a new one — the old link dies immediately.
 * **A bed, and a real one.** Composed by ElevenLabs at the spot's own length —
   so nothing is trimmed to fit — or a licensed track uploaded. A spot with no
   bed is a straight read and passes the checks as one.
-* **Somebody's own read.** A client with their own talent uploads the
-  recording; it lands on the same fields a rendered read does, except that its
-  length is honestly *not measured* where a rendered one is.
-* **And a way out when that read runs long.** A read this tool recorded and
-  that overruns has two levers already on the screen — tighten the script, or
-  drop the voice speed, and record it again. An uploaded read has neither: the
-  talent has gone home. So when the mix comes back over its slot, the panel
-  works out the **playback rate** that would land it back inside, says what
-  that costs in pitch, and re-renders on approval. Past **1.15×** it offers
-  nothing and says how many seconds have to come out of the read instead.
+* **Somebody's own read, and it is measured.** A client with their own talent
+  uploads the recording; it lands on the same fields a rendered read does —
+  **including its length**. The page decodes the file through the Web Audio
+  API before sending it, so an MP3 from a phone arrives as a WAV whose header
+  states its own length. You cannot shorten a read to fit a :30 without
+  knowing what it runs now.
+* **And a way out when that read runs long — on Step 5, before any music.**
+  The dead air comes out first, because silence is free to remove and nobody
+  can hear it go; only if that is not enough is a **speed** offered. Past
+  **1.15×** it offers nothing and says how many seconds have to come out of
+  the read instead. The Music step no longer asks about length at all.
 
 ## Flow
 
@@ -224,6 +225,44 @@ A bed shorter than the spot is **reported, never looped** — a loop puts an
 audible seam in the middle of a client's commercial. A read that overruns is
 **never trimmed** — the mix renders at the longer of the two and comes back
 measured and over, which is what the length check is for.
+
+## Fitting the read, on Step 5, in the order that costs least
+
+A read that runs long has two things wrong with it and only one of them is the
+performance. So Step 5 works in a fixed order, and it all happens **before**
+Step 6 exists:
+
+1. **Measure it.** Every read is decoded in the browser on the way in — the Web
+   Audio API is the only audio decoder in this stack, and it reads MP3, M4A,
+   OGG, WebM and WAV. What reaches the server is a WAV, so the length filed
+   against the spot is read off a header rather than estimated from a byte
+   count or a word count. `hub/static/audio-trim.js` does the decoding.
+2. **Cut the dead air.** If it is over the slot, the silent runs are shortened
+   automatically — a :32 read with six half-second gaps is a :29 read somebody
+   recorded with pauses. Defaults: silence below **-45 dB**, gaps longer than
+   **350ms**, shortened to **180ms**, with the lead-in and tail trimmed
+   harder. **Advanced** opens all five; the bounds come from
+   `hub/radio_spec.DEAD_AIR_LIMITS`, so a control cannot offer a value the
+   route would refuse.
+3. **Measure again, then offer a rate** — and only then, because a rate costs a
+   take or costs the pitch. A read this tool **recorded** is read again at the
+   pace, which shifts nothing. An **uploaded** read is played faster, which
+   raises the pitch; the panel says by how much.
+4. **It is saved.** The working read, the **original exactly as it was
+   chosen**, and what the cutter did are all stored on the spot — so coming
+   back to a project does not mean uploading the file again, and *Use the
+   original instead* is a pointer change rather than another trip to the file
+   picker.
+
+**The mix step no longer tests length.** By the time a bed exists, the question
+has been asked and answered against the thing that can actually be changed, and
+the mix renders to exactly the slot — a :30 is 30.00s. Nothing in the mix is
+sped up: the music must not be, and the voice was already fitted.
+
+The check is dropped in `modules/fan_radio` rather than in
+`hub/radio_spec.qc()`, which the Radio Ad Creator still reads — that tool has
+not moved its length work into its own Step 5 yet, and taking the row out from
+under it would leave it with nothing watching the clock.
 
 ## Time compression, for the one read that cannot be recorded again
 

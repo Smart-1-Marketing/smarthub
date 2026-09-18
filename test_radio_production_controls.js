@@ -1,4 +1,63 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+
+/* The dead air cutter, driven for real. It is the one piece of this feature
+   with arithmetic nobody can eyeball on a panel -- a gap finder and a splice
+   -- so it is exercised against synthetic audio whose gaps are known exactly,
+   and the seconds it claims to have saved are checked against the ones it
+   should have. */
+(function deadAirCutter(){
+  const OAC = function(){};
+  OAC.prototype.createBuffer = function(ch, len, rate){
+    const d = []; for(let i=0;i<ch;i++) d.push(new Float32Array(len));
+    return {numberOfChannels:ch, length:len, sampleRate:rate, duration:len/rate,
+            getChannelData:i=>d[i||0]};
+  };
+  globalThis.OfflineAudioContext = OAC;
+  const T = require('./hub/static/audio-trim.js').AudioTrim;
+  const rate = 1000, n = 10*rate, d = new Float32Array(n);
+  // speech 0-2s, 1s gap, speech 3-5s, 2s gap, speech 7-10s
+  for(let i=0;i<n;i++){ const t=i/rate; d[i] = ((t<2)||(t>=3&&t<5)||(t>=7)) ? 0.5 : 0; }
+  const buf = {numberOfChannels:1, length:n, sampleRate:rate, duration:10,
+               getChannelData:()=>d};
+  const opts = {threshold_db:-45, min_gap_ms:350, keep_ms:180, head_ms:120, tail_ms:200};
+
+  const gaps = T.findGaps(buf, opts);
+  assert.equal(gaps.length, 2, 'both gaps are found');
+  assert.deepEqual(gaps.map(g=>[g.start/rate, g.end/rate]), [[2,3],[5,7]],
+                   'and they are where they actually are');
+  assert.ok(!gaps[0].head && !gaps[0].tail, 'a gap between speech is neither head nor tail');
+
+  const cut = T.trim(buf, opts);
+  // Each gap is shortened TO keep_ms rather than removed: 1s->0.18 and 2s->0.18.
+  assert.equal(cut.closed, 2, 'both gaps are closed');
+  assert.equal(cut.saved, Math.round(((1-0.18)+(2-0.18))*100)/100,
+               'and the seconds it says it saved are the ones it saved');
+  assert.equal(Math.round(cut.buffer.duration*100)/100, 7.36, 'the read comes back shorter');
+  assert.ok(cut.changed, 'and it says it changed something');
+
+  // A gap shorter than min_gap_ms is the rhythm of the read, not dead air.
+  const tight = new Float32Array(n);
+  for(let i=0;i<n;i++){ const t=i/rate; tight[i] = (t>=2 && t<2.2) ? 0 : 0.5; }
+  const rhythm = T.trim({numberOfChannels:1,length:n,sampleRate:rate,duration:10,
+                         getChannelData:()=>tight}, opts);
+  assert.equal(rhythm.changed, false, 'a 200ms pause is left alone');
+  assert.equal(rhythm.buffer.duration, 10, 'and the read is handed back untouched');
+
+  // Leading silence is trimmed harder than a gap, and is the usual big win.
+  const lead = new Float32Array(n);
+  for(let i=0;i<n;i++) lead[i] = (i/rate) < 3 ? 0 : 0.5;
+  const headCut = T.trim({numberOfChannels:1,length:n,sampleRate:rate,duration:10,
+                          getChannelData:()=>lead}, opts);
+  assert.equal(Math.round(headCut.buffer.duration*100)/100, 7.12,
+               'three seconds of lead-in becomes the 120ms allowance');
+
+  // Defaults stand in for anything a caller leaves out. NaN would compare
+  // false against every sample and silently find no gaps at all.
+  assert.equal(T.trim(buf, {}).closed, 2, 'the house settings apply when none are sent');
+  assert.equal(T.trim(buf, {min_gap_ms:'wide'}).closed, 2, 'and when one is nonsense');
+  delete globalThis.OfflineAudioContext;
+})();
+
 const html=fs.readFileSync('modules/fan_radio/templates/index.html','utf8');
 const functionText=(start,end)=>html.slice(html.indexOf(start),html.indexOf(end,html.indexOf(start)));
 const context=vm.createContext({Number,Math});
@@ -27,27 +86,35 @@ vm.runInContext('function dbGain(db){return Math.pow(10,db/20);}'+functionText('
  assert.ok(gains.includes(Math.pow(10,-32/20)),'selected under-voice gain is used');
  assert.ok(!gains.includes(Math.pow(10,-10/20)),'old default gain is not used');
 
- // An uploaded read that overruns, and the rate that gets it back. The mix
- // renders at the longer of the slot and the read, so a 33s read on a :30 is
- // a 33s file — and played at 1.12x it is 29.5s, which the slot's own floor
- // rounds back up to exactly :30 with the bed filling the tail.
+ // Fan Radio's mix IS the slot now. Step 5 fits the read -- measured on the
+ // way in, dead air cut, a rate offered if that was not enough -- so by the
+ // time a bed exists the length question has been asked and answered against
+ // the thing that can actually be changed. A :30 renders 30.00s whatever the
+ // read runs, and nothing in the mix speeds anything up: the music must not be
+ // sped, and there is no rate left to apply to the voice.
  Object.assign(context,{decodeRef:async(sid,role)=>({duration:role==='vo'?33:40})});
  lengths.length=0; rates.length=0;
  const overlong=await context.buildMix({id:'sample',seconds:30,bed:{audio_url:'bed'}});
- assert.equal(lengths.at(-1),Math.round(33*44100),'an over-long read renders over its slot');
- assert.equal(rates[0],1,'and at its own pace, because nothing was approved');
- assert.equal(overlong.speed,1);
- assert.equal(overlong.voSeconds,33,'the read its own length is reported back for the suggestion');
- lengths.length=0; rates.length=0;
- const fitted=await context.buildMix({id:'sample',seconds:30,bed:{audio_url:'bed'}},1.12);
- assert.equal(lengths.at(-1),Math.round(30*44100),'played faster, the mix lands on the slot');
- assert.equal(rates[0],1.12,'the approved rate reaches the voice source itself');
- assert.equal(rates[1],1,'and not the bed, which is composed at length already');
- assert.equal(fitted.speed,1.12,'the render reports the rate it was made at');
- lengths.length=0; rates.length=0;
- await context.buildMix({id:'sample',seconds:30,bed:{audio_url:'bed'}},0.8);
- assert.equal(rates[0],1,'a rate below 1 is ignored — a mix is never short of its slot');
+ assert.equal(lengths.at(-1),Math.round(30*44100),'the mix is the slot, not the read');
+ assert.equal(rates[0],1,'and nothing is played faster in the mix');
+ assert.equal(overlong.voSeconds,33,"the read's own length still rides back");
+ assert.match(overlong.note,/cuts the last/,'an over-long read is SAID, not silently clipped');
+ assert.match(overlong.note,/Step 5/,'and it names where to fix it');
+ // Both findings can be true of one mix, and the read's is the expensive one
+ // -- it is the phone number. The bed note used to overwrite it.
+ Object.assign(context,{decodeRef:async(sid,role)=>({duration:role==='vo'?33:20})});
+ const both=await context.buildMix({id:'sample',seconds:30,bed:{audio_url:'bed'}});
+ assert.match(both.note,/cuts the last/,'the read overrun survives');
+ assert.match(both.note,/no music under it/,'alongside the short bed');
+ // A straight read is cut exactly the same way, so it is warned about too --
+ // this was the one case the warning never reached.
+ lengths.length=0;
+ const voOnly=await context.buildMix({id:'sample',seconds:30});
+ assert.equal(lengths.at(-1),Math.round(30*44100),'a bedless mix is still the slot');
+ assert.match(voOnly.note,/cuts the last/,'and an over-long straight read is told about it');
  Object.assign(context,{decodeRef:async(sid,role)=>({duration:role==='vo'?28:33})});
+ const shortRead=await context.buildMix({id:'sample',seconds:30,bed:{audio_url:'bed'}});
+ assert.doesNotMatch(shortRead.note||'',/cuts the last/,'a read inside its slot is not warned about');
 
  const promo=fs.readFileSync('modules/radio_promo/templates/index.html','utf8');
  const controls=fs.readFileSync('hub/static/radio-promo-production.js','utf8');

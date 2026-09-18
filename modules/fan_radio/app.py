@@ -25,6 +25,7 @@ Mounted at ``/tools/fan-radio``. Everything is behind the Hub login except
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import base64
@@ -321,6 +322,12 @@ def api_catalog():
         "safe_phrases": phrases.SAFE_PHRASES,
         "advisory": phrases.ADVISORY,
         "blocked_count": len(phrases.BLOCKED),
+        # The dead air cutter's defaults and what an advanced control may be
+        # set to, from `hub/radio_spec` rather than written into the page. A
+        # panel with its own idea of the limits is a control that offers a
+        # value the route then refuses.
+        "dead_air": (radio_spec.DEAD_AIR_DEFAULTS if radio_spec else {}),
+        "dead_air_limits": (radio_spec.DEAD_AIR_LIMITS if radio_spec else {}),
         "ai": ai.ready(), "voice": voices.ready(),
     })
 
@@ -975,7 +982,11 @@ def api_record(pid, sid):
 # pre-game and the post-game read. They live on the spot's own row.
 _BED_CAP_MB = 25
 _MIX_CAP_MB = 40
-_AUDIO_ROLES = ("vo", "bed", "mix")
+# `vo_source` is the untouched upload, kept so the original can be listened
+# to and restored without another trip to the file picker. It is read back
+# through the same same-origin proxy as everything else, because a CDN that
+# declines the cross-origin fetch fails as a button that does nothing.
+_AUDIO_ROLES = ("vo", "bed", "mix", "vo_source")
 _PROXY_CAP_BYTES = 40 * 1024 * 1024
 _PROXY_TIMEOUT = (5, 30)
 _UPLOAD_KINDS = {"audio/mpeg", "audio/mp3", "audio/wav", "audio/x-wav",
@@ -1330,13 +1341,29 @@ def api_bed_clear(pid, sid):
 # ---------------------------------------------------------------- own voice
 @app.route("/api/projects/<pid>/spots/<sid>/voice-upload", methods=["POST"])
 def api_voice_upload(pid, sid):
-    """A finished read somebody already recorded.
+    """A finished read somebody already recorded, measured and kept.
 
     Neither platform this was specced against forces a synthetic voice, and a
     client who has their own talent has one recording they want used. It lands
     on the same fields a rendered read lands on, so the mix, the checks and the
-    customer page cannot tell the two apart — except that its length is
-    honestly **not measured** where a rendered one is.
+    customer page cannot tell the two apart.
+
+    **Its length used to be "not measured", and now it always is.** The page
+    decodes the file through the Web Audio API before sending it — which is the
+    only decoder this runtime has — and sends a WAV, whose header states its
+    own length. So an MP3 from somebody's phone arrives here as audio we can
+    read rather than a number nobody took, which is the whole point: you cannot
+    shorten a read to fit a :30 without knowing what it runs now.
+
+    The form may carry two more things, both optional:
+
+    * ``original`` — the file exactly as it was chosen, before the dead air was
+      cut. Stored beside the working read so *Use the original instead* is a
+      button rather than another trip to the file picker, and so nothing
+      somebody handed us is thrown away by an automatic edit.
+    * ``edit`` — what the cutter did, as JSON, recorded so the panel can say it
+      on the next visit instead of the edit being invisible the moment the page
+      reloads.
     """
     try:
         project, spot = _spot_or_fail(pid, sid)
@@ -1349,12 +1376,27 @@ def api_voice_upload(pid, sid):
     ext = _ext_of(filename)
     asset = store.store_asset(project, spot, "vo", data, ext)
     length = _measured(data, filename)
+
+    # The untouched file, if the page sent one. Kept under its own role so it
+    # survives every later edit of the working read.
+    source = request.files.get("original")
+    if source and source.filename:
+        raw = source.read()
+        if raw:
+            kept = store.store_asset(project, spot, "vo-source", raw,
+                                     _ext_of(source.filename))
+            spot["vo_source"] = {"audio_url": kept["url"],
+                                 "audio_where": kept["where"],
+                                 "filename": source.filename,
+                                 "bytes": len(raw), "at": store.now()}
+
     spot.update({"audio_url": asset["url"], "audio_where": asset["where"],
                  "audio_seconds": length["seconds"],
                  "audio_measured": length["measured"],
                  "audio_provider": "upload",
                  "audio_voice": filename,
                  "recorded_at": store.now()})
+    spot["vo_edit"] = _read_edit(request.form.get("edit"))
     spot["runtime_note"] = (
         length.get("measure_note")
         or f"{length['seconds']}s, measured from the file you uploaded.")
@@ -1368,6 +1410,78 @@ def api_voice_upload(pid, sid):
     if asset.get("warning"):
         payload["warning"] = asset["warning"]
     return jsonify(payload)
+
+
+def _read_edit(raw):
+    """What the page says its cutter did, kept as a record rather than trusted.
+
+    Nothing here acts on these numbers — the audio already arrived edited — so
+    the job is to store something a person can read later and to refuse
+    anything that is not that. An unparseable blob becomes an empty record
+    rather than a 400: the read itself is fine, and failing the upload over its
+    description would throw away the file to protect a caption.
+    """
+    if not raw:
+        return {}
+    try:
+        sent = json.loads(raw)
+    except (TypeError, ValueError):
+        return {}
+    if not isinstance(sent, dict):
+        return {}
+    spec, _ = _need_spec()
+    settings, _notes = (spec.dead_air_settings(sent.get("settings"))
+                        if spec else ({}, []))
+    def _num(key):
+        try:
+            return round(float(sent.get(key)), 2)
+        except (TypeError, ValueError):
+            return None
+    return {"trimmed": bool(sent.get("trimmed")),
+            "gaps_closed": int(sent.get("gaps_closed") or 0),
+            "saved_seconds": _num("saved_seconds"),
+            "original_seconds": _num("original_seconds"),
+            "speed": _num("speed") or 1.0,
+            "settings": settings,
+            "source": str(sent.get("source") or "")[:40],
+            "at": store.now()}
+
+
+@app.route("/api/projects/<pid>/spots/<sid>/voice-restore", methods=["POST"])
+def api_voice_restore(pid, sid):
+    """Put the file somebody chose back, exactly as they chose it.
+
+    The dead air cutter runs on its own when a read comes back over its slot,
+    which is the right default and the wrong one often enough to need an undo.
+    This is that undo, and it is a pointer change rather than a re-upload: the
+    original was stored under its own role on the way in and has not been
+    touched since.
+    """
+    try:
+        project, spot = _spot_or_fail(pid, sid)
+    except LookupError as exc:
+        return fail(str(exc), 404)
+    source = spot.get("vo_source") or {}
+    if not source.get("audio_url"):
+        return fail("There is no original kept for this read — it was uploaded "
+                    "before the cutter started keeping one, or it was recorded "
+                    "here rather than uploaded.", 404)
+    spot.update({"audio_url": source["audio_url"],
+                 "audio_where": source.get("audio_where") or "",
+                 "audio_seconds": source.get("seconds"),
+                 "audio_measured": bool(source.get("measured")),
+                 "audio_voice": source.get("filename") or "",
+                 "recorded_at": store.now()})
+    spot["vo_edit"] = {"trimmed": False, "restored": True, "at": store.now()}
+    spot["runtime_note"] = ("The file you uploaded, back as it was. Nothing "
+                            "has been cut from it.")
+    _drop_mix(spot, "The read went back to the original upload, so the mix "
+                    "made from the edited one went with it.")
+    decorate(project, spot)
+    store.save(project)
+    _log("voice_restored", project=pid, spot=sid,
+         client=project.get("client") or "")
+    return jsonify({"ok": True, "spot": spot})
 
 
 # ------------------------------------------------------------- audio, served
@@ -1448,10 +1562,43 @@ def _qc_for(project: dict, spot: dict) -> dict:
         mixed_seconds=mix.get("seconds") if mix.get("measured") else None,
         speed=mix.get("speed"),
         bed=bed, vo_only=bed is None)
+    # The length row comes OFF this panel. Step 5 fits the read to the slot --
+    # measured on the way in, dead air cut, a rate offered if that was not
+    # enough -- and the mix now renders to exactly the slot, so by the time
+    # anybody is here the question has been asked and answered against the
+    # thing that can actually be changed. Asking it again about the mix is a
+    # second verdict on a settled question, and the one somebody would have to
+    # override to file a spot that is already correct.
+    #
+    # Dropped here rather than in `hub/radio_spec.qc()`, which the Radio Ad
+    # Creator still reads: that tool has not moved its length work into its own
+    # Step 5 yet, and taking the check out from under it would leave it with
+    # nothing watching the clock at all.
+    report = _without_length_row(report)
     report["available"] = True
     report["error"] = ""
     report["spot"] = spot.get("id")
     return report
+
+
+def _without_length_row(report: dict) -> dict:
+    """The same report, minus the mix-length verdict and its bookkeeping.
+
+    Rebuilt rather than mutated in place, and every list that names checks is
+    rebuilt with it -- `blocking`, `warnings`, `not_measured` and `pending` are
+    what the panel and the filing gate read, so a row removed from `checks`
+    while its id stayed in `blocking` would be a finding nobody could see and
+    nothing could clear.
+    """
+    checks = [c for c in report.get("checks") or [] if c.get("id") != "length_match"]
+    drop = lambda key: [k for k in (report.get(key) or []) if k != "length_match"]
+    blocking, warnings = drop("blocking"), drop("warnings")
+    pending = drop("pending")
+    out = dict(report, checks=checks, blocking=blocking, warnings=warnings,
+               not_measured=drop("not_measured"), pending=pending,
+               measured=not pending,
+               status="blocked" if blocking else ("warn" if warnings else "pass"))
+    return out
 
 
 @app.route("/api/projects/<pid>/qc")
@@ -1470,24 +1617,29 @@ def api_qc(pid):
 # ------------------------------------------------- an over-long uploaded read
 @app.route("/api/projects/<pid>/spots/<sid>/speed", methods=["POST"])
 def api_speed_suggestion(pid, sid):
-    """The rate that would get an uploaded read back inside its slot.
+    """The rate that would get an over-long READ inside its slot.
 
-    A read this tool *recorded* and that overruns has two levers already on the
-    screen — tighten the script, or drop the voice speed in the casting step —
-    and both produce a fresh read at the right pace. A read somebody
-    **uploaded** has neither: it is a finished file made by talent who has gone
-    home, and with no ffmpeg in this runtime the only lever left is the one the
-    browser already has, which is to play it faster.
+    This answers about the read on Step 5, not about a mix on Step 6, and the
+    order it sits in matters: measure the read, cut its dead air, measure
+    again, and only then ask for a rate. Silence is free to remove and nobody
+    can hear it go, where a rate costs a take or costs the pitch — so offering
+    one first spends something to fix what a gap edit would have fixed for
+    nothing.
 
-    So this answers with a rate rather than the page working one out.
+    Which lever the rate means depends on whose read it is, and only this side
+    knows, because `audio_provider` is set to "upload" by the upload route and
+    by nothing else:
+
+    * an **uploaded** read has no re-record to ask for, so the rate is applied
+      by playing the finished file faster — `resample`, which costs the
+      semitones the note quotes;
+    * a read this tool **recorded** can simply be read again at the pace, so
+      the rate is `reread` — no pitch shift, and the cost is one more take.
+
     `hub/radio_spec.speed_suggestion()` owns the arithmetic, the ceiling and
-    the sentence, exactly as it owns the dB pair — a second copy of "how fast
-    is too fast" in JavaScript is how the panel and the render come to
-    disagree about what was approved.
-
-    Every number in is a duration the browser decoded, and the answer says so.
-    It changes nothing about what gets filed: that is still measured from the
-    WAV's own header by `wav_seconds()` on the way in.
+    the sentence either way. `lead_in_ms=0`: this is the read against its slot,
+    with no bed under it yet — the bed's lead-in belongs to the mix, and Step 5
+    happens before anybody has chosen one.
     """
     try:
         project, spot = _spot_or_fail(pid, sid)
@@ -1498,25 +1650,26 @@ def api_speed_suggestion(pid, sid):
         return fail(error, 503)
 
     body = request.get_json(silent=True) or {}
-    mix_cfg = spec.mix_defaults((project.get("mix_level") or ""))
-    lead = mix_cfg["lead_in_ms"] if (spot.get("bed") or {}).get("audio_url") else 0
-    suggestion = spec.speed_suggestion(
-        vo_seconds=body.get("vo_seconds"),
-        target_seconds=spot.get("seconds"),
-        mixed_seconds=body.get("mixed_seconds"),
-        lead_in_ms=lead)
-
-    # Whose read it is decides which advice is the right advice, and only the
-    # route knows: `audio_provider` is set by the upload and by nothing else.
     uploaded = (spot.get("audio_provider") or "") == "upload"
+    # The length the page just decoded, or the one already on the spot. Either
+    # is a reading of audio rather than a guess, which is the only kind of
+    # number a rate may be worked out from.
+    vo_seconds = body.get("vo_seconds")
+    if vo_seconds is None and spot.get("audio_measured"):
+        vo_seconds = spot.get("audio_seconds")
+    suggestion = spec.speed_suggestion(
+        vo_seconds=vo_seconds,
+        target_seconds=spot.get("seconds"),
+        lead_in_ms=0,
+        mode="resample" if uploaded else "reread")
+
     return jsonify({"ok": True, "uploaded": uploaded,
                     "suggestion": suggestion,
                     "alternative": "" if uploaded else
-                    ("This read was recorded here, so the honest fix is a fresh "
-                     "one: tighten the script, or drop the voice speed in the "
-                     "casting step, and record it again. Speeding a finished "
-                     "file up is for a read somebody uploaded, where there is "
-                     "no re-record to ask for.")})
+                    ("This read was recorded here, so the pace is a setting "
+                     "rather than an edit: the voice reads it again at the new "
+                     "speed and nothing shifts in pitch. Tightening the script "
+                     "is the other lever, and it costs no take at all.")})
 
 
 # ------------------------------------------------------------------ the mix
@@ -1574,9 +1727,10 @@ def api_mix(pid, sid):
     # panel, the render and the record cannot disagree about what is allowed,
     # and a rate past it is a 400 rather than a filed mix nobody can account
     # for. Absent or 1.0 means the read played at its own pace.
-    speed, speed_error = spec.speed_ok(request.form.get("speed"))
-    if speed_error:
-        return fail(speed_error)
+    # The rate the READ was made at, carried from Step 5 rather than chosen
+    # here. Step 6 no longer speeds anything up: the music must not be sped,
+    # and the voice was already fitted to the slot before a bed was picked.
+    speed = float((spot.get("vo_edit") or {}).get("speed") or 1.0)
     probe = dict(spot, mix={"seconds": seconds, "measured": True,
                             "speed": speed})
     report = _qc_for(project, probe)

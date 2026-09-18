@@ -2432,6 +2432,46 @@ REGISTRY: list[Help] = [
        "cannot know Saturday's score, so copy that quietly assumes one "
        "is flagged, with “if it went well” / “if it "
        "didn't” alternates for the station to swap in."),
+    _h("fan_radio.build.expression_tag", "Expression tags, and what they need",
+       "A tag like [excited] or [whispers] tells the voice how to read the "
+       "words that follow it, so place it immediately before them rather than "
+       "at the top of the script. Tags only do anything in **Expressive** "
+       "mode — in Standard mode they are read as text or ignored, which is "
+       "why the Record button refuses them there rather than spending a take "
+       "on a read with the word “excited” in it. They work with "
+       "instant custom voices, and how far a tag moves the performance "
+       "depends on the voice sample behind it."),
+    _h("fan_radio.build.saved_read", "Reusable reads, and the placeholder",
+       "A read you save here joins a library shared with the Radio Ad "
+       "Creator, so a structure that works can be used on the next client "
+       "without rewriting it. Saving puts this client's name back to a "
+       "placeholder, and inserting fills in whichever client the new project "
+       "is for. It inserts at the cursor rather than replacing the box — "
+       "select the copy first if you mean to overwrite it, because losing a "
+       "written spot to a mis-click is the outcome this is designed against."),
+    _h("fan_radio.build.read_length", "The read against its slot, on Step 5",
+       "Every read is measured here — an upload is decoded in your browser on "
+       "the way in, so an MP3 from somebody's phone has a real length rather "
+       "than an estimate. A read that runs past its slot is fixed in this "
+       "step, before any music exists, and in the order that costs least: the "
+       "**dead air is cut first**, because silence is free to remove and "
+       "nobody can hear it go; only if that is not enough is a **speed** "
+       "offered. A recorded read is simply read again at the new pace. An "
+       "uploaded one is played faster, which raises the pitch slightly — the "
+       "panel says by how much. The mix step no longer checks length, because "
+       "by then it has already been settled against the thing that can "
+       "actually be changed."),
+    _h("fan_radio.build.dead_air", "What the dead air cutter does",
+       "It finds the silent runs in a read and shortens them, leaving a "
+       "natural breath rather than splicing sentences together. The defaults "
+       "suit a normal voice recording: anything under **-45 dB** counts as "
+       "silence, a gap has to be at least **350ms** before it is touched (a "
+       "shorter one is the rhythm of the read, not dead air), and what "
+       "survives is **180ms**. Leading and trailing silence are trimmed "
+       "harder, because they are usually the biggest single win on a phone "
+       "recording. Advanced controls open all five if a read needs different "
+       "treatment. Your original file is kept either way — *Use the original "
+       "instead* puts it back without another upload."),
     _h("fan_radio.build.voice", "Casting, and how the name is said",
        "The five characteristics are ranked against what ElevenLabs "
        "publishes about each voice in the account, and each row prints the "
