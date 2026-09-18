@@ -196,6 +196,78 @@ def _import_image_creator(pid: str, role_map: dict) -> tuple[dict, str]:
     return fabric_io.to_frame(canvas, role_map=role_map), ""
 
 
+@app.route("/api/image-creator-projects")
+def api_image_creator_projects():
+    """A pickable list, so the new-set form never asks for a raw id.
+
+    Same `get_canvas`-through-that-module boundary as `_import_image_creator`
+    above; this just adds the search that pairs with it, reading through
+    Image Creator's own `search_projects` rather than a second index reader.
+    """
+    try:
+        from modules.image_creator import projects as ic_projects
+    except Exception as exc:                           # noqa: BLE001
+        return jsonify({"error": f"Image Creator could not be read: {exc}",
+                        "projects": []}), 503
+    rows = ic_projects.search_projects(
+        request.args.get("q", ""), request.args.get("client", ""), 30)
+    return jsonify({"projects": [
+        {"id": r.get("id", ""), "name": r.get("name", ""),
+         "client": r.get("client", ""), "preview_url": r.get("preview_url", ""),
+         "updated": r.get("updated", "")} for r in rows]})
+
+
+@app.route("/api/upload-source", methods=["POST"])
+def api_upload_source():
+    """An uploaded design image becomes the source, as one covering background.
+
+    No layout comes back out of a flat raster -- there is nothing here to
+    tell a headline from a photo -- so this gives the design a single
+    `background` object (roles.py: "Scaled to cover, never re-anchored") and
+    lets the ordinary engine build every bundle size from it, the same
+    resize this module already does for an Image Creator canvas.
+    """
+    f = request.files.get("file")
+    if not f or not f.filename:
+        return jsonify({"error": "No image was uploaded."}), 400
+    data = f.read()
+    if not data:
+        return jsonify({"error": "That file is empty."}), 400
+
+    try:
+        import io as _io
+        from PIL import Image
+        with Image.open(_io.BytesIO(data)) as im:
+            width, height = im.size
+    except Exception:                                  # noqa: BLE001
+        return jsonify({"error": "That could not be read as an image."}), 400
+    if not (width and height):
+        return jsonify({"error": "That image has no size."}), 400
+
+    url = ""
+    try:
+        from hub import storage
+        url = storage.put("magic_resize", f.filename, data,
+                          subpath="uploads").url
+    except Exception:                                  # noqa: BLE001
+        url = ""
+    if not url:                                          # no Cloudinary: inline it
+        import base64
+        mime = f.mimetype or "image/png"
+        url = f"data:{mime};base64,{base64.b64encode(data).decode('ascii')}"
+
+    fabric_obj = {"type": "image", "src": url, "left": 0, "top": 0,
+                 "originX": "left", "originY": "top",
+                 "width": width, "height": height,
+                 "scaleX": 1, "scaleY": 1, "id": "o0",
+                 "s1Role": R.BACKGROUND}
+    source = {"width": width, "height": height, "family": "", "objects": [
+        {"id": "o0", "role": R.BACKGROUND, "kind": "image",
+         "x": 0, "y": 0, "w": width, "h": height, "text": "",
+         "fontSize": None, "fill": "", "fabric": fabric_obj}]}
+    return jsonify({"source": source, "preview": url})
+
+
 @app.route("/api/projects/<pid>")
 def api_project(pid: str):
     project = store.get(pid)
