@@ -118,6 +118,33 @@ test('a client note lands on the ad it was written under and on the project reco
   assert.equal(clientProofsByProject(out).get(project.projectId)?.[0].comments?.length, 2);
 });
 
+test('a note tells staff at once, with the size and a link to that size on the build screen', (t) => {
+  // A note is written to the project record and drawn on the build screen,
+  // and until now nobody heard about it until they opened that campaign. A
+  // fake notifier proves the alert goes out with the size, the text and the
+  // deep link -- the way notify.test.ts checks the transport itself.
+  const { out, store, project, token } = proofFixture(t);
+  const alerts: Array<{ project: any; proof: any; note: any; platform: string }> = [];
+  commentOnClientProof(out, store, token, { cell: 'A/google/728x90', text: 'Logo is cut off.' }, (c) => alerts.push(c));
+  assert.equal(alerts.length, 1, 'one note, one alert');
+  assert.equal(alerts[0].note.size, '728x90');
+  assert.equal(alerts[0].platform, 'google', 'the platform tells staff which ad on that size');
+  assert.equal(alerts[0].note.text, 'Logo is cut off.');
+  assert.equal(alerts[0].project.requestId, project.requestId, 'so the caller can build the build-screen link');
+  assert.equal(alerts[0].proof.version, 2, 'and name the version in the alert');
+
+  // A whole-set note names no size, so the build-screen link stays on the campaign.
+  commentOnClientProof(out, store, token, { cell: '', text: 'Nice palette.' }, (c) => alerts.push(c));
+  assert.equal(alerts[1].note.size, '');
+  assert.equal(alerts[1].platform, '', 'no platform when it is about the whole set');
+
+  // A notifier that throws must not swallow the client's note.
+  const before = getClientProof(out, token).comments?.length ?? 0;
+  const saved = commentOnClientProof(out, store, token, { cell: '', text: 'Also great.' }, () => { throw new Error('outbox is down'); });
+  assert.equal(saved.text, 'Also great.');
+  assert.equal(getClientProof(out, token).comments?.length, before + 1);
+});
+
 test('a note is refused on a size that is not on the proof, when empty, and once the proof is approved', (t) => {
   const { out, store, token, proof } = proofFixture(t);
   assert.throws(() => commentOnClientProof(out, store, token, { cell: 'A/google/999x999', text: 'x' }), /Choose an ad from this proof/);
@@ -139,6 +166,34 @@ test('the proof page has a note box under each ad and lists what was said', (t) 
   assert.match(html, /\/client-proof\/11111111-2222-4333-8444-555555555555\/comment/);
   const closed = clientProofHtml({ ...proof, status: 'complete' });
   assert.doesNotMatch(closed, /<button type="button" data-send-note/, 'no note box once approved');
+});
+
+test('the proof page streams cells from disk instead of inlining them as base64', (t) => {
+  // A Meta set with the story and the square at 2x is ten megabytes of HTML
+  // per open, on a phone. The frozen cell URL brings the page under 20 KB
+  // and the browser caches the images between opens.
+  const { out, token } = proofFixture(t);
+  const html = clientProofHtml(getClientProof(out, token));
+  assert.doesNotMatch(html, /data:image\//, 'no cell is inlined as base64');
+  assert.match(html, /src="\/client-proof\/11111111-2222-4333-8444-555555555555\/cell\/0"/, 'each ad links to its own frozen file');
+  assert.match(html, /src="\/client-proof\/11111111-2222-4333-8444-555555555555\/cell\/1"/);
+  assert.match(html, /loading="lazy"/, 'and the browser can defer offscreen ones');
+  assert.ok(html.length < 20_000, `two-cell proof page is ${html.length} bytes; the ceiling in docs/claude/83 is 20 KB`);
+});
+
+test('the proof cell URL matches only a UUID token and a digit index, so a bad index or a "../" cannot land', () => {
+  // The server matches these paths with this regex; refusing at the regex
+  // level means no case ever reaches the cells array with an out-of-shape
+  // value. A "../" cannot occur inside \d+, and a non-UUID token cannot
+  // occur inside [a-f0-9-]{36}.
+  const rx = /^\/client-proof\/([a-f0-9-]{36})(?:\/(decision|download|comment|cell))?(?:\/(\d+))?$/;
+  assert.ok(rx.test('/client-proof/11111111-2222-4333-8444-555555555555/cell/0'), 'a good cell path matches');
+  assert.ok(rx.test('/client-proof/11111111-2222-4333-8444-555555555555/cell/17'));
+  assert.ok(!rx.test('/client-proof/not-a-uuid/cell/0'), 'a non-UUID token is refused');
+  assert.ok(!rx.test('/client-proof/11111111-2222-4333-8444-555555555555/cell/../etc/passwd'), 'a "../" in the index is refused');
+  assert.ok(!rx.test('/client-proof/11111111-2222-4333-8444-555555555555/cell/-1'), 'a negative index is refused');
+  assert.ok(!rx.test('/client-proof/11111111-2222-4333-8444-555555555555/cell/'), 'an empty index is refused');
+  assert.ok(!rx.test('/client-proof/11111111-2222-4333-8444-555555555555/cell/0x'), 'a mixed index is refused');
 });
 
 /* ------------------------------------------------------------ health */

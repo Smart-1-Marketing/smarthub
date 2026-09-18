@@ -55,13 +55,14 @@ say "above" or "below" mean earlier or later files in this list.
 | [`46-one-description-of-what-a-record-page-looks-like.md`](46-one-description-of-what-a-record-page-looks-like.md) | One description of what a record page looks like | 221 |
 | [`47-declared-and-never-wired.md`](47-declared-and-never-wired.md) | Declared and never wired | 96 |
 | [`48-a-review-nobody-wrote-down-is-a-review-nobody-can-point-at.md`](48-a-review-nobody-wrote-down-is-a-review-nobody-can-point-at.md) | A review nobody wrote down is a review nobody can point at | 102 |
-| [`49-what-the-ad-report-syncs-propose-and-the-person-who-stands-b.md`](49-what-the-ad-report-syncs-propose-and-the-person-who-stands-b.md) | What the ad-report syncs propose, and the person who stands behind each | 394 |
+| [`49-what-the-ad-report-syncs-propose-and-the-person-who-stands-b.md`](49-what-the-ad-report-syncs-propose-and-the-person-who-stands-b.md) | What the ad-report syncs propose, and the person who stands behind each | 405 |
 | [`50-a-clients-google-listing-read-live-rather-than-remembered-fr.md`](50-a-clients-google-listing-read-live-rather-than-remembered-fr.md) | A client's Google listing, read live rather than remembered from the scan | 87 |
 | [`51-a-clients-youtube-channel-read-live-on-the-same-key.md`](51-a-clients-youtube-channel-read-live-on-the-same-key.md) | A client's YouTube channel, read live, on the same key | 80 |
 | [`52-microsoft-advertising-one-consent-and-the-reports-module-pul.md`](52-microsoft-advertising-one-consent-and-the-reports-module-pul.md) | Microsoft Advertising: one consent, and the reports module pulls | 191 |
 | [`53-groundtruth-the-key-arrived-before-the-document.md`](53-groundtruth-the-key-arrived-before-the-document.md) | GroundTruth: the key arrived before the document | 84 |
 | [`54-one-industry-taxonomy-resolved-and-written-down.md`](54-one-industry-taxonomy-resolved-and-written-down.md) | One industry taxonomy, resolved and written down | 33 |
 | [`56-verifying-a-change.md`](56-verifying-a-change.md) | Verifying a change | 1143 |
+| [`56-verifying-a-change.md`](56-verifying-a-change.md) | Verifying a change | 1149 |
 | [`57-smartforecast-moved-to-the-hub-database.md`](57-smartforecast-moved-to-the-hub-database.md) | SmartForecast moved to the Hub database, and what the move found | 133 |
 | [`58-the-check-that-reported-no-json-on-the-disk.md`](58-the-check-that-reported-no-json-on-the-disk.md) | The check that reported no JSON on the disk | 181 |
 | [`59-leads-in-a-table-not-a-file-on-one-instance.md`](59-leads-in-a-table-not-a-file-on-one-instance.md) | Leads in a table, not a file on one instance | 136 |
@@ -81,7 +82,7 @@ say "above" or "below" mean earlier or later files in this list.
 | [`73-one-page-per-provider-and-the-fields-left-on-the-table.md`](73-one-page-per-provider-and-the-fields-left-on-the-table.md) | One page per provider, and the fields left on the table | 88 |
 | [`74-every-link-that-works-without-a-hub-login.md`](74-every-link-that-works-without-a-hub-login.md) | Every link that works without a Hub login | 153 |
 | [`75-removal-day-is-readable.md`](75-removal-day-is-readable.md) | Removal day is readable | 125 |
-| [`76-the-optimizers-bytes-cross-the-instance-boundary.md`](76-the-optimizers-bytes-cross-the-instance-boundary.md) | The optimizer's bytes cross the instance boundary | 134 |
+| [`76-the-optimizers-bytes-cross-the-instance-boundary.md`](76-the-optimizers-bytes-cross-the-instance-boundary.md) | The optimizer's bytes cross the instance boundary | 190 |
 | [`77-a-half-hour-job-on-the-shared-thread-stalled-every-job-behind-it.md`](77-a-half-hour-job-on-the-shared-thread-stalled-every-job-behind-it.md) | A half-hour job on the shared thread stalled every job behind it | 64 |
 | [`78-last-month-was-not-in-the-fact-table.md`](78-last-month-was-not-in-the-fact-table.md) | Last month was not in the fact table | 72 |
 | [`79-callrail-a-phone-call-is-an-outcome-not-a-conversion.md`](79-callrail-a-phone-call-is-an-outcome-not-a-conversion.md) | CallRail: a phone call is an outcome, not a conversion | 111 |
