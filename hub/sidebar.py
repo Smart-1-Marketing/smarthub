@@ -786,6 +786,15 @@ body.s1hub-collapsed .s1hub-toggle { right: 4px; }
 .s1hub-sb.s1hub-searching .s1hub-dept .s1hub-chev { visibility: hidden; }
 .s1hub-sb .s1hub-nomatch { display: none; padding: 14px 18px; font-size: 12px; color: #7d8db2; }
 .s1hub-sb.s1hub-searching.s1hub-nohits .s1hub-nomatch { display: block; }
+/* Recent section: filled client-side from localStorage. The row shape is
+   identical to a pinned row so the eye reads the two blocks as one system;
+   the section header (.s1hub-recent-head) is the whole differentiator. Both
+   header and container start [hidden] and reveal only when the first click
+   lands. During a search, the whole Recent block hides -- it is a shortcut
+   for the person who did not want to type, and the search results ARE the
+   answer once they did. */
+.s1hub-sb.s1hub-searching .s1hub-recent-head,
+.s1hub-sb.s1hub-searching .s1hub-recent { display: none !important; }
 /* Collapsed rail hides the search input, since there is no room to type in
    56px. The keyboard shortcut still opens the drawer and focuses it. */
 body.s1hub-collapsed .s1hub-sb .s1hub-search-wrap { display: none; }
@@ -1078,6 +1087,17 @@ def render_sidebar(active: str = "", is_admin: bool = True,
         rows.append(f'<a class="s1hub-item{on}" href="{href}" title="{label}">'
                     f'<span class="s1hub-ico">{ico}</span>'
                     f'<span class="s1hub-label"> {label}</span></a>')
+    # Recent: five slots reshuffled by use. The section is rendered empty and
+    # filled from localStorage on load -- per-browser rather than per-server,
+    # because a person's laptop is where their working set lives and the audit
+    # log records deliverables produced, not tools opened. A person with no
+    # history sees no section; the header appears when the first entry lands.
+    # The JS below also writes entries as clicks happen, deduped by href and
+    # capped at RECENT_MAX. Every entry is a row of the same shape as PINNED,
+    # so the styling matches without a second rule.
+    rows.append('<div class="s1hub-sec s1hub-recent-head" hidden>Recent</div>'
+                '<div class="s1hub-recent" data-s1hub-active="'
+                + (active or "") + '"></div>')
     for title, depts in SECTIONS:
         shown = [d for d in depts if is_admin or d["level"] != ADMIN_ONLY]
         if not shown:
@@ -1184,6 +1204,68 @@ def render_sidebar(active: str = "", is_admin: bool = True,
         "document.body.classList.remove('s1hub-nopeek');});"
         "n.addEventListener('focusout',function(){"
         "document.body.classList.remove('s1hub-nopeek');});"
+        # ---- recent. Every real click on a leaf, pinned row or department
+        # name is pushed to the front of s1hub:recent -- deduped by href,
+        # capped at 5. On load the box renders those five rows above the
+        # pinned block so the eye reads the working set before the tree.
+        # A leaf that is the department's own index page (/views/<slug>)
+        # counts; the chevron, the burger and the search box do not, since
+        # they are controls rather than destinations.
+        "var RECENT_MAX=5,recentKey='s1hub:recent',rec=[];"
+        "try{rec=JSON.parse(localStorage.getItem(recentKey)||'[]')||[];}"
+        "catch(e){rec=[];}"
+        "if(!Array.isArray(rec))rec=[];"
+        "var recentBox=n.querySelector('.s1hub-recent'),"
+        "recentHead=n.querySelector('.s1hub-recent-head');"
+        "function drawRecent(){"
+        "if(!recentBox||!recentHead)return;"
+        "recentBox.innerHTML='';"
+        "var active=recentBox.getAttribute('data-s1hub-active')||'',shown=0;"
+        "rec.forEach(function(r){"
+        "if(!r||!r.href||!r.label)return;"
+        "if(shown>=RECENT_MAX)return;"
+        "shown++;"
+        "var a=document.createElement('a');"
+        "a.className='s1hub-item s1hub-recent-item';"
+        "if(r.key&&r.key===active)a.className+=' s1hub-on';"
+        "a.href=r.href;a.title=r.label;"
+        "a.setAttribute('data-s1hub-recent','1');"
+        "var ico=document.createElement('span');"
+        "ico.className='s1hub-ico';ico.innerHTML=r.ico||'&#128279;';"
+        "var lab=document.createElement('span');"
+        "lab.className='s1hub-label';lab.textContent=' '+r.label;"
+        "a.appendChild(ico);a.appendChild(lab);"
+        "recentBox.appendChild(a);"
+        "});"
+        "var on=shown>0;recentHead.hidden=!on;recentBox.hidden=!on;"
+        "}"
+        "drawRecent();"
+        # Recording. Delegated on the nav so a link added later (a re-render
+        # after search, a dept expanded inline) still records. The row's
+        # icon comes from the actual span so a monogram or emoji swap
+        # is picked up whatever it becomes.
+        "function record(a){"
+        "if(!a||!a.getAttribute)return;"
+        "if(a.getAttribute('data-s1hub-recent')==='1')return;"       # already a recent row
+        "var href=a.getAttribute('href');"
+        "if(!href||href.charAt(0)==='#'||href.indexOf('javascript:')===0)return;"
+        "var labelEl=a.querySelector('.s1hub-label');"
+        "var iconEl=a.querySelector('.s1hub-ico');"
+        "var label=(labelEl?labelEl.textContent:a.textContent||'').trim();"
+        "if(!label)return;"
+        # `key` lets Recent light up when the visited tool is the active one.
+        # Read from the anchor's class or the department's data attribute.
+        "var key='';var deptEl=a.closest('.s1hub-dept');"
+        "if(deptEl)key='dept_'+(deptEl.getAttribute('data-s1hub-dept')||'').replace(/-/g,'_');"
+        "var entry={href:href,label:label,ico:iconEl?iconEl.innerHTML:'',key:key};"
+        "rec=rec.filter(function(r){return r&&r.href!==href;});"
+        "rec.unshift(entry);"
+        "if(rec.length>RECENT_MAX*2)rec=rec.slice(0,RECENT_MAX*2);"
+        "try{localStorage.setItem(recentKey,JSON.stringify(rec));}catch(e){}"
+        "}"
+        "n.addEventListener('click',function(e){"
+        "var a=e.target.closest('a.s1hub-item,a.s1hub-dept-link,a.s1hub-leaf,a.s1hub-g');"
+        "if(a)record(a);});"
         # ---- search. Cmd/Ctrl-K from anywhere lands focus on the box;
         # typing filters the pinned rows, the department rows and every leaf
         # inside them, matching on the visible label text. A department with
@@ -1197,7 +1279,7 @@ def render_sidebar(active: str = "", is_admin: bool = True,
         # so the filter is a simple substring test rather than a DOM walk on
         # every keystroke. Pinned rows and department rows filter as one unit;
         # leaves inside a department filter individually.
-        "var pinned=n.querySelectorAll('.s1hub-item:not(.s1hub-leaf)'),"
+        "var pinned=n.querySelectorAll('.s1hub-item:not(.s1hub-leaf):not(.s1hub-recent-item)'),"
         "depts=n.querySelectorAll('.s1hub-dept'),"
         "leaves=n.querySelectorAll('.s1hub-inline .s1hub-leaf'),"
         "sections=n.querySelectorAll('.s1hub-sec');"
