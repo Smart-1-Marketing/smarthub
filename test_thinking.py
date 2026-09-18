@@ -697,6 +697,13 @@ MARK_EXEMPT = {
         "request, disables no control, and allows the CTA navigation to "
         "continue; drawing a wait mark would falsely claim the visitor is "
         "blocked on analytics that deliberately cannot block them.",
+    "modules/camhub/templates/cam.html":
+        "the same shape as the SmartForecast embed: its only request is the "
+        "viewable-impression batch, sent with sendBeacon when the page is "
+        "hidden (an XMLHttpRequest only where sendBeacon is refused), which "
+        "nothing on the page waits for and no control is disabled by. A "
+        "sponsor click navigates through /go/ at once. A wait mark would "
+        "claim the visitor is blocked on analytics that cannot block them.",
 }
 
 _swept, _unmarked = [], []
