@@ -64,6 +64,18 @@ _reports_testdb.reset(store)
 TODAY = date(2026, 9, 17)
 
 
+class _FixedDate(date):
+    """The module's clock, pinned: the scheduler job and the buttons call
+    with no ``today`` and read ``date.today()``, and a test that ran at
+    00:17 UTC on the 18th with the 17th in its expectations found out."""
+    @classmethod
+    def today(cls):
+        return TODAY
+
+
+backfill.date = _FixedDate
+
+
 def _row(platform, day, campaign="c1", spend=1.0, source="native"):
     return {"platform": platform, "account_id": "a1", "campaign_id": campaign,
             "date": day, "campaign_name": "camp", "spend": spend, "impressions": 10,
