@@ -68,7 +68,7 @@ _app = None
 
 # Jobs that take minutes rather than seconds: each runs on its own thread so
 # the loop keeps ticking (see "The background lane" above).
-BACKGROUND_JOBS = frozenset({"google_index", "reports_native", "reports_backfill"})
+BACKGROUND_JOBS = frozenset({"google_index", "reports_native", "reports_backfill", "reports_backup"})
 _background: dict[str, threading.Thread] = {}
 
 # The Google sweep's hours, Eastern, and how fresh an index is left alone.
@@ -1391,6 +1391,66 @@ def backfill_now(platforms, actor: str = "") -> dict:
                     + " in the background; reload in a minute."}
 
 
+# The backup's earliest hour, Eastern: after the pulls and the history window.
+BACKUP_AFTER_HOUR = 8
+
+
+def job_reports_backup(app, *, force: bool = False, restore: bool = False,
+                       actor: str = "scheduler") -> dict:
+    """A copy of the landed rows on the persistent disk, and off it where
+    Cloudinary is configured (``modules/reports/backfill.py``'s sibling,
+    ``modules/reports/backup.py``).
+
+    Checked hourly, run once a day from BACKUP_AFTER_HOUR Eastern, after the
+    3 AM pull and the 4-8 AM history window have had their turn; a day that
+    already has a finished backup is not backed up again. ``force`` is the
+    button, whatever the hour; ``restore`` puts the copy back (adds and
+    updates, never deletes). On the background lane: a full first copy is
+    every row on file.
+    """
+    try:
+        from modules.reports import backup
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        if restore:
+            return backup.restore(actor=actor)
+        if not force:
+            st = backup.status()
+            if st["running"]:
+                return {"skipped": "a backup is running"}
+            # Both days in Eastern: the manifest's finish time is UTC, and
+            # for four hours a night the two calendars disagree.
+            today = _now().astimezone(EASTERN).date()
+            try:
+                finished_day = datetime.fromisoformat(str(st.get("finished_at") or "")).astimezone(EASTERN).date()
+            except ValueError:
+                finished_day = None
+            if finished_day == today:
+                return {"skipped": "backed up today already", "finished_at": st["finished_at"]}
+            if _eastern_hour() < BACKUP_AFTER_HOUR:
+                return {"skipped": f"waits for {BACKUP_AFTER_HOUR} AM Eastern, after the pulls"}
+        return backup.run(actor=actor)
+
+
+def backup_now(actor: str = "", restore: bool = False) -> dict:
+    """The Reports index's Back up now / Restore buttons: on the lane, at
+    once. ``{"started", "note"}``; refused while one is running here."""
+    what = "restore" if restore else "backup"
+    if running("reports_backup"):
+        return {"started": False, "note": f"A {what} is running on this worker right now; not started again."}
+    started = _start_background(
+        "reports_backup",
+        functools.partial(_run_job, app_for_jobs(), "reports_backup",
+                          force=True, restore=restore, actor=actor or "button"))
+    if not started:
+        return {"started": False, "note": f"A {what} is running on this worker right now; not started again."}
+    return {"started": True,
+            "note": ("Restoring from the backup in the background: rows are added and updated, "
+                     "never deleted. Reload in a minute." if restore else
+                     "Backing up in the background; reload in a minute.")}
+
+
 def job_reports_pacing(app) -> dict:
     """Snapshot every sold line's pacing, hourly, after the pulls.
 
@@ -1622,6 +1682,9 @@ JOBS = {
     "reports_backfill":  (60, job_reports_backfill,
                           "Thirty more days of history for the platforms set to nightly, overnight "
                           "(4-8 AM Eastern), until each has nothing older."),
+    "reports_backup":    (60, job_reports_backup,
+                          "A copy of the landed rows on the disk and off it, once a day after "
+                          "8 AM Eastern; only what changed is rewritten."),
     "reports_pacing":    (60, job_reports_pacing,
                           "Snapshot every sold line's pacing against its budget (the board reads this)."),
     "reports_reconcile": (1440, job_reports_reconcile,

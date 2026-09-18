@@ -123,6 +123,26 @@
   </div>
 </div>
 
+<div class="s1d-card" id="backups">
+  <div class="s1d-cardhead"><h2>Backups</h2>
+    <span class="s1d-muted">A copy of every landed row and the campaign map, on the Hub's own disk and off it where Cloudinary is configured, once a day after 8 AM Eastern. One file per platform per month, so an old month is written once and the set never grows past the data. Restore adds and updates; it never deletes.</span>
+    <form method="post" action="/reports/backup" style="display:inline"><button type="submit" class="s1d-btn small"{% if backups.running %} disabled{% endif %}>Back up now</button></form>
+    <form method="post" action="/reports/backup/restore" style="display:inline"><button type="submit" class="s1d-btn small"{% if backups.running or not backups.ever %} disabled{% endif %}>Restore from backup</button></form></div>
+  {% if backups %}
+  <div class="s1d-kv"><b><span class="s1d-pill {{ 'warn' if backups.running else 'bad' if backups.stalled or (backups.last and backups.last.errors) else 'warn' if backups.stale else 'ok' }}">{{ 'running' if backups.running else 'stalled' if backups.stalled else 'never' if not backups.ever else 'failed' if backups.last and backups.last.errors else 'stale' if backups.stale else 'current' }}</span></b>
+    <span>{% if backups.ever %}Last backup finished {{ backups.finished_at|replace('T', ' ')|truncate(16, true, '') }}{% if backups.age_hours is not none %} ({{ backups.age_hours }} hours ago){% endif %}: {{ backups.files }} files, {{ '{:,}'.format(backups.rows) }} rows, {{ '{:,}'.format(backups.bytes // 1024) }} KB, {{ backups.months }} platform-months across {{ backups.platforms|join(', ') or 'no platform' }}.{% if backups.last and backups.last.written is defined %} The last run rewrote {{ backups.last.written }}.{% endif %}{% else %}No backup has run yet.{% endif %}
+      {% if backups.last and backups.last.errors %}<span class="s1d-muted">{% for k, v in backups.last.errors.items() %}{{ k }}: {{ v }} {% endfor %}</span>{% endif %}</span></div>
+  <div class="s1d-kv"><b><span class="s1d-pill {{ 'ok' if backups.offsite and backups.offsite == backups.files else 'warn' }}">off-site</span></b>
+    <span>{% if backups.offsite %}{{ backups.offsite }} of {{ backups.files }} files also in Cloudinary.{% else %}No copy off this disk.{% endif %}{% if backups.offsite_note %} <span class="s1d-muted">{{ backups.offsite_note }}</span>{% endif %}</span></div>
+  {% if backups.last_restore %}
+  <div class="s1d-kv"><b><span class="s1d-pill {{ 'ok' if backups.last_restore.ok else 'bad' }}">restore</span></b>
+    <span>Last restore {{ (backups.last_restore.at or '')|replace('T', ' ')|truncate(16, true, '') }} by {{ backups.last_restore.actor or 'the scheduler' }}: {{ '{:,}'.format(backups.last_restore.facts or 0) }} fact rows and {{ '{:,}'.format(backups.last_restore.tables or 0) }} table rows put back from {{ backups.last_restore.files }} files.{% if backups.last_restore.errors %} <span class="s1d-muted">{% for k, v in backups.last_restore.errors.items() %}{{ k }}: {{ v }} {% endfor %}</span>{% endif %}</span></div>
+  {% endif %}
+  <div class="s1d-kv"><b><span class="s1d-pill {{ 'ok' if backups.indexes and backups.indexes|selectattr('present')|list|length == backups.indexes|length else 'warn' }}">indexes</span></b>
+    <span>{% for ix in backups.indexes %}{{ ix.name|replace('ix_reports_ad_perf_daily_', '') }} on {{ ix.columns }}: {{ 'present' if ix.present else 'missing' }}{{ '; ' if not loop.last }}{% endfor %} on the fact table, read from the live database.</span></div>
+  {% endif %}
+</div>
+
 <div class="s1d-card">
   <div class="s1d-cardhead"><h2>Upload a CSV {{ help_dot('reports.index.upload') if help_dot is defined else '' }}</h2>
     <span class="s1d-muted">A platform's own export, for a platform with no feed connected or a month a feed missed.</span></div>
