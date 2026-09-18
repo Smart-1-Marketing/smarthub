@@ -1599,6 +1599,16 @@
           voSrc.buffer = vo; voSrc.connect(ctx.destination); voSrc.start(lead);
 
           var note = "";
+          // The read against the slot, and it belongs OUT here rather than
+          // under the bed: the mix is the slot now, so a read that overruns is
+          // cut whether or not there is music under it, and a straight read
+          // was the one case that got no warning at all. Said rather than
+          // silently clipped -- and Step 5 is where it gets fixed.
+          if(lead + voLen > total + 0.05)
+            note = "This read runs " + (lead + voLen).toFixed(1) + "s and the "
+              + "slot is " + total.toFixed(1) + "s, so the mix cuts the last "
+              + ((lead + voLen) - total).toFixed(1) + "s off it. Go back to "
+              + "Step 5 and fit the read first.";
           if(bed){
             var bedG = dbGain(M.bed_db), duckG = dbGain(M.ducked_db);
             var atk = (M.duck_attack_ms||0)/1000, rel = (M.duck_release_ms||0)/1000;
@@ -1625,19 +1635,17 @@
             // puts an audible seam in the middle of a client's commercial;
             // saying the last few seconds carry no music is something somebody
             // can act on.
-            if(lead + voLen > total + 0.05)
-              note = (note ? note + " " : "")
-                + "This read runs " + (lead + voLen).toFixed(1) + "s and the slot "
-                + "is " + total.toFixed(1) + "s, so the mix cuts the last "
-                + ((lead + voLen) - total).toFixed(1) + "s off it. Go back to "
-                + "Step 5 and fit the read first.";
+            //
+            // APPENDED, not assigned: both findings can be true of one mix,
+            // and overwriting dropped the one about the read -- which is the
+            // more expensive of the two, because it is the phone number.
             var shortBy = total - bed.duration;
-            if(shortBy > 0.25){
-              note = "The bed is " + bed.duration.toFixed(1) + "s and the spot "
+            if(shortBy > 0.25)
+              note = (note ? note + " " : "")
+                + "The bed is " + bed.duration.toFixed(1) + "s and the spot "
                 + "runs " + total.toFixed(1) + "s, so the last "
                 + shortBy.toFixed(1) + "s has no music under it. Compose it "
                 + "again at this length, or accept the tail.";
-            }
           }
           return ctx.startRendering().then(function(out){
             return {buffer: out, note: note, voSeconds: vo.duration}; });

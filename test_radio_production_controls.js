@@ -100,9 +100,18 @@ vm.runInContext('function dbGain(db){return Math.pow(10,db/20);}'+functionText('
  assert.equal(overlong.voSeconds,33,"the read's own length still rides back");
  assert.match(overlong.note,/cuts the last/,'an over-long read is SAID, not silently clipped');
  assert.match(overlong.note,/Step 5/,'and it names where to fix it');
+ // Both findings can be true of one mix, and the read's is the expensive one
+ // -- it is the phone number. The bed note used to overwrite it.
+ Object.assign(context,{decodeRef:async(sid,role)=>({duration:role==='vo'?33:20})});
+ const both=await context.buildMix({id:'sample',seconds:30,bed:{audio_url:'bed'}});
+ assert.match(both.note,/cuts the last/,'the read overrun survives');
+ assert.match(both.note,/no music under it/,'alongside the short bed');
+ // A straight read is cut exactly the same way, so it is warned about too --
+ // this was the one case the warning never reached.
  lengths.length=0;
- const fits=await context.buildMix({id:'sample',seconds:30,bed:{audio_url:'bed'}});
- assert.equal(lengths.at(-1),Math.round(30*44100),'a read that fits renders the same slot');
+ const voOnly=await context.buildMix({id:'sample',seconds:30});
+ assert.equal(lengths.at(-1),Math.round(30*44100),'a bedless mix is still the slot');
+ assert.match(voOnly.note,/cuts the last/,'and an over-long straight read is told about it');
  Object.assign(context,{decodeRef:async(sid,role)=>({duration:role==='vo'?28:33})});
  const shortRead=await context.buildMix({id:'sample',seconds:30,bed:{audio_url:'bed'}});
  assert.doesNotMatch(shortRead.note||'',/cuts the last/,'a read inside its slot is not warned about');
