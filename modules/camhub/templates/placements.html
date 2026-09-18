@@ -28,6 +28,12 @@
     <p class="muted" style="margin:8px 0 0">Supporting tiles shuffle by weight on every page load; the order above is one draw.</p>
   </div>
 
+  <div class="card">
+    <h2 style="margin-top:0">Traffic this month ({{ month.start }} to {{ month.end }})</h2>
+    <p style="margin:0">{{ month.page.pageviews }} pageviews &middot; {{ month.page.unique_sessions }} sessions &middot; {{ month.page.filtered }} events filtered out (crawlers, double clicks, rate limits)</p>
+    <p class="muted" style="margin:6px 0 0">A viewable impression is half the unit on screen for one continuous second, once per visit. Rolled up hourly from the raw events; the raw rows are kept ninety days, these for ever.</p>
+  </div>
+
   <div class="row" style="margin:0 0 14px">
     <a class="btn" href="{{ mount }}/pages/{{ page.slug }}/placements/new?position=presenting">New presenting placement</a>
     <a class="btn" href="{{ mount }}/pages/{{ page.slug }}/placements/new?position=supporting">New supporting placement</a>
@@ -37,7 +43,7 @@
   <div class="card">
     <h2 style="margin-top:0">Every placement</h2>
     <table>
-      <thead><tr><th>Position</th><th>Sponsor / name</th><th>Flight</th><th>Status</th><th>Treatment</th><th>Weight</th><th>Updated</th></tr></thead>
+      <thead><tr><th>Position</th><th>Sponsor / name</th><th>Flight</th><th>Status</th><th>Treatment</th><th>Weight</th><th>This month</th><th>Updated</th></tr></thead>
       <tbody>
       {% for p in placements %}
       <tr>
@@ -47,10 +53,11 @@
         <td><span class="pill {{ 'green' if p.effective == 'live' else 'amber' if p.effective == 'scheduled' else 'off' }}">{{ p.effective }}</span></td>
         <td>{{ p.animation }}</td>
         <td>{{ p.weight }}</td>
+        <td>{% if p.stats %}{{ p.stats.impressions }} viewable &middot; {{ p.stats.clicks }} clicks &middot; {{ p.stats.ctr }}% CTR{% if p.stats.viewable_share is not none %}<br><span class="muted">seen on {{ p.stats.viewable_share }}% of pageviews</span>{% endif %}{% elif p.is_house %}<span class="muted">not counted</span>{% else %}<span class="muted">nothing yet</span>{% endif %}</td>
         <td class="muted">{{ p.updated_by }}{% if p.updated_at %} &middot; {{ p.updated_at.strftime('%b %d') }}{% endif %}</td>
       </tr>
       {% else %}
-      <tr><td colspan="7" class="muted">No placements yet.</td></tr>
+      <tr><td colspan="8" class="muted">No placements yet.</td></tr>
       {% endfor %}
       </tbody>
     </table>

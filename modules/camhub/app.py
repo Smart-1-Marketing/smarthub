@@ -15,7 +15,9 @@ from pathlib import Path
 
 from flask import Flask, Response, abort, jsonify, redirect, render_template, request, url_for
 
-from . import builder, render as page_render, seeds, sponsors, store
+from hub.leads import client_ip
+
+from . import builder, render as page_render, seeds, sponsors, store, tracking
 from .models import boot_error, init_db
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -23,7 +25,7 @@ app = Flask(__name__, template_folder=str(BASE_DIR / "templates"),
             static_folder=str(BASE_DIR / "static"))
 log = logging.getLogger("hub")
 
-PUBLIC_PREFIXES = ("/cam/",)
+PUBLIC_PREFIXES = ("/cam/", "/go/")
 MOUNT = "/tools/camhub"
 
 init_db()
@@ -92,8 +94,11 @@ def page_detail(slug: str):
         abort(404)
     cache = store.cache_for(page["id"])
     ctx = page_render.build(page, cache)
+    start, end = tracking.month_bounds()
+    month = tracking.stats(page["id"], start, end)
+    names = {pl["id"]: (pl["name"] or pl["sponsor_name"]) for pl in sponsors.list_placements(page["id"])}
     return render_template("page.html", page=page, ctx=ctx, health=store.health(page["id"]),
-                           cache=cache, missing=_missing(page),
+                           cache=cache, missing=_missing(page), month=month, placement_names=names,
                            mount=request.script_root or MOUNT)
 
 
@@ -193,7 +198,11 @@ def placements_index(slug: str):
         abort(404)
     rows = sponsors.list_placements(page["id"])
     slots = sponsors.select_slots(page)
-    return render_template("placements.html", page=page, placements=rows, slots=slots,
+    start, end = tracking.month_bounds()
+    month = tracking.stats(page["id"], start, end)
+    for r in rows:
+        r["stats"] = month["placements"].get(r["id"])
+    return render_template("placements.html", page=page, placements=rows, slots=slots, month=month,
                            mount=request.script_root or MOUNT, saved=request.args.get("saved"),
                            warning=request.args.get("warning", ""))
 
@@ -336,6 +345,9 @@ def cam(slug: str):
             return render_template("cam_missing.html", reason="preview link expired"), 404
         preview = {"claim": claim, "draft": sponsors.decode_draft(request.args.get("draft", ""))}
     ctx = page_render.build(page, store.cache_for(page["id"]), preview=preview)
+    ctx["go_base"] = (request.script_root or "") + "/go/"
+    ctx["events_url"] = (request.script_root or "") + f"/cam/{slug}/events"
+    ctx["tracking"] = not preview
     html = render_template("cam.html", **ctx)
     if preview:
         # A draft is for the editor's own iframe: never cached, never indexed.
@@ -348,6 +360,57 @@ def cam(slug: str):
         "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
         "Content-Security-Policy": "frame-ancestors *",
     })
+
+
+@app.route("/cam/<slug>/events", methods=["POST", "OPTIONS"])
+def cam_events(slug: str):
+    """The page's batch: one pageview and the impressions and clicks its
+    script saw. Sent with sendBeacon, so the answer is never read; it is
+    still honest about what it kept."""
+    if request.method == "OPTIONS":
+        resp = Response(status=204)
+    else:
+        page = store.get_page(slug) if not boot_error() else None
+        if not page:
+            resp = jsonify({"ok": False, "error": "not found"})
+            resp.status_code = 404
+        else:
+            try:
+                payload = request.get_json(force=True, silent=True)
+                if payload is None:
+                    raise ValueError("a JSON body is expected")
+                result = tracking.ingest(page, payload, ip=client_ip(request),
+                                         user_agent=request.headers.get("User-Agent", ""),
+                                         referrer=request.headers.get("Referer", ""))
+                resp = jsonify({"ok": True, **result})
+                resp.status_code = 202
+            except ValueError as exc:
+                resp = jsonify({"ok": False, "error": str(exc)})
+                resp.status_code = 400
+    resp.headers["Access-Control-Allow-Origin"] = "*"
+    resp.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+    resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    resp.headers["Cache-Control"] = "no-store"
+    resp.headers["X-Robots-Tag"] = "noindex"
+    return resp
+
+
+@app.route("/go/<int:placement_id>")
+def go(placement_id: int):
+    """Every sold link on the page comes through here: the click is
+    recorded and the visitor is sent on. A house link never does -- it is
+    the client's own site, not a sponsor's."""
+    if boot_error():
+        abort(503)
+    hit = tracking.click(placement_id, session_token=request.args.get("s", ""),
+                         ip=client_ip(request), user_agent=request.headers.get("User-Agent", ""),
+                         referrer=request.headers.get("Referer", ""))
+    if not hit:
+        abort(404)
+    resp = redirect(hit["url"], code=302)
+    resp.headers["Cache-Control"] = "no-store"
+    resp.headers["X-Robots-Tag"] = "noindex, nofollow"
+    return resp
 
 
 @app.route("/cam/<slug>/data.json")

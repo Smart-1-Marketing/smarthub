@@ -21,6 +21,10 @@ What each part guards, and why it is a test rather than a note:
 * **Sprint 3, the sponsor system:** one presenting sponsor at a time, four
   supporting tiles shuffled by weight, house ads in every unsold slot, a
   flight that ends itself, copy capped at the tile, a signed preview.
+* **Sprint 4, tracking:** a batch written with no address in it, once per
+  unit per visit, crawlers and instant clicks kept with a reason, the click
+  redirect and the double click, the rollup that reads only unfiltered rows
+  and the reports that read only the rollup, the ninety-day purge.
 """
 from __future__ import annotations
 
@@ -646,7 +650,7 @@ class SponsorTests(unittest.TestCase):
                                   url="https://rosewood.example/", animation="crossfade")
         html = app.test_client().get("/cam/buckeye-lake").data.decode()
         self.assertIn('class="presents crossfade"', html)
-        self.assertIn('href="https://rosewood.example/" rel="nofollow sponsored"', html)
+        self.assertIn(f'href="/go/{pres["id"]}" rel="nofollow sponsored"', html)   # sold: through the click redirect
         self.assertIn("Presenting sponsor", html)
         self.assertIn(f'data-placement="{pres["id"]}" data-position="0"', html)
         sponsors.delete_placement(pres["id"], self.page["id"])
@@ -728,6 +732,196 @@ class SponsorTests(unittest.TestCase):
                                     kind="image", page=self.page)
         self.assertEqual(sponsors.store_creative(SimpleNamespace(filename="", read=lambda: b""),
                                                  kind="image", page=self.page), "")
+
+
+class TrackingTests(unittest.TestCase):
+    """Sprint 4: numbers a sponsor could audit. A viewable impression is
+    what the page's observer reports, once per unit per visit; a click goes
+    through /go/ and a double click is marked; crawlers, instant clicks and
+    rate limits are kept with a reason and left out of the rollup; the IP
+    is never stored; reports read the rollup."""
+
+    UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1"
+
+    @classmethod
+    def setUpClass(cls):
+        from modules.camhub import models, seeds, sponsors
+        from modules.camhub.models import DailyStat, Event, Placement, Sponsor, session
+        from sqlalchemy import delete
+        assert not models.init_db()
+        cls.page = seeds.provision("buckeye-lake", fetch=False)["page"]
+        with session() as s:
+            for table in (Event, DailyStat, Placement, Sponsor):
+                s.execute(delete(table))
+            s.commit()
+        sponsors.ensure_house_placements(cls.page)
+        cls.sponsor = sponsors.save_sponsor({"name": "Rosewood Marine & Dock", "category": "marina"})
+        cls.pres, _ = sponsors.save_placement({"position": "presenting", "status": "active",
+                                               "sponsor_id": cls.sponsor["id"], "headline": "Slips since 1974.",
+                                               "cta_label": "Check", "url": "https://rosewood.example/"},
+                                              cls.page["id"])
+        cls.house = next(p for p in sponsors.list_placements(cls.page["id"]) if p["is_house"] and p["url"] == "")
+
+    def setUp(self):
+        from modules.camhub.models import DailyStat, Event, session
+        from sqlalchemy import delete
+        with session() as s:
+            s.execute(delete(Event))
+            s.execute(delete(DailyStat))
+            s.commit()
+
+    def _batch(self, session="abcdef1234567890", scrolled=True, ms=8000, events=None, ua=None, ip="203.0.113.7"):
+        from modules.camhub import tracking
+        payload = {"session": session, "pageview": {"scrolled": scrolled, "ms": ms},
+                   "events": events if events is not None else
+                   [{"kind": "impression", "placement": self.pres["id"], "position": 0, "ms": 1500}]}
+        return tracking.ingest(self.page, payload, ip=ip, user_agent=ua or self.UA,
+                               referrer="https://www.google.com/")
+
+    def _events(self):
+        from modules.camhub.models import Event, session
+        from sqlalchemy import select
+        with session() as s:
+            return [{"kind": e.kind, "placement_id": e.placement_id, "filtered": e.filtered,
+                     "reason": e.filter_reason, "session": e.session_hash, "ip": e.ip_hash,
+                     "device": e.device, "ref": e.referrer_host, "position": e.position}
+                    for e in s.execute(select(Event).order_by(Event.id)).scalars().all()]
+
+    def test_a_batch_is_written_with_no_address_in_it(self):
+        from modules.camhub import tracking
+        out = self._batch()
+        self.assertEqual(out["written"], 2)
+        rows = self._events()
+        self.assertEqual([r["kind"] for r in rows], ["pageview", "impression"])
+        self.assertEqual(rows[1]["placement_id"], self.pres["id"])
+        self.assertEqual(rows[1]["device"], "mobile")
+        self.assertEqual(rows[1]["ref"], "www.google.com")
+        self.assertNotIn("203.0.113.7", json.dumps(rows))
+        self.assertEqual(len(rows[0]["ip"]), 24)
+        self.assertEqual(rows[0]["session"], tracking.hash_session("abcdef1234567890"))
+        self.assertNotEqual(rows[0]["session"], "abcdef1234567890")
+
+    def test_once_per_unit_per_pageview_and_only_this_pages_sold_units(self):
+        out = self._batch(events=[{"kind": "impression", "placement": self.pres["id"], "position": 0, "ms": 1500},
+                                  {"kind": "impression", "placement": self.pres["id"], "position": 0, "ms": 9000},
+                                  {"kind": "impression", "placement": self.house["id"], "position": 1, "ms": 2000},
+                                  {"kind": "impression", "placement": 99999, "position": 1, "ms": 2000},
+                                  {"kind": "scroll", "placement": self.pres["id"]}])
+        self.assertEqual(out["written"], 2)     # the pageview and one impression
+
+    def test_crawlers_instant_clicks_and_no_scroll_clicks_are_kept_and_marked(self):
+        out = self._batch(ua="Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)")
+        self.assertEqual((out["written"], out["filtered"]), (0, {"crawler": 2}))
+        out = self._batch(events=[{"kind": "click", "placement": self.pres["id"], "position": 0, "ms": 120}])
+        self.assertEqual(out["filtered"], {"instant_click": 1})
+        out = self._batch(scrolled=False, events=[{"kind": "click", "placement": self.pres["id"], "position": 3, "ms": 4000}])
+        self.assertEqual(out["filtered"], {"no_scroll": 1})
+        reasons = [r["reason"] for r in self._events() if r["filtered"]]
+        self.assertEqual(sorted(reasons), ["crawler", "crawler", "instant_click", "no_scroll"])
+
+    def test_a_session_or_an_address_past_the_rate_is_marked(self):
+        from modules.camhub import tracking
+        for i in range(tracking.IP_PAGEVIEWS_PER_MINUTE):
+            self._batch(session=f"session-{i:04d}xxxx", events=[])
+        out = self._batch(session="one-more-sessionxx", events=[])
+        self.assertEqual(out["filtered"], {"ip_rate": 1})
+        out = self._batch(session="one-more-sessionxx", events=[], ip="198.51.100.9")
+        self.assertEqual(out["written"], 1)
+
+    def test_a_click_redirects_and_a_double_click_is_marked(self):
+        from modules.camhub import tracking
+        from modules.camhub.app import app
+        c = app.test_client()
+        r = c.get(f"/go/{self.pres['id']}?s=abcdef1234567890", headers={"User-Agent": self.UA})
+        self.assertEqual((r.status_code, r.headers["Location"]), (302, "https://rosewood.example/"))
+        self.assertEqual(r.headers["X-Robots-Tag"], "noindex, nofollow")
+        r = c.get(f"/go/{self.pres['id']}?s=abcdef1234567890", headers={"User-Agent": self.UA})
+        self.assertEqual(r.status_code, 302)              # still sent on, still counted once
+        rows = [r for r in self._events() if r["kind"] == "click"]
+        self.assertEqual([r["reason"] for r in rows], [None, "double_click"])
+        self.assertEqual(c.get("/go/99999").status_code, 404)
+        self.assertEqual(c.get(f"/go/{self.house['id']}").status_code, 404)   # a house ad has no /go/ link
+        self.assertIsNone(tracking.click(self.house["id"], session_token="", ip="1.2.3.4", user_agent=self.UA))
+
+    def test_the_events_endpoint_is_public_cors_and_strict(self):
+        from modules.camhub.app import app
+        c = app.test_client()
+        r = c.post("/cam/buckeye-lake/events", data=json.dumps(
+            {"session": "abcdef1234567890", "pageview": {"scrolled": True, "ms": 5000},
+             "events": [{"kind": "impression", "placement": self.pres["id"], "position": 0, "ms": 1200}]}),
+            content_type="application/json", headers={"User-Agent": self.UA})
+        self.assertEqual(r.status_code, 202)
+        self.assertEqual(r.headers["Access-Control-Allow-Origin"], "*")
+        self.assertEqual(r.get_json()["written"], 2)
+        self.assertEqual(c.options("/cam/buckeye-lake/events").status_code, 204)
+        r = c.post("/cam/buckeye-lake/events", data="not json", content_type="application/json")
+        self.assertEqual(r.status_code, 400)
+        r = c.post("/cam/buckeye-lake/events", data=json.dumps({"events": [{}] * 41}), content_type="application/json")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(c.post("/cam/no-such/events", data="{}", content_type="application/json").status_code, 404)
+
+    def test_the_page_carries_the_observer_and_routes_sold_links_through_go(self):
+        from modules.camhub import sponsors
+        from modules.camhub.app import app
+        c = app.test_client()
+        html = c.get("/cam/buckeye-lake").data.decode()
+        self.assertIn("IntersectionObserver", html)
+        self.assertIn("sendBeacon", html)
+        self.assertIn(f'href="/go/{self.pres["id"]}" rel="nofollow sponsored"', html)
+        self.assertNotIn("https://rosewood.example/", html)   # the destination is only ever behind /go/
+        token = sponsors.preview_token(self.page["id"], "presenting", self.pres["id"])
+        preview = c.get(f"/cam/buckeye-lake?preview={token}").data.decode()
+        self.assertNotIn("IntersectionObserver", preview)     # a preview counts nothing
+
+    def test_the_rollup_reads_only_unfiltered_rows_and_reports_read_the_rollup(self):
+        from modules.camhub import tracking
+        from modules.camhub.app import app
+        c = app.test_client()
+        self._batch(session="visitor-one-xxxxx")
+        self._batch(session="visitor-two-xxxxx")
+        self._batch(session="visitor-three-xxx", events=[])
+        self._batch(session="a-crawler-session", ua="curl/8.0")
+        c.get(f"/go/{self.pres['id']}?s=visitor-one-xxxxx", headers={"User-Agent": self.UA})
+        c.get(f"/go/{self.pres['id']}?s=visitor-one-xxxxx", headers={"User-Agent": self.UA})   # double
+        out = tracking.rollup_recent()
+        self.assertEqual(sum(d["rows"] for d in out["days"]), 2)   # the page row and the placement row
+        start, end = tracking.month_bounds()
+        st = tracking.stats(self.page["id"], start, end)
+        self.assertEqual(st["page"]["pageviews"], 3)
+        self.assertEqual(st["page"]["unique_sessions"], 3)
+        pl = st["placements"][self.pres["id"]]
+        self.assertEqual((pl["impressions"], pl["clicks"], pl["unique_sessions"]), (2, 1, 2))
+        self.assertEqual(pl["ctr"], 50.0)
+        self.assertEqual(pl["viewable_share"], 67)
+        self.assertEqual(pl["filtered"], 2)                        # the crawler's impression, the double click
+        self.assertEqual(st["page"]["filtered"], 3)                # crawler pageview + impression, the double click
+        # Running it again rewrites the same rows.
+        tracking.rollup_recent()
+        self.assertEqual(tracking.stats(self.page["id"], start, end)["page"]["pageviews"], 3)
+        r = c.get("/pages/buckeye-lake/placements")
+        self.assertIn(b"2 viewable", r.data)
+        self.assertIn(b"seen on 67% of pageviews", r.data)
+        self.assertIn(b"<td>50.0%</td>", c.get("/pages/buckeye-lake").data)
+
+    def test_raw_rows_are_purged_after_ninety_days(self):
+        from datetime import timedelta
+        from modules.camhub import tracking
+        from modules.camhub.models import Event, session
+        self._batch()
+        with session() as s:
+            for e in s.query(Event).all():
+                e.at = e.at - timedelta(days=91)
+            s.commit()
+        self.assertEqual(tracking.purge(), 2)
+        self.assertEqual(self._events(), [])
+
+    def test_the_rollup_job_is_registered(self):
+        from hub import scheduler
+        every, fn, _ = scheduler.JOBS["camhub_rollup"]
+        self.assertEqual((every, fn.__name__), (60, "job_camhub_rollup"))
+        from modules.camhub import cron
+        with patch("modules.camhub.tracking.rollup_recent", return_value={"days": [], "purged": 0}):
+            self.assertEqual(cron.job_rollup()["purged"], 0)
 
 
 class WiringTests(unittest.TestCase):

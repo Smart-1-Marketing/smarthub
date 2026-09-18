@@ -418,6 +418,11 @@ PUBLIC_DYNAMIC: dict[str, str] = {
                                 "module declares /cam/ in its own "
                                 "PUBLIC_PREFIXES. An unknown slug renders "
                                 "cam_missing.html rather than listing slugs",
+    "/tools/camhub/go/<int:placement_id>": "a sponsor's link on the cam page: "
+                                           "the click is recorded and the "
+                                           "visitor is sent on with a 302. "
+                                           "The visitor has no Hub login; an "
+                                           "unknown placement is a 404",
     "/tools/camhub/cam/<slug>/data.json": "that page's conditions as JSON, "
                                           "for the client's own site to read; "
                                           "sets Access-Control-Allow-Origin "
@@ -544,6 +549,13 @@ PUBLIC_DYNAMIC_WRITES: dict[str, str] = {
         "reporting that somebody looked at it. It runs on the client's own "
         "page, so there is no session to hold; the token is what scopes the "
         "engagement to one embed, and an unknown one is refused",
+    "/tools/camhub/cam/<slug>/events": "the cam page reporting its viewable "
+                                       "impressions and clicks, one batch per "
+                                       "visit, sent with sendBeacon from a page "
+                                       "on the client's own domain. Filtered "
+                                       "and rate-limited in modules/camhub/"
+                                       "tracking.py; nothing in it can change "
+                                       "a placement",
     "/wx/<token>*": "the same wizard's writes: picking triggers, generating "
                     "and choosing wording, uploading or generating an image, "
                     "approving, and requesting a change. Every write is "
