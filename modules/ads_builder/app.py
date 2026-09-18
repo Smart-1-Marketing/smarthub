@@ -730,8 +730,16 @@ def oauth_amazon_callback():
 
     if error:
         store.log_event("AMAZON_OAUTH_DENIED", current_user(), error=error)
-        return render_template("ads_error.html",
-                               error=f"Amazon sign-in was cancelled: {error}"), 400
+        # Not every refusal is a cancellation, and the one that is not --
+        # a scope the security profile may not ask for -- reads as a wrong
+        # credential to everybody who has not met it before. Where Amazon
+        # names something this module knows, the callback says what it is.
+        explained = amazon_ads.consent_refusal(
+            error, request.args.get("error_description", ""))
+        return render_template(
+            "ads_error.html",
+            error=explained or f"Amazon sign-in was cancelled: {error}",
+        ), 400
     if not code:
         return render_template("ads_error.html",
                                error="Amazon did not return an authorization code."), 400

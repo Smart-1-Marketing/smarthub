@@ -86,9 +86,36 @@ MOUNT = "/tools/ads"
 CALLBACK_PATH = MOUNT + "/oauth/amazon/callback"
 TIMEOUT = 60
 
-# Login with Amazon. These two are stable and documented.
-LWA_AUTHORIZE_URL = "https://www.amazon.com/ap/oa"
-LWA_TOKEN_URL = "https://api.amazon.com/auth/o2/token"
+# Login with Amazon, per region. Both halves of the consent are
+# region-specific and neither says so when it is wrong: an EU security
+# profile sent to the North American authorize host is refused on Amazon's
+# own page, which never redirects back here, so nothing in the Hub logs it.
+# AMAZON_ADS_REGION already picks the API host below; it picks these too,
+# rather than leaving a second region implicit in a constant.
+LWA_AUTHORIZE_URLS = {
+    "NA": "https://www.amazon.com/ap/oa",
+    "EU": "https://eu.account.amazon.com/ap/oa",
+    "FE": "https://apac.account.amazon.com/ap/oa",
+}
+LWA_TOKEN_URLS = {
+    "NA": "https://api.amazon.com/auth/o2/token",
+    "EU": "https://api.amazon.co.uk/auth/o2/token",
+    "FE": "https://api.amazon.co.jp/auth/o2/token",
+}
+# The North American pair stays spelled out under its old name: it is the
+# default region, and every caller that reads one constant reads this one.
+LWA_AUTHORIZE_URL = LWA_AUTHORIZE_URLS["NA"]
+LWA_TOKEN_URL = LWA_TOKEN_URLS["NA"]
+
+# The scope the DSP reporting endpoints are read under. It is not a scope
+# every Login with Amazon security profile may ask for: the advertising::
+# scopes exist only for a profile attached to an **approved Amazon Ads API
+# application**, and until that approval lands Amazon refuses the consent
+# page itself with "An unknown scope was requested"
+# (errorCode 400, errorMsg lwa-invalid-parameter-bad-scope). That refusal is
+# an application that has not been approved, never a wrong client id, a
+# wrong secret or a wrong redirect URI -- CONSENT_REFUSALS below says so in
+# the words Amazon prints, because that page is where somebody reads it.
 LWA_SCOPE = "advertising::campaign_management"
 
 # The API host is per region. The entity lives in one, and a token consented
@@ -157,6 +184,43 @@ ENV = {
 }
 
 REQUIRED = (ENV["client_id"], ENV["client_secret"], ENV["entity_id"])
+
+# What Amazon's own consent page says, and what each one actually is. Keyed
+# by the ``error`` LWA sends back when it redirects, and matched against the
+# ``errorMsg`` it prints when it does not redirect at all.
+CONSENT_REFUSALS = {
+    "invalid_scope": (
+        "Amazon refused the scope " + LWA_SCOPE + " (\"An unknown scope was "
+        "requested\"). The Login with Amazon security profile behind "
+        + ENV["client_id"] + " is not attached to an approved Amazon Ads API "
+        "application, so the advertising:: scopes do not exist for it yet. "
+        "Apply for Amazon Ads API access against this exact security profile "
+        "at advertising.amazon.com/API, from the account that administers the "
+        "DSP entity, and connect again once Amazon approves it. Nothing in "
+        "the Hub is wrong: no client id, secret or redirect URI produces this."
+    ),
+    "unauthorized_client": (
+        "The security profile is not allowed to request an authorization code "
+        "this way. Check that the redirect URI below is registered under the "
+        "profile's Web Settings, character for character."
+    ),
+    "invalid_client": (
+        "Amazon does not recognize the client id. Check that "
+        + ENV["client_id"] + " is the security profile's client id, not the "
+        "Ads API application id."
+    ),
+    "access_denied": (
+        "The sign-in was cancelled, or the account that signed in declined "
+        "the consent."
+    ),
+}
+
+# The strings Amazon prints on the page it renders instead of redirecting,
+# mapped onto the same explanations.
+CONSENT_REFUSAL_MARKERS = {
+    "lwa-invalid-parameter-bad-scope": "invalid_scope",
+    "an unknown scope was requested": "invalid_scope",
+}
 
 BLOCKS = {
     ENV["client_id"]: "the Login with Amazon security profile's client id "
@@ -323,12 +387,47 @@ def forget_tokens() -> None:
 # OAuth
 # ---------------------------------------------------------------------------
 
+def authorize_endpoint(region: str = "") -> str:
+    """Login with Amazon's consent host for a region, NA when the region is
+    not one this API has -- the same fallback ``AmazonConfig.host`` makes, so
+    a bad AMAZON_ADS_REGION is reported by ``connection_status()`` rather
+    than raising from inside a redirect."""
+    return LWA_AUTHORIZE_URLS.get((region or "NA").upper(), LWA_AUTHORIZE_URL)
+
+
+def token_endpoint(region: str = "") -> str:
+    """The token host for a region. Region-specific for the same reason the
+    authorize host is: a code minted in one region is not traded in another."""
+    return LWA_TOKEN_URLS.get((region or "NA").upper(), LWA_TOKEN_URL)
+
+
+def consent_refusal(error: str = "", detail: str = "") -> str:
+    """What Amazon's refusal of the *consent* actually means, in words.
+
+    Takes the ``error`` from a callback redirect, or -- for the refusals
+    Amazon renders as its own page and never redirects back from -- whatever
+    of that page a person pasted in. Returns "" for anything not in the
+    table, so the caller keeps its own generic wording rather than inventing
+    a diagnosis. The one that matters is ``invalid_scope``: it is the Amazon
+    Ads API application not being approved for this security profile, and it
+    reads to everybody who has not met it before as a wrong credential.
+    """
+    key = (error or "").strip().lower()
+    if key in CONSENT_REFUSALS:
+        return CONSENT_REFUSALS[key]
+    haystack = f"{error} {detail}".lower()
+    for marker, mapped in CONSENT_REFUSAL_MARKERS.items():
+        if marker in haystack:
+            return CONSENT_REFUSALS[mapped]
+    return ""
+
+
 def build_auth_url(state: str = "") -> str:
     """The consent URL. Sign in as the account that **administers the DSP
     entity**, not whoever is at the keyboard: the token inherits that
     person's access, and a rep's own Amazon login reaches nothing."""
     cfg = load_config()
-    return LWA_AUTHORIZE_URL + "?" + urllib.parse.urlencode({
+    return authorize_endpoint(cfg.region) + "?" + urllib.parse.urlencode({
         "client_id": cfg.client_id,
         "scope": LWA_SCOPE,
         "response_type": "code",
@@ -337,9 +436,9 @@ def build_auth_url(state: str = "") -> str:
     })
 
 
-def _token_post(data: dict) -> dict:
+def _token_post(data: dict, region: str = "") -> dict:
     try:
-        resp = requests.post(LWA_TOKEN_URL, data=data, timeout=TIMEOUT)
+        resp = requests.post(token_endpoint(region), data=data, timeout=TIMEOUT)
     except requests.RequestException as exc:
         raise AmazonAuthError("Login with Amazon could not be reached: "
                               f"{type(exc).__name__}")
@@ -358,7 +457,7 @@ def exchange_code(code: str) -> dict:
         "redirect_uri": cfg.redirect_uri,
         "client_id": cfg.client_id,
         "client_secret": cfg.client_secret,
-    })
+    }, cfg.region)
     _access["value"] = data.get("access_token", "")
     _access["expires_at"] = time.time() + int(data.get("expires_in", 3600)) - 60
     return data
@@ -377,7 +476,7 @@ def access_token(cfg: AmazonConfig | None = None) -> str:
         "refresh_token": cfg.refresh_token,
         "client_id": cfg.client_id,
         "client_secret": cfg.client_secret,
-    })
+    }, cfg.region)
     _access["value"] = data["access_token"]
     _access["expires_at"] = time.time() + int(data.get("expires_in", 3600)) - 60
     return _access["value"]
@@ -418,6 +517,15 @@ def connection_status(store=None) -> dict:
             else f"hub database (set {ENV['refresh_token']} to pin it)" if from_db
             else "none"),
         "redirect_uri": cfg.redirect_uri,
+        # The consent as it will actually be sent. Both are on the card
+        # because the one refusal a correct configuration still hits --
+        # "An unknown scope was requested" -- names neither, and a person
+        # comparing Amazon's error page to this screen has to be able to see
+        # that the scope asked for and the host it was asked at are the ones
+        # they think they are.
+        "scope": LWA_SCOPE,
+        "authorize_host": urllib.parse.urlsplit(
+            authorize_endpoint(cfg.region)).netloc,
         "missing": missing,
         "blocks": blocks,
     }
@@ -776,6 +884,9 @@ def _lwa_error(resp, data) -> str:
     if err == "invalid_client":
         return (f"invalid_client -- {ENV['client_id']} and {ENV['client_secret']} do not "
                 "match one Login with Amazon security profile.")
+    consent = consent_refusal(err, desc)
+    if consent:
+        return _redact(f"{err or 'refused'} -- {consent}")
     return _redact(f"{getattr(resp, 'status_code', '?')} {err} {desc}".strip())
 
 

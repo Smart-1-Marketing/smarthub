@@ -180,3 +180,37 @@ is reported as the approval rather than the key. Every call is recorded under
 `amazon_ads` by endpoint family, so the usage page can say which half of a
 pull spent what -- the Login with Amazon token endpoint deliberately
 excepted, because a token refresh is not a metered call.
+
+**The consent itself is a sixth claim, and it fails before any of the five.**
+September 18, 2026: the first press of Connect never reached the Hub's
+callback at all. Amazon rendered its own page — `400 Bad Request`, *An unknown
+scope was requested*, `errorMsg=lwa-invalid-parameter-bad-scope` — against a
+request whose client id, redirect URI, state and `response_type` were all
+correct. The `advertising::` scopes do not exist for a Login with Amazon
+security profile until that profile is attached to an **approved Amazon Ads
+API application**; asking for one before approval is not a rejected consent,
+it is an unknown parameter. Nothing in this repository can make it succeed,
+and nothing in this repository was wrong.
+
+The trap is what it looks like. It arrives on the screen that follows a button
+labelled Connect, so it reads as a credential the Hub got wrong, and the
+sentence that costs a week is *let me regenerate the client secret*. The three
+things that produce the right diagnosis are recorded in code rather than here:
+`CONSENT_REFUSALS` in `modules/ads_builder/amazon_ads.py` maps the LWA error
+codes onto what each one actually is, `consent_refusal()` matches the page's
+own `errorMsg` for the refusals that never redirect, and the Settings card
+carries the unknown-scope note beside the button, because a page Amazon
+renders is not a page this codebase gets to write. The callback uses the same
+table, so a refusal that *does* redirect is explained rather than filed as
+"sign-in was cancelled" — which it usually is not.
+
+**And the consent is per region, which one constant had quietly decided.**
+`AMAZON_ADS_REGION` picked the API host and nothing else: the authorize host
+and the token host were the North American pair, spelled once at the top of
+the file. An EU or FE entity would have been sent to `www.amazon.com/ap/oa`
+and refused on Amazon's own page — again with no callback, so again with
+nothing logged. `LWA_AUTHORIZE_URLS` and `LWA_TOKEN_URLS` are keyed by the
+same region the API host is, `authorize_endpoint()` and `token_endpoint()`
+fall back to NA the way `AmazonConfig.host` does, and the Settings card prints
+the scope and the host the consent will actually use, so the screen and
+Amazon's error page can be compared without guessing.
