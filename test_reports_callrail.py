@@ -399,6 +399,8 @@ check("...and the bubble registered", hub_help.get("reports.callrail.check") is 
 ANSWERS.extend([_Resp(200, ACCOUNTS), _Resp(200, PAGE1)])
 page = staff.get("/reports/callrail-check").get_data(as_text=True)
 check("against a body it resolves, the page says so", 'class="s1d-pill ok">Resolved' in page)
+check("...saying how many calls the names were judged against, not just the first",
+      "Judged against" in page and "rather than the first" in page)
 check("...and the unread box measures what the map leaves on the row",
       "customer_phone_number" in page.split('id="unread-fields"')[-1])
 index = staff.get("/reports/").get_data(as_text=True)
@@ -543,6 +545,79 @@ check("a source spelled two ways is one source",
 check("...and a call with no source still files, under a name that says so",
       [(r["campaign_id"], r["campaign_name"]) for r in callrail.to_facts([_call(source="")])["rows"]],
       [("no-source", "(no source)")])
+
+
+# ------------------------------- the map is judged on names, not on one row
+section("A null on the first call is not a wrong name")
+
+# An unattributed call has no source. It is the FIRST call on the page as
+# often as any other, and judging the map on row zero alone made it refuse
+# the whole night and send somebody to correct a name that was right.
+unattributed = dict(_call()); unattributed["source"] = None
+page = [unattributed, _call(source="Google Ads"), _call(source="Google Organic")]
+chk = callrail.check_map(page)
+check("a required field that is null on the first call still resolves", chk["resolved"], True)
+check("...judged against every call read, not the first", chk["sampled"], 3)
+facts = callrail.to_facts(page)
+check("...so the page files rather than refusing", (len(facts["rows"]), facts["error"]), (3, ""))
+check("...with the unattributed call under its own name",
+      sorted(r["campaign_id"] for r in facts["rows"]),
+      ["google-ads", "google-organic", "no-source"])
+check("...and the same three calls file whatever order they arrive in",
+      len(callrail.to_facts(list(reversed(page)))["rows"]), 3)
+
+os.environ["CALLRAIL_FIELD_CAMPAIGN_ID"] = "utm_source_nope"
+chk = callrail.check_map(page)
+check("a name nobody answers to is still caught", (chk["resolved"], chk["missing"]),
+      (False, ["utm_source_nope"]))
+check("...and still refuses the pull rather than filing under it",
+      callrail.to_facts(page)["rows"], [])
+os.environ.pop("CALLRAIL_FIELD_CAMPAIGN_ID")
+
+gone = dict(_call()); gone.pop("source")
+check("a key absent from every row is a wrong name, not an empty field",
+      callrail.check_map([gone, dict(gone)])["resolved"], False)
+chk = callrail.check_map([unattributed, dict(unattributed)])
+check("a key present and null on every call resolves...", chk["resolved"], True)
+check("...and says so rather than passing in silence",
+      ("source" in chk["empty"], "empty on every call read" in chk["why"]), (True, True))
+
+# ------------------------------------- a correction tried is not a correction settled
+section("What the environment is answering for")
+
+check("nothing overridden reads as nothing", callrail_map.overrides(), [])
+os.environ["CALLRAIL_FIELD_CAMPAIGN_ID"] = "utm_source"
+os.environ["CALLRAIL_PARAM_START"] = "from"
+over = callrail_map.overrides()
+check("an overridden field name is named with its variable",
+      [(o["what"], o["env"], o["value"]) for o in over if o["what"] == "fields.campaign_id"],
+      [("fields.campaign_id", "CALLRAIL_FIELD_CAMPAIGN_ID", "utm_source")])
+check("...and so is an overridden parameter", any(o["env"] == "CALLRAIL_PARAM_START" for o in over))
+check("...and config() carries the list for the page", len(callrail.cfg()["overrides"]), 2)
+os.environ["CALLRAIL_CALLS_PATH"] = callrail_map.CALLS_PATH
+check("a variable set to the value already in the file is not a disagreement",
+      any(o["env"] == "CALLRAIL_CALLS_PATH" for o in callrail_map.overrides()), False)
+os.environ.pop("CALLRAIL_CALLS_PATH")
+
+
+def _check_page() -> str:
+    ANSWERS.extend([_Resp(200, ACCOUNTS), _Resp(200, PAGE1)])
+    return staff.get("/reports/callrail-check").get_data(as_text=True)
+
+
+page_html = _check_page()
+check("the check page names what is still owed to callrail_map.py",
+      ("not settled" in page_html and "CALLRAIL_FIELD_CAMPAIGN_ID" in page_html), True)
+os.environ.pop("CALLRAIL_FIELD_CAMPAIGN_ID")
+os.environ.pop("CALLRAIL_PARAM_START")
+check("with nothing overridden the page says the file is the whole answer",
+      "every name below is the one in" in _check_page(), True)
+
+os.environ["CALLRAIL_AUTH_FORMAT"] = f'Token token="{KEY}"'
+check("a header somebody pasted the key into never reaches the page",
+      _secrets_in(_check_page()), False)
+os.environ.pop("CALLRAIL_AUTH_FORMAT")
+
 
 os.environ["CALLRAIL_API_BASE"] = "http://api.callrail.test"
 check("an http origin is refused by name rather than sent the key",
