@@ -47,7 +47,9 @@ import ast
 import collections
 import pathlib
 import re
+import shutil
 import sys
+import tempfile
 
 ROOT = pathlib.Path(__file__).parent
 _WORD = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -155,16 +157,17 @@ ALLOW = {
 }
 
 
-def public_functions():
+def public_functions(root=None):
     """Every undecorated public function, by "path:name".
 
     Undecorated on purpose: a route, a property or a CLI command is called by
     its framework and naming it nowhere is normal. What is left is the code
     this repo calls itself, or does not.
     """
+    root = root or ROOT
     out = collections.defaultdict(list)
-    for p in sorted(ROOT.rglob("*.py")):
-        rel = p.relative_to(ROOT)
+    for p in sorted(root.rglob("*.py")):
+        rel = p.relative_to(root)
         if any(d in rel.parts for d in SKIP_DIRS):
             continue
         # The checks and the tools are entry points; nothing calls them either.
@@ -183,7 +186,7 @@ def public_functions():
     return out
 
 
-def _token_counts():
+def _token_counts(root=None):
     """Every identifier-shaped word in the repo, counted once.
 
     One pass over the bytes rather than one substring scan per name per file:
@@ -192,10 +195,11 @@ def _token_counts():
     is also the more honest question -- `foo` appearing inside `foobar` was
     never a reference to `foo`.
     """
+    root = root or ROOT
     counts = collections.Counter()
     here = pathlib.Path(__file__).resolve()
-    for p in sorted(ROOT.rglob("*")):
-        rel = p.relative_to(ROOT)
+    for p in sorted(root.rglob("*")):
+        rel = p.relative_to(root)
         if p.is_dir() or any(d in rel.parts for d in SKIP_DIRS):
             continue
         # Code and templates only. **Prose is not a call site** -- the rule
@@ -223,7 +227,7 @@ def _token_counts():
     return counts
 
 
-def unwired():
+def unwired(root=None):
     """Public functions named nowhere but their own definition.
 
     Textual rather than a call graph, and deliberately so: this repo reaches
@@ -232,8 +236,8 @@ def unwired():
     unwired. A name that appears nowhere else in any file is the only claim
     that survives all four.
     """
-    defs = public_functions()
-    seen = _token_counts()
+    defs = public_functions(root)
+    seen = _token_counts(root)
     out = {}
     for name, sites in defs.items():
         if seen[name] <= len(sites):
@@ -265,15 +269,37 @@ section("...and the check bites")
 # A check that can be silenced by an edit somewhere else is worse than no
 # check, so it is handed a function that is plainly unreferenced and required
 # to say so. It started green, which is the only way it was worth adding.
-_probe = ROOT / "hub" / "_unwired_probe.py"
+#
+# The tree is a throwaway one rather than a file planted in hub/ and deleted
+# again. A probe in the working tree races every concurrent sweep -- a
+# `tools/preflight.py` run listed one of these and read it after the delete,
+# failing `compile every module` on a file that had never been committed -- and
+# a run killed between the write and the `finally` leaves it behind.
+_tmp = pathlib.Path(tempfile.mkdtemp(prefix="unwired-probe-"))
 try:
-    _probe.write_text(
-        "def a_function_nothing_anywhere_calls():\n    return 1\n", encoding="utf-8")
-    _again = unwired()
+    (_tmp / "hub").mkdir()
+    (_tmp / "hub" / "probe.py").write_text(
+        "def a_function_nothing_anywhere_calls():\n    return 1\n"
+        "def one_something_calls():\n    return 2\n", encoding="utf-8")
+    (_tmp / "hub" / "caller.py").write_text(
+        "from .probe import one_something_calls\n"
+        "def go():\n    return one_something_calls()\n", encoding="utf-8")
+    _again = unwired(_tmp)
     check("it names a function nothing calls",
           any(k.endswith(":a_function_nothing_anywhere_calls") for k in _again), True)
+    check("...and not the one beside it that something does call",
+          any(k.endswith(":one_something_calls") for k in _again), False)
 finally:
-    _probe.unlink(missing_ok=True)
+    shutil.rmtree(_tmp, ignore_errors=True)
+
+# Handing the walk a root means the green result above no longer proves the
+# default walk reaches this repo at all -- an empty FOUND and a repo with
+# nothing unwired in it read identically. So that is asserted.
+_defs = public_functions()
+check("the default walk reaches hub/ and modules/",
+      any(pth.startswith("hub/") for s in _defs.values() for pth, _ in s)
+      and any(pth.startswith("modules/") for s in _defs.values() for pth, _ in s),
+      True)
 
 # And does not name one that is called, however indirectly.
 check("it does not name a function something calls",

@@ -1474,3 +1474,53 @@ The tells, if it happens again:
 The fix is to resolve the conflict, not to kick CI. `docs/claude/README.md`
 carries `merge=union` in `.gitattributes` now precisely so the commonest source
 of these conflicts stops producing them.
+
+**A test that plants a fixture file in the repository races every other sweep,
+and survives its own crash.** Six of them did. The write and the `unlink` sat
+either side of a `try`/`finally`, which looks tidy and is not enough:
+
+- `tools/preflight.py`'s *compile every module* step listed
+  `hub/_integrity_orphan_caller.py` and read it after `test_env_config.py` had
+  deleted it — `FileNotFoundError` on a file that had never been committed.
+  Nothing in that traceback names the test that caused it, and re-running
+  serially makes it go away, which is the exact shape of a defect that gets
+  called a flake for a year. It only happened because a test batch and a sweep
+  were started in the same minute, which CI does routinely.
+- A run that dies between the two — SIGKILL, an assertion outside the `try`,
+  a debugger — leaves the probe in the working tree. The next `git status`
+  shows an untracked file under `hub/` that nobody wrote, and the browser
+  uploader that releases have gone out through *adds and overwrites but never
+  deletes*.
+
+Polling `git status` while the three offending files ran caught
+`hub/_env_drift_probe.py`, `hub/_integrity_orphan_caller.py` and
+`hub/templates/_integrity_orphan_probe.html` in the tree mid-run. After the
+change, nothing.
+
+The excuse was a real one, which is why it lasted: **the check under test
+walked the repository and took no argument**, so a probe had nowhere else to
+live. That is the thing to fix, not the test. `check_orphan_templates(root=)`,
+`check_provider_key_drift(sources=)`, `check_own_fernet(sources=)` and
+`test_unwired.py`'s own `unwired(root)` now take one, the way
+`check_ai_callers(root)`, `check_unmasked_secret_fields(root=)` and
+`check_shadowed_model_query(sources=)` always did. The fixture becomes a
+temporary directory or a string, and the repository is never touched.
+
+**Handing a sweep its sources costs the proof that the default walk reaches
+anything**, and that trade has to be paid for explicitly. "Every module has
+moved across" and "the scan silently stopped scanning" render identically as an
+empty list — this file makes that point about `check_provider_key_drift()`
+already, which found no groups and read as a clean bill of health for as long
+as anyone looked. So each of the four now asserts that its *default* walk
+reaches `hub/` and `modules/`, separately from the probe. That is strictly more
+than the planted file proved.
+
+`test_ci_gate.py` holds the guard, read by AST: a name is repository-rooted if
+it derives from `__file__`, **transitively** — the write is almost never on
+`ROOT` but on `_probe = ROOT / "hub" / "x.py"` three lines later, and a first
+pass that missed that reported zero and looked like success. `.replace` is
+deliberately not a write attribute; `str.replace` is all over these files and
+put thirteen false findings in the first version. `WRITES_EXEMPT` is empty on
+purpose, and the check carries eight fixtures — four shapes it must catch, four
+look-alikes it must not — because an empty finding list is worth nothing unless
+the reading behind it can be shown to find the thing.
