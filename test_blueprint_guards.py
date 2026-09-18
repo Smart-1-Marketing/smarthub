@@ -412,6 +412,17 @@ PUBLIC_DYNAMIC: dict[str, str] = {
                                                      "because it is fetched "
                                                      "from the client's "
                                                      "domain rather than ours",
+    "/tools/camhub/cam/<slug>": "a client's live-cam conditions page, served "
+                                "on their own domain through a reverse proxy "
+                                "to this path; read-only, from cache, and the "
+                                "module declares /cam/ in its own "
+                                "PUBLIC_PREFIXES. An unknown slug renders "
+                                "cam_missing.html rather than listing slugs",
+    "/tools/camhub/cam/<slug>/data.json": "that page's conditions as JSON, "
+                                          "for the client's own site to read; "
+                                          "sets Access-Control-Allow-Origin "
+                                          "because it is fetched from their "
+                                          "domain rather than ours",
     "/wx/<token>*": "the weather trigger setup wizard a prospect or client "
                     "opens with a lead's unguessable token and no Hub "
                     "account at all -- the page itself and its own read "

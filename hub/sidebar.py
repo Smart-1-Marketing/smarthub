@@ -239,6 +239,7 @@ LEAVES = {
     "sites_billing":     ("/qa/sites-billing", "&#127760;", "Sites Billing Report"),
     "sites_builder":     ("/tools/sites-builder", "&#10024;", "Smart 1 Sites Builder"),
     "skills360":         ("/tools/360-skills/", "&#129513;", "360 Skills"),
+    "camhub":            ("/tools/camhub/", "&#127909;", "CamHub Live Cam Pages"),
     "smartforecast":     ("/tools/smartforecast/", "&#127780;", "SmartForecast Dynamic Website"),
     "social":            ("/tools/social/", "&#128172;", "Social Content Planner"),
     "stale_90":          ("/qa/stale-90", "&#8987;", "No Live Product in 90 Days"),
@@ -383,6 +384,7 @@ BLURBS = {
     "sites_billing":     "Every Smart 1 Sites project against the QuickBooks hosting products — live sites nobody bills, dead sites still charged.",
     "sites_builder":     "Generate a Smart 1 Sites website from a business name, type and goal.",
     "skills360":         "Switch a client's skills on — Ecwid Ecommerce, Email Creator — which decides which cards Client 360 draws for them.",
+    "camhub":            "A client's live cam with the lake's conditions around it, server-rendered on their domain, with the sponsor slots the agency sells.",
     "smartforecast":     "A weather-driven website block that changes its offer with the forecast.",
     "social":            "A posting plan and captions built from what the client authorized, with a push to Smart 1 Suite's social planner.",
     "stale_90":          "Clients gone quiet — last order ended 90+ days ago and nothing live now. Win-back candidates.",
@@ -462,7 +464,7 @@ SECTIONS = [
         _dept("sales", "Sales", "&#128188;", [
             ("", ["website_audit", "salesb", "proposal_execution", "io_builder",
                   "pdf", "short_links"]),
-            ("Sales Tools", ["gpt_ads", "social", "smartforecast", *_CALCULATORS, "ads",
+            ("Sales Tools", ["gpt_ads", "social", "smartforecast", "camhub", *_CALCULATORS, "ads",
                              "weather_setup", "sites_builder", "landing_maker"]),
             ("Leads", ["leads", "sell_to_clients", "msa"]),
             ("Sales QA", ["myclients", "monthly_promises", "sales_scorecard",
@@ -493,7 +495,7 @@ SECTIONS = [
         ], blurb="Search and AI visibility, per client and across the book."),
         _dept("web-dev", "Web Dev", "&#127760;", [
             ("", ["sites", "site_blocks", "tickets", "website_audit", "smartforecast",
-                  "seo_images", "sites_builder", "clients", "house_urls"]),
+                  "camhub", "seo_images", "sites_builder", "clients", "house_urls"]),
             ("Google Tools", ["google", "inactive_ga", "google_accounts", "no_analytics",
                               "no_gtm", "match_google"]),
             ("Web QA", ["weather_setup", "sites", "domains", "match_sites"]),
@@ -518,7 +520,7 @@ SECTIONS = [
                   "cs_ai_tools", "cs_brand_kits", "cs_media", "cs_approvals", "cs_usage"]),
         ], blurb="What am I making for this client, and where did I leave it."),
         _dept("ad-tools", "Ad Tools", "&#128227;", [
-            ("", ["utm", "ads", "gpt_ads", "short_links", "smartforecast"]),
+            ("", ["utm", "ads", "gpt_ads", "short_links", "smartforecast", "camhub"]),
             ("Calculators", _CALCULATORS),
         ], blurb="Building, tagging and sizing the buys."),
         _dept("leads", "Leads", "&#128229;", [
