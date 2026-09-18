@@ -338,3 +338,57 @@ names* card lists every alias with who taught it, from what, and a
 Forget button. The lesson rides on the person's press, never on the
 auto-mapper's own filings: a proposal that teaches its own alias is a
 guess reinforcing itself.
+
+
+**The queue is worked a client at a time, and the board points at it.**
+`/reports/unmapped?client=<key>` shows one client's proposals and the
+unmapped campaigns that look like theirs; the pacing board's unmapped
+lines link there twice, "N waiting for confirmation" and "N unmapped
+campaigns look like theirs" (`automap.likely_by_client()`, the queue's
+likeness counted per client and held per process for
+`LIKELY_TTL_SECONDS`, forgotten on any mapping press; a reading that
+cannot be made is None and the board draws nothing rather than none).
+**Confirm ticked** confirms a batch in one press, each campaign on its
+own activity row naming the batch, through the same `store.confirm_mapping`
+as the single button, and "Tick the 100% ones" picks the proposals whose
+evidence was exact and leaves the near spellings for a look. The product
+box opens on what the campaign name says (`products.product_hint`: a
+catalog name, else a synonym that means one product on every platform --
+CTV, OTT, pre-roll, podcast, geofence, retargeting, PMax; never "search"
+or "video" alone) and says so; a hint is for the person reading the box,
+and the auto-mapper's own filings still read catalog names only.
+
+
+**The thresholds are tuned on people's decisions, not on a feeling about
+the queue.** `store.automap_scorecard()` counts, per rule family (the
+part of `auto_rule` before any `+`), the filings a person confirmed, the
+ones refused (`MapRefusal.rule`) and the ones still waiting, and the
+queue draws it as a card. A rule whose refusals keep pace with its
+confirmations is filing wrong more than it should, and that reading --
+not the size of the queue -- is what a bar (`FUZZY_FILE_SCORE`,
+`ALIAS_FILE_COUNT`, `ACCOUNT_MIN_CONFIRMED`) is raised on. An unreadable
+store is *not measured*, never a scorecard of noughts.
+
+
+**Hardening the queue (September 18, 2026).** Five things an adversarial
+read of the mapping work found, each with a test. **The queue reader
+walked the whole fact table**: `unmapped_campaigns()` ordered every
+campaign-day newest-first and read it in Python until each campaign had
+been seen, on every queue load, board load and hourly run; it reads the
+newest day per campaign through a grouped subquery now. **A second
+refusal overwrote the first**: `MapRefusal` is one row per campaign, so
+a campaign refused under Acme and then, re-filed, under Beta forgot Acme
+and the next run filed it there again; `others_json` (a LATE column)
+keeps the earlier refusals, the queue row carries `refused_clients` for
+its present name, and the suggestions offer none of them. **A common
+word led**: "home" in a book of twelve Home-somethings was a 75% lead on
+each; a word carried by more than `COMMON_WORD_CLIENTS` clients leads
+nobody on its own. **A descriptive alias could file wrong**: "heating
+cooling" taught twice for Riverside HVAC would have filed Summit Heating
+& Cooling's first campaign under Riverside; an alias whose every word is
+in another client's registry name is capped at a suggestion however often
+it is taught, and says so. **A Move left the old client's lesson
+standing**: moving a proposal off a client now forgets what its name
+taught for them, as Not theirs does. And the run reads each distinct
+campaign name once across all its accounts, and drops the board's held
+"look like theirs" count when it finishes.

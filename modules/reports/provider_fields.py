@@ -57,11 +57,13 @@ CHECK_PAGES = {
     "groundtruth": "/reports/groundtruth-check",
     "amazon_dsp": "/reports/amazon-check",
     "callrail": "/reports/callrail-check",
+    "bing": "/reports/bing-check",
 }
 # What the link to each is called, as the buttons that used to sit on every
 # Reports screen called them.
 CHECK_LABELS = {"audiogo": "AudioGo check", "groundtruth": "GroundTruth check",
-                "amazon_dsp": "Amazon check", "callrail": "CallRail check"}
+                "amazon_dsp": "Amazon check", "callrail": "CallRail check",
+                "bing": "Microsoft Ads check"}
 
 
 def _env(name: str, unset: str, *, required: bool = True, source: str = "") -> dict:

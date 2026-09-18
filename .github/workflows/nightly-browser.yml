@@ -101,6 +101,9 @@ jobs:
           E2E_BASE_URL: http://127.0.0.1:5055/tools/display-ads
           E2E_HUB_PASSWORD: nightly-not-a-real-password
           E2E_REQUEST: AD-E2E-000001
+          # The longer walk: the contact sheet, the projects list and the
+          # Hub's start form, after the build screen.
+          E2E_FULL: '1'
         run: |
           export PUPPETEER_EXECUTABLE_PATH="$(cd ../hf_render_service && node -e "console.log(require('puppeteer').executablePath())")"
           echo "browser: $PUPPETEER_EXECUTABLE_PATH"
@@ -140,6 +143,7 @@ jobs:
           E2E_BASE_URL: ${{ vars.STAGING_HUB_URL }}/tools/display-ads
           E2E_REQUEST: ${{ vars.STAGING_E2E_REQUEST }}
           E2E_HUB_PASSWORD: ${{ secrets.STAGING_HUB_PASSWORD }}
+          E2E_FULL: '1'
         run: |
           export PUPPETEER_EXECUTABLE_PATH="$(cd ../hf_render_service && node -e "console.log(require('puppeteer').executablePath())")"
           npm run test:browser

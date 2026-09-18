@@ -1072,6 +1072,21 @@ REGISTRY: list[Help] = [
        "it is wrong, press Map. Or rename the campaign in the platform to "
        "the shape shown and the auto-mapper files it on the next sync "
        "without anybody opening this page."),
+    _h("reports.unmapped.bulk", "Confirm ticked",
+       "Tick the proposals you stand behind and confirm them in one press: "
+       "each is confirmed on its own activity row, as if pressed one by "
+       "one. 'Tick the 100% ones' picks the proposals whose evidence was "
+       "exact -- an S1M name, a whole client name, a client's own ad "
+       "account, a name taught twice -- and leaves the near spellings for "
+       "a look. Nothing is confirmed that was not ticked."),
+    _h("reports.unmapped.scorecard", "Is the auto-mapper filing right?",
+       "Every filing the auto-mapper makes is decided by a person: "
+       "confirmed or refused. This table counts those decisions per rule "
+       "-- the S1M name shape, a client's own ad account, the account's "
+       "name, a name people taught, a likeness of the campaign name -- so "
+       "a rule that files wrong shows as refusals keeping pace with its "
+       "confirmations. That is the reading to raise a rule's bar on, "
+       "rather than a feeling about the queue."),
     _h("reports.unmapped.pending", "A filing from a name is a proposal",
        "The auto-mapper files a campaign under the client the evidence says -- "
        "the S1M shape in its name, an ad account whose confirmed campaigns "
@@ -1188,6 +1203,17 @@ REGISTRY: list[Help] = [
        "details masked and the key never among them. It calls nothing "
        "until CALLRAIL_API_BASE is set: a guessed host would hand the key "
        "to whoever answers there."),
+    _h("reports.bing.check", "Five claims, then one report",
+       "No live Microsoft Advertising account had answered this code when it was "
+       "written, so every REST shape in bing.py is a transcription. This page climbs "
+       "the five things that have to be true -- the variables set, the refresh token "
+       "still consented, the connected user readable, advertiser accounts visible "
+       "to that user, and a one-day account report answering with a column row the "
+       "parser reads -- and stops at the first that is not, in words. Pull now runs "
+       "the campaign pull alone and prints what it answered; every row is an upsert, "
+       "so pressing it twice costs nothing. A report Microsoft is still preparing "
+       "keeps its request id and is collected on the next press or the nightly run.",
+       link="/reports/bing-check", link_text="Open the Microsoft Ads check"),
     _h("reports.amazon.check", "Five claims, and four fail as a working setup",
        "No live Amazon entity has answered this code, so every field name in "
        "amazon_dsp.py is a transcription. This page walks the five things "
@@ -2577,6 +2603,31 @@ REGISTRY: list[Help] = [
        "allowlist. A service since retired still shows here and can "
        "still be marked, so a row nobody can close does not read as "
        "waiting for ever."),
+
+    # ---------------- CamHub ----------------
+    _h("camhub.sponsors", "The advertiser, apart from the slot",
+       "A sponsor is the business; a placement is that business in one "
+       "position on one page for one flight. Keeping them apart is what lets "
+       "a sponsor hold the presenting slot in summer and a tile in winter "
+       "without re-entering creative. The category is what exclusivity is "
+       "judged on, so fill it in."),
+    _h("camhub.placements", "Five positions, and what fills them",
+       "One presenting sponsor and four supporting tiles. A live placement "
+       "fills its slot; an ended, paused or future one does not, and a house "
+       "ad takes the space, so the page never shows an empty box. Supporting "
+       "tiles shuffle by weight on every load so nobody is permanently last."),
+    _h("camhub.placement", "Copy that fits, a flight that ends itself",
+       "Every text field has a cap, because copy that overflows the tile is "
+       "the most common way an ad swap goes wrong. The flight dates decide "
+       "when it shows: a future start is scheduled, a past end is ended, and "
+       "nobody has to remember to swap it. The preview beside the form is the "
+       "real page with this placement forced into its slot."),
+    _h("camhub.index", "Every feed, and when it last answered",
+       "Each cam page lists its data sources with the last successful read "
+       "and the last error. Green is inside the tile's tolerance, amber is "
+       "stale but still served with its timestamp, red has collapsed off the "
+       "page. A source that is red here is why a tile is missing there; "
+       "Refresh now pulls every feed at once."),
 
     # ---------------- SmartForecast ----------------
     _h("smartforecast.dashboard.status", "What the live status means",

@@ -106,6 +106,7 @@ _MOUNT_ACTIVE = {
     "/tools/stock-photos": "creative",
     "/tools/site-blocks": "tools",
     "/tools/smartforecast": "tools",
+    "/tools/camhub": "tools",
     # Creative, not Tools: it produces client-facing copy and pulls from the
     # image gallery, so it sits with Image Creator rather than with the
     # housekeeping utilities.
@@ -534,6 +535,15 @@ except Exception as _smartforecast_exc:  # noqa: BLE001
         "SmartForecast Dynamic Website", str(_smartforecast_exc))
 
 try:
+    import importlib as _il_camhub
+    camhub = _il_camhub.import_module("modules.camhub.app")
+    camhub_fb = None
+except Exception as _camhub_exc:  # noqa: BLE001
+    import traceback
+    traceback.print_exc()
+    camhub, camhub_fb = None, _fallback_app("CamHub", str(_camhub_exc))
+
+try:
     # Owner-only QuickBooks check reconciliation. The module carries its own
     # second gate (an email allowlist over a real account session) on top of
     # the AuthGuard the mount already provides.
@@ -807,6 +817,12 @@ _RADIOP_PUBLIC = tuple(getattr(radiop, "PUBLIC_PREFIXES",
 _SMARTFORECAST_PUBLIC = tuple(getattr(
     smartforecast, "PUBLIC_PREFIXES", ("/embed/", "/api/public/"))) \
     if smartforecast else ("/embed/", "/api/public/")
+# CamHub: the cam page and its JSON are public because they are served on a
+# client's own domain (a reverse proxy to this path); every staff screen and
+# every write stays behind the login. Read from the module so the mount and
+# the module cannot drift.
+_CAMHUB_PUBLIC = tuple(getattr(camhub, "PUBLIC_PREFIXES", ("/cam/",))) \
+    if camhub else ("/cam/",)
 
 # And for Image Creator: /tools/image-creator/review/<token> is the client
 # review link a rep sends for a graphic, and a client has no Hub login. Read
@@ -860,6 +876,11 @@ application = DispatcherMiddleware(hub_app, {
     "/tools/smartforecast": _mount(
         smartforecast.app, "/tools/smartforecast",
         public_prefixes=_SMARTFORECAST_PUBLIC) if smartforecast else smartforecast_fb,
+    # The live-cam conditions page, per client, with the sponsor system
+    # behind it (modules/camhub). /cam/<slug> is the page a visitor reads;
+    # everything else is staff.
+    "/tools/camhub": _mount(camhub.app, "/tools/camhub",
+                            public_prefixes=_CAMHUB_PUBLIC) if camhub else camhub_fb,
     "/tools/social": _mount(social.app, "/tools/social",
                             public_prefixes=_SOCIAL_PUBLIC) if social else social_fb,
     "/tools/gpt-ads": _mount(gptads.app, "/tools/gpt-ads") if gptads else gptads_fb,

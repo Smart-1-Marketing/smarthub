@@ -129,6 +129,49 @@ so `BING_AD_ENVIRONMENT=sandbox` picks the host pair, and a refusal says
 other environment answers exactly this; so does a revoked one"* rather than
 reading as a bad key.
 
+**Hardened for the first live pull (September 2026), before one had
+answered.** Every place the transcription could be wrong now fails in
+words, on a page, rather than silently or with a traceback:
+
+- *Every account the login can see, under the customer that owns it.*
+  `bing_ads.discover_accounts()` reads the connected user (`User/Query`)
+  and searches `Accounts/Search` by that user's id, which reaches accounts
+  under every customer the agency manages, not only the ones the manager
+  customer owns; a refused `UserId` predicate or an empty answer falls back
+  to the manager's `CustomerId`, pages are followed, and the answer names
+  which strategy produced it. Each account carries `parent_customer_id`,
+  and `bing.account_groups()` / `run_reports()` submit **one report per
+  owning customer** with that customer in the `CustomerId` header, because
+  a report is authorized by the customer that owns the accounts in its
+  scope. A Draft account is set aside by name rather than failing the
+  request. A credential refusal on the user read is raised at once, not
+  asked a second way.
+- *A report still preparing is carried, not resubmitted.* The request id
+  is written to the module's note the moment Microsoft issues it, keyed by
+  customer; the next pull (nightly, or a press on the check page) polls it
+  first for up to `PENDING_TTL_HOURS`. Rows from the customers that did
+  finish are written (every row is an upsert); the watermark is stamped
+  only when every group landed.
+- *A Success with no download URL is a report with no rows* -- how
+  Microsoft answers an account that spent nothing -- and reads as zero
+  rows, not a refusal.
+- *One retry, two seconds later*, on a connection error, a 429 or a 5xx,
+  on the API and the download alike; never on a 4xx that names the
+  request. A download that answers HTML or XML (an expired URL, a sign-in
+  page) is refused in words rather than parsed for a column row.
+- *The parse reads every day and number shape the CSV has been seen to
+  write*: ISO, US, US with a time of day, a spelled month; a thousands
+  separator, a currency sign, a percent, a dash.
+- **`/reports/bing-check`** is the amazon-check ladder for this platform:
+  variables set, refresh token minting, the connected user readable,
+  accounts visible (listed with owning customer and status, and the raw
+  keys the first account carried), and a one-day account report whose
+  column row is shown against `ALIASES`. It calls nothing while
+  unconfigured or unconsented. **Pull now** beneath runs the campaign pull
+  alone and prints what landed, so the first pull is one press there
+  rather than the whole nightly job. The Reports index links it beside
+  the Microsoft Ads line.
+
 **Nothing here is exercised against a live account yet, and the module
 says so.** The REST shapes are transcribed from the v13 reference and each
 is read defensively -- a Success with no download URL, a poll status the

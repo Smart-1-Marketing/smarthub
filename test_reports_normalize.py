@@ -555,6 +555,150 @@ check("refused, the account no longer files under that client",
       ("meta", "r-2") not in {(m["platform"], m["campaign_id"]) for m in store.mapped_campaigns(limit=300)}
       and am9["by_rule"].get("account_v1", 0) == 0)
 
+# ----------------------------------------------------------- the scorecard
+section("The scorecard")
+
+_real_session = store.SessionLocal
+def _no_db():
+    raise RuntimeError("down")
+
+sc = store.automap_scorecard()
+check("the scorecard is measured", sc["measured"], True)
+by_rule = {r["rule"]: r for r in sc["rules"]}
+check("the S1M filings confirmed so far are counted under name_v1",
+      by_rule.get("name_v1", {}).get("confirmed", 0) >= 1)
+check("a refused likeness filing counts as refused under fuzzy_v1",
+      by_rule.get("fuzzy_v1", {}).get("refused", 0) >= 1)
+check("a refused account filing counts under account_v1",
+      by_rule.get("account_v1", {}).get("refused", 0) >= 1)
+check("the product suffix does not split a rule", all("+" not in r["rule"] for r in sc["rules"]))
+check("confirmed of decided is a percentage, or None with nothing decided",
+      all((r["confirmed_pct"] is None) == (r["decided"] == 0) for r in sc["rules"]))
+check("the total adds the rules up",
+      sc["total"]["refused"], sum(r["refused"] for r in sc["rules"]))
+store.SessionLocal = _no_db
+try:
+    check("an unreadable store is not measured, never a scorecard of noughts",
+          store.automap_scorecard()["measured"], False)
+finally:
+    store.SessionLocal = _real_session
+
+# ------------------------------------------------------ the hardening
+section("Hardening: refusal memory, common words, generic aliases, one reading per name")
+
+# A campaign refused under one client and then, re-filed, under another
+# remembers both, and the queue offers neither.
+clients_registry.all_clients = lambda refresh=False: FUZZ
+store.upsert_rows([{"platform": "meta", "account_id": "act_h", "campaign_id": "h-1",
+                    "campaign_name": "Acme - Promo", "date": TODAY - timedelta(days=1),
+                    "spend": 5, "impressions": 50, "clicks": 1, "source": "csv"}])
+store.map_campaign("meta", "act_h", "h-1", client="d:acme.com", client_name="Acme Plumbing",
+                   product="Paid Social", mapped_by="auto", auto_rule="fuzzy_v1", campaign_name="Acme - Promo")
+store.refuse_mapping("meta", "act_h", "h-1", by="Todd")
+store.map_campaign("meta", "act_h", "h-1", client="d:acmeroofing.com", client_name="Acme Roofing",
+                   product="Paid Social", mapped_by="auto", auto_rule="fuzzy_v1", campaign_name="Acme - Promo")
+store.refuse_mapping("meta", "act_h", "h-1", by="Todd")
+ref = store.refusals()[("meta", "act_h", "h-1")]
+check("the newest refusal is the row", ref["client"], "d:acmeroofing.com")
+check("...and the one before it is kept beside it", [o["client"] for o in ref["others"]], ["d:acme.com"])
+hq = {r["campaign_id"]: r for r in store.unmapped_campaigns(days=30, limit=200)}
+check("the queue row names every client refused under this name",
+      hq["h-1"]["refused_clients"], ["d:acme.com", "d:acmeroofing.com"])
+automap.annotate([hq["h-1"]])
+check("...and suggests neither", [c["name"] for c in hq["h-1"]["suggestions"]], [])
+store.refuse_mapping("meta", "act_h", "h-1", by="Todd") if store.campaign_map("meta", "act_h", "h-1") else None
+# Renamed, the memory applies to the old name only.
+store.upsert_rows([{"platform": "meta", "account_id": "act_h", "campaign_id": "h-1",
+                    "campaign_name": "Acme Roofing - Promo", "date": TODAY,
+                    "spend": 5, "impressions": 50, "clicks": 1, "source": "csv"}])
+hq = {r["campaign_id"]: r for r in store.unmapped_campaigns(days=30, limit=200)}
+check("renamed, the refusals under the old name no longer bind", hq["h-1"]["refused_clients"], [])
+check("...and the newest row's name is the one the queue shows", hq["h-1"]["campaign_name"], "Acme Roofing - Promo")
+
+# A word most of the book carries leads nobody on its own.
+MANY = FUZZ + [{"name": f"Home {w}", "url": "", "key": f"n:home-{w.lower()}"}
+               for w in ("Plumbing", "Roofing", "Electric", "Dental", "Auto", "Vet")]
+idx = automap.build_index(MANY)
+check("a word carried by more clients than COMMON_WORD_CLIENTS is common",
+      all("home" not in c["partial_words"] for c in idx if c.get("key", "").startswith("n:home-")))
+check("...so it leads nobody", automap.suggest_clients("Home - Search - 2026", index=idx), [])
+check("...while the whole name still matches", automap.suggest_clients("Home Dental - Search", index=idx)[0]["name"], "Home Dental")
+check("a word few clients carry still leads",
+      [h["name"] for h in automap.suggest_clients("Buckeye - Search", index=idx)], ["Buckeye Lake Winery"])
+
+# An alias made of another client's words suggests and never files.
+GEN = FUZZ + [{"name": "Summit Heating & Cooling", "url": "", "key": "n:summit-heating-cooling"}]
+idx = automap.build_index(GEN, [{"alias": "heating cooling", "client": "d:riverside.com",
+                                 "client_name": "Riverside HVAC", "count": 5}])
+hits = automap.suggest_clients("Riverside Heating & Cooling - Search", index=idx)
+riv = next((h for h in hits if h["key"] == "d:riverside.com"), None)
+check("an alias that is part of another client's name is capped at a suggestion however often taught",
+      riv and (riv["pct"], "suggests and never files" in riv["why"]), (85, True))
+check("...and files nothing", automap.decide(hits), None)
+idx = automap.build_index(GEN, [{"alias": "blw", "client": "n:buckeye-lake-winery",
+                                 "client_name": "Buckeye Lake Winery", "count": 2}])
+check("a nickname in nobody else's name still files",
+      (automap.decide(automap.suggest_clients("BLW - Search", index=idx)) or {}).get("name"), "Buckeye Lake Winery")
+
+# One reading per distinct campaign name across a run.
+_reads = {"n": 0}
+_real_suggest = automap.suggest_clients
+def _counting_suggest(*a, **k):
+    _reads["n"] += 1
+    return _real_suggest(*a, **k)
+automap.suggest_clients = _counting_suggest
+idx = automap.build_index(FUZZ)
+memo = {}
+for acct in ("a1", "a2", "a3"):
+    automap.suggest_for_row({"platform": "meta", "account_id": acct, "campaign_name": "Acme Plumbing - Leads"},
+                            index=idx, evidence={}, name_cache=memo)
+automap.suggest_clients = _real_suggest
+check("the same name on three accounts is read once", _reads["n"], 1)
+
+# The board's held reading is dropped when the run changes the queue.
+automap.likely_by_client()
+check("...held before the run", automap._LIKELY_CACHE["value"] is not None)
+automap.run(actor="test")
+check("...and forgotten by it", automap._LIKELY_CACHE["value"], None)
+# The sections below read the wider registry the account section set.
+clients_registry.all_clients = lambda refresh=False: FUZZ
+
+# ------------------------------------------------- the product box hint
+section("What the name says the product is")
+
+ph = _products.product_hint
+check("a catalog name whole is the product", ph("Acme | Streaming TV | Q4"), ("Streaming TV", "the name says Streaming TV"))
+check("a synonym that means one product everywhere", ph("Acme CTV Q4")[0], "Streaming TV")
+check("...OTT too", ph("acme_ott_2026")[0], "Streaming TV")
+check("...pre-roll is online video", ph("Acme Pre-Roll")[0], "Online Video")
+check("...a podcast is streaming audio", ph("Acme Podcast Sponsorship")[0], "Streaming Audio")
+check("...PMax is paid search", ph("Acme PMax")[0], "Paid Search")
+check("search alone is not a hint: it is not the same product on every platform", ph("Acme | Search | Brand"), ("", ""))
+check("video alone is not a hint either", ph("Acme Video Q4"), ("", ""))
+check("a name that says nothing hints nothing", ph("Acme Brand"), ("", ""))
+check("the queue row carries the hint",
+      {r["campaign_id"]: r["product_hint"][0] for r in store.unmapped_campaigns(days=30, limit=100)}.get("f-ambig", "?"), "")
+
+# ------------------------------------------- the board's "look like theirs"
+section("How many unmapped campaigns look like each client's")
+
+automap.forget_likely()
+like = automap.likely_by_client()
+check("the reading counts the queue's likeness per client",
+      like.get("d:acme.com", 0) >= 1 and like.get("d:acmeroofing.com", 0) >= 1)
+_calls = {"n": 0}
+_real_annotate = automap.annotate
+def _counting(*a, **k):
+    _calls["n"] += 1
+    return _real_annotate(*a, **k)
+automap.annotate = _counting
+automap.likely_by_client()
+check("...held between reads rather than recomputed", _calls["n"], 0)
+automap.forget_likely()
+automap.likely_by_client()
+check("...and read afresh once a mapping changed the queue", _calls["n"], 1)
+automap.annotate = _real_annotate
+
 # ------------------------------------------------------- the aliases
 section("Learned names")
 
@@ -617,9 +761,6 @@ check("the store's forget drops one row", automap.forget("ACR | Search | Brand",
 check("...and the other client's lesson stands", [(a["alias"], a["client"]) for a in store.campaign_aliases()],
       [("acr", "d:acme.com")])
 check("forgetting what was never taught is False", automap.forget("ZZZ - Search", client="d:acme.com"), False)
-_real_session = store.SessionLocal
-def _no_db():
-    raise RuntimeError("down")
 store.SessionLocal = _no_db
 try:
     check("an unreadable store is an empty book of aliases, not an error", store.campaign_aliases(), [])

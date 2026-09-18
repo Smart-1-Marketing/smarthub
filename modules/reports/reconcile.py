@@ -225,38 +225,45 @@ def bing_total(start: date, end: date) -> dict:
     try:
         accts = ba.list_accounts(ads_store, module="reports")
         if not accts:
-            return {"measured": False, "reason": "no advertiser account under the manager"}
-        body = ba.report_request("AccountPerformanceReportRequest", start, end,
-                                 [a["id"] for a in accts], aggregation="Summary",
-                                 columns=ba.ACCOUNT_COLUMNS,
-                                 name=f"smart1-hub-accounts-{start.isoformat()}-{end.isoformat()}")
-        rid = ba.submit_report(ads_store, body, module="reports")
-        url = bing.wait_for(ads_store, rid, module="reports")
-        rows = ba.rows_of(ba.download_report(url, module="reports"))
+            return {"measured": False, "reason": "no advertiser account is visible to this login"}
+        groups = bing.account_groups(accts)
+        got = bing.run_reports("AccountPerformanceReportRequest", start, end, groups,
+                               aggregation="Summary", columns=ba.ACCOUNT_COLUMNS,
+                               name=f"smart1-hub-accounts-{start.isoformat()}-{end.isoformat()}",
+                               carry=False, module="reports")
     except bing.ReportPending as exc:
         return {"measured": False, "reason": str(exc)}
     except bing.PullError as exc:
         return {"measured": False, "reason": str(exc)}
     except ba.BingAdsError as exc:
         return {"measured": False, "reason": ba._redact(exc.message)}
-    cols = None
+    if got["pending"]:
+        return {"measured": False,
+                "reason": f"{len(got['pending'])} of {len(groups)} account reports still preparing inside "
+                          "the budget; not measured tonight"}
     spend, imps, clicks, counted = Decimal(0), 0, 0, 0
-    for row in rows:
-        if cols is None:
-            c = bing.columns(row)
-            if all(f in c for f in ("account_id", "spend", "impressions", "clicks")):
-                cols = {f: row.index(h) for f, h in c.items()}
-            continue
-        def get(field):
-            i = cols.get(field)
-            return row[i] if i is not None and i < len(row) else None
-        if not str(get("account_id") or "").strip():
-            continue
-        counted += 1
-        spend += Decimal(str(bing._num(get("spend"))))
-        imps += int(bing._num(get("impressions")))
-        clicks += int(bing._num(get("clicks")))
-    if cols is None:
+    any_header = False
+    for text in got["texts"].values():
+        if not text:
+            continue                       # no rows for that customer over the window
+        cols = None
+        for row in ba.rows_of(text):
+            if cols is None:
+                c = bing.columns(row)
+                if all(f in c for f in ("account_id", "spend", "impressions", "clicks")):
+                    cols = {f: row.index(h) for f, h in c.items()}
+                    any_header = True
+                continue
+            def get(field):
+                i = cols.get(field)
+                return row[i] if i is not None and i < len(row) else None
+            if not str(get("account_id") or "").strip():
+                continue
+            counted += 1
+            spend += Decimal(str(bing._num(get("spend"))))
+            imps += int(bing._num(get("impressions")))
+            clicks += int(bing._num(get("clicks")))
+    if not any_header and any(got["texts"].values()):
         return {"measured": False, "reason": "the account report carried no column row"}
     return {"measured": True, "spend": _q(spend), "impressions": imps, "clicks": clicks,
             "independent": False,

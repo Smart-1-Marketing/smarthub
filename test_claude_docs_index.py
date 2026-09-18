@@ -222,7 +222,91 @@ check("a second --write changes nothing",
 check("and the check is green", run(base)[0], 0)
 shutil.rmtree(base, ignore_errors=True)
 
-section("11. Against the real repo, which is what the gate runs")
+section("11. The conflict this file's own docstring used to call unavoidable")
+# Driven through real `git merge` twice over the SAME two branches, because
+# the claim being made -- that union removes a conflict the default driver
+# raises -- is about git's behaviour and not about this tool's. Reasoning
+# about a merge driver is how you end up documenting one that was never
+# configured.
+
+
+def _merge_repo(union: bool):
+    """Two branches that each add a write-up AND edit an existing one, which
+    is what every pair of concurrent changes here does."""
+    base = Path(tempfile.mkdtemp(prefix="claudedocs_merge_"))
+    docs = base / "docs" / "claude"
+    docs.mkdir(parents=True)
+
+    def git(*a):
+        return subprocess.run(["git", *a], cwd=base, capture_output=True, text=True)
+
+    git("init", "-q", "-b", "main")
+    git("config", "user.email", "t@example.test")
+    git("config", "user.name", "t")
+    git("config", "commit.gpgsign", "false")
+    index = docs / "README.md"
+    index.write_text("# Index\n\nprose\n\n| File | Topic | Lines |\n|---|---|---|\n"
+                     + row("03-traps.md", "Traps", 100)
+                     + row("56-verifying.md", "Verifying", 200), encoding="utf-8")
+    if union:
+        (base / ".gitattributes").write_text(
+            "docs/claude/README.md merge=union\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-qm", "base")
+
+    for branch, edit, added in (("a", ("Traps", 100, 150), "77-alpha.md"),
+                                ("b", ("Verifying", 200, 260), "78-beta.md")):
+        git("checkout", "-q", "main")
+        git("checkout", "-qb", branch)
+        topic, was, now = edit
+        text = index.read_text(encoding="utf-8")
+        name = "03-traps.md" if topic == "Traps" else "56-verifying.md"
+        text = text.replace(row(name, topic, was), row(name, topic, now))
+        text += row(added, added[:-3], 40)
+        index.write_text(text, encoding="utf-8")
+        git("add", "-A")
+        git("commit", "-qm", branch)
+
+    git("checkout", "-q", "a")
+    merged = git("merge", "b", "--no-edit")
+    conflicted = "CONFLICT" in (merged.stdout + merged.stderr)
+    table = index.read_text(encoding="utf-8") if not conflicted else ""
+    shutil.rmtree(base, ignore_errors=True)
+    return conflicted, table
+
+
+_default_conflicts, _ = _merge_repo(union=False)
+check("without the attribute the two-branch case conflicts -- the thing that "
+      "cost one change three merge rounds in an evening",
+      _default_conflicts, True)
+
+_union_conflicts, _union_table = _merge_repo(union=True)
+check("with merge=union it merges instead", _union_conflicts, False)
+check("...keeping BOTH new write-ups, which is the point",
+      ("77-alpha.md" in _union_table and "78-beta.md" in _union_table), True)
+check("...and leaving the edited rows duplicated, which is why the check "
+      "below has to be the backstop",
+      _union_table.count("03-traps.md") > 1, True)
+
+# The backstop itself: a duplicated row is exactly what union leaves behind,
+# and the gate must go red on it rather than shrug.
+base = fake_repo({"03-traps.md": "# Traps\n" + "x\n" * 9},
+                 [row("03-traps.md", "Traps", 10),
+                  row("03-traps.md", "Traps", 7)])
+code, out = run(base)
+check("the check fails on the duplicate union leaves", code, 1)
+check("...naming the file", "03-traps.md" in out, True)
+code, _ = run(base, "--write")
+check("--write regenerates it from the directory", code, 0)
+check("...and the check is green after", run(base)[0], 0)
+shutil.rmtree(base, ignore_errors=True)
+
+check("the repo gives the index that attribute",
+      "docs/claude/README.md merge=union"
+      in (ROOT / ".gitattributes").read_text(encoding="utf-8"), True)
+
+
+section("12. Against the real repo, which is what the gate runs")
 code, out = run(ROOT)
 check("the committed index matches the directory", code, 0)
 check("...and it says how many it checked", "entries" in out, True)

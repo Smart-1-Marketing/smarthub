@@ -289,5 +289,118 @@ test('the build screen can be worked from start to the next size', { skip: execu
   await page.waitForFunction(() => !document.querySelector('.ask'), { timeout: 10_000 });
   assert.ok(await page.$('#adoptLook'), 'cancelling keeps the offer');
 
-  assert.deepEqual(problems, [], 'no page errors, console errors or server errors');
+  // ---------------------------------------------------- the link failing
+  // Two outages the Hub's proxy turns into ordinary-looking responses: a
+  // renderer mid-restart (an HTML page with a 503) and a Hub session that
+  // has ended (a redirect to /login). Each is played once through request
+  // interception, and the screen has to name it, keep going, and clear the
+  // notice when the link is back.
+  await page.setRequestInterception(true);
+  let outage: 'down' | 'out' | '' = '';
+  page.on('request', (r) => {
+    const u = r.url();
+    if (outage === 'down' && r.method() === 'POST' && /\/api\/preview$/.test(u)) {
+      outage = '';
+      r.respond({ status: 503, contentType: 'text/html; charset=utf-8', body: '<!doctype html><title>The Display Ad Builder isn\'t running</title><p>not answering</p>' });
+      return;
+    }
+    if (outage === 'out' && r.method() === 'PUT' && /\/api\/campaign\//.test(u)) {
+      outage = '';
+      r.respond({ status: 302, headers: { location: `${base}/login?next=%2Fbuild` }, body: '' });
+      return;
+    }
+    r.continue();
+  });
+
+  // A dead renderer on the next preview: the notice names it, the preview
+  // retries by itself, and the notice clears once an answer comes back.
+  outage = 'down';
+  const previewLog: string[] = [];
+  page.on('response', (r) => { if (/\/api\/preview$/.test(r.url())) previewLog.push(`${r.status()} ${r.headers()['content-type'] || ''}`); });
+  await page.click('[data-pad="headline"] [data-nudge="up"]');
+  try {
+    await page.waitForFunction(() => /not answering right now/.test(document.getElementById('linkNote')?.textContent || ''), { timeout: 30_000, polling: 100 });
+  } catch (e) {
+    const dump = await page.evaluate(() => ({ note: document.getElementById('linkNote')?.textContent, hint: document.getElementById('saveHint')?.textContent, dims: document.getElementById('dims')?.textContent }));
+    throw new Error(`no outage notice; outage flag now '${outage}'; previews: ${JSON.stringify(previewLog)}; page: ${JSON.stringify(dump)}`);
+  }
+  await page.waitForFunction(() => !document.getElementById('linkNote') && !document.getElementById('canvas')!.classList.contains('busy'), { timeout: 60_000 });
+  assert.equal(await page.$('.qa li.fail [data-retry]'), null, 'the quiet retry succeeded, so no Retry button was needed');
+  const problemsBeforeOut = problems.length;
+
+  // A sign-out on the next save: the notice says so, with the way back in,
+  // and the autosave does not hammer a login page. Save now after the link
+  // is back clears it.
+  outage = 'out';
+  await page.click('#copy-support', { clickCount: 3 });
+  await page.type('#copy-support', 'Seasonal menus for every occasion');
+  await page.waitForFunction(() => /sign-in has ended/.test(document.getElementById('linkNote')?.textContent || ''), { timeout: 30_000 });
+  const signIn = await page.$eval('#linkNote a', (a) => (a as HTMLAnchorElement).getAttribute('href') || '');
+  assert.match(signIn, /^\/login\?next=/, 'the notice links to the login with a way back');
+  await page.click('#save');
+  await page.waitForFunction(() => !document.getElementById('linkNote') && /^Saved/.test(document.getElementById('saveHint')?.textContent || ''), { timeout: 30_000 });
+  // Interception stays on: the handler passes everything through from here,
+  // and switching it off while the handler is registered makes puppeteer
+  // refuse the next continue().
+  // The played outages are not problems the page caused: drop the 503 the
+  // interception itself answered with.
+  problems.splice(problemsBeforeOut);
+  const real = problems.filter((p) => !/^503 .*\/api\/preview$/.test(p));
+
+  assert.deepEqual(real, [], 'no page errors, console errors or server errors');
+
+  // ------------------------------------------------------- the longer walk
+  // The pages after the build screen, when asked for (the nightly run):
+  // the contact sheet builds every size, the projects list carries the
+  // health line, and -- behind a Hub -- the start form loads with the
+  // preset picker in it or honestly absent.
+  if (process.env.E2E_FULL) {
+    const pid = await page.evaluate(async (want) => {
+      const r = await fetch('/api/campaigns');
+      const b = await r.json();
+      const row = (b.campaigns || []).find((c: any) => c.requestId === want);
+      return row && row.projectId;
+    }, request);
+    assert.ok(pid, 'the seeded campaign has a project record');
+
+    await page.goto(`${base}/review?project=${encodeURIComponent(pid)}`, { waitUntil: 'networkidle0', timeout: 90_000 });
+    await page.waitForFunction(() => /Contact sheet ready/.test(document.getElementById('message')?.textContent || ''), { timeout: 300_000 });
+    const cards = await page.$$eval('#sheet article', (els) => els.length);
+    assert.ok(cards >= sizes.length, `the sheet drew every size (${cards} cards for ${sizes.length} sizes)`);
+    assert.equal(await page.$eval('#approve', (b) => (b as HTMLButtonElement).disabled), false, 'approval is offered once the sheet is ready');
+
+    await page.goto(`${base}/projects`, { waitUntil: 'networkidle0', timeout: 90_000 });
+    await page.waitForSelector('tr[data-request] .chealth', { timeout: 60_000 });
+    const health = await page.$eval('tr[data-request] .chealth', (el) => el.textContent || '');
+    assert.match(health, /sizes approved|No review yet/, `the health line reads: ${health}`);
+
+    if (HUB_PASSWORD) {
+      const origin = new URL(base).origin;
+      await page.goto(`${origin}/tools/display-ads/_hub/start?client=Bella%20Vista%20Catering`, { waitUntil: 'networkidle0', timeout: 90_000 });
+      assert.ok(await page.$('#campaign'), 'the Hub start form loads');
+
+      // The Send page, step four: its context comes from the Hub reading the
+      // renderer's project record and the client's email link. With no GHL
+      // configured the honest answer is "link the contact", said on the page.
+      const reviewId = await page.evaluate(async (p) => {
+        const r = await fetch(`/tools/display-ads/api/project/${encodeURIComponent(p)}/review-set`);
+        const b = await r.json();
+        return b.review && b.review.id;
+      }, pid);
+      assert.ok(reviewId, 'the contact sheet just built has an id');
+      await page.goto(`${origin}/display-ad-send?project=${encodeURIComponent(pid)}&review=${encodeURIComponent(reviewId)}`, { waitUntil: 'networkidle0', timeout: 90_000 });
+      await page.waitForFunction(() => /\S/.test(document.getElementById('client')?.textContent || '') || /\S/.test(document.getElementById('result')?.textContent || ''), { timeout: 60_000 });
+      const sendPage = await page.evaluate(() => ({
+        client: document.getElementById('client')?.textContent || '',
+        recipient: document.getElementById('recipient')?.textContent || '',
+        result: document.getElementById('result')?.textContent || '',
+        back: (document.getElementById('back') as HTMLAnchorElement | null)?.getAttribute('href') || '',
+      }));
+      assert.equal(sendPage.result, '', `the Send page loaded its context without an error: ${sendPage.result}`);
+      assert.match(sendPage.client, /Bella Vista/, 'the Send page names the client');
+      assert.match(sendPage.recipient, /To: |Link the client/, 'the recipient line says who, or what is missing');
+      assert.match(sendPage.back, /\/tools\/display-ads\/review\?project=/, 'the way back is the review page');
+    }
+    assert.deepEqual(problems.filter((p) => !/^503 .*\/api\/preview$/.test(p)), [], 'no errors on the longer walk');
+  }
 });

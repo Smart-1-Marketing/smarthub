@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<title>{{ page.title }} — CamHub</title>
+{% include "_staff_head.html" %}
+</head>
+<body>
+<div class="wrap s1d-page">
+  <p><a href="{{ mount }}/">&larr; CamHub</a></p>
+  <h1>{{ page.title }}</h1>
+  <p class="lede">{{ page.client_name }} &middot; {{ page.address }} &middot; {{ page.lat }}, {{ page.lon }} &middot; {{ page.timezone }}</p>
+  <div class="row">
+    <a class="btn" href="{{ mount }}/cam/{{ page.slug }}" target="_blank" rel="noopener">Open the live page</a>
+    <a class="btn sec" href="{{ mount }}/cam/{{ page.slug }}/data.json" target="_blank" rel="noopener">data.json</a>
+    <a class="btn sec" href="{{ mount }}/pages/{{ page.slug }}/placements">Sponsors and placements</a>
+    <form method="post" action="{{ mount }}/pages/{{ page.slug }}/refresh"><button class="btn sec" type="submit">Refresh every source now</button></form>
+    <span class="muted">Page updated {{ ctx.updated_text or 'never' }}{% if ctx.updated_age %} ({{ ctx.updated_age }}){% endif %}</span>
+  </div>
+
+  {% if missing %}
+  <div class="card"><h2 style="margin-top:0">Still to fill in</h2><ul class="missing">{% for m in missing %}<li>{{ m }}</li>{% endfor %}</ul></div>
+  {% endif %}
+
+  <div class="card">
+    <h2 style="margin-top:0">What the page shows right now</h2>
+    {% if ctx.strip.rendered %}
+    <div class="tiles">
+      {% for t in ctx.strip.tiles %}
+      <div class="tile"><small>{{ t.label }}</small><b>{{ t.value }}{{ t.unit }}</b><small>{{ t.sub }}</small><small class="mono">{{ t.source }}</small></div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="muted">Fewer than three tiles have fresh data, so the strip does not render; the page falls back to the verdict line alone.</p>
+    {% endif %}
+    {% if ctx.strip.dropped %}
+    <p class="muted" style="margin-top:10px">Collapsed: {% for d in ctx.strip.dropped %}<span class="mono">{{ d.key }}</span> ({{ d.reason }}){% if not loop.last %}, {% endif %}{% endfor %}</p>
+    {% endif %}
+    <div class="verdict {{ ctx.verdict.level }}" style="margin-top:14px"><b>{{ ctx.verdict.key }} &mdash; {{ ctx.verdict.headline }}</b><br>{{ ctx.verdict.body }}</div>
+    {% for bar in ctx.advisories %}<p class="err" style="margin:8px 0 0"><b>{{ bar.tag }}:</b> {{ bar.text }}</p>{% endfor %}
+    {% if not ctx.advisories %}<p class="muted" style="margin:8px 0 0">No advisory is active, so no advisory bar renders.</p>{% endif %}
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Traffic this month</h2>
+    <p style="margin:0 0 8px">{{ month.page.pageviews }} pageviews &middot; {{ month.page.unique_sessions }} sessions &middot; {{ month.page.filtered }} filtered</p>
+    {% if month.placements %}
+    <table>
+      <thead><tr><th>Placement</th><th>Viewable impressions</th><th>Clicks</th><th>CTR</th><th>Seen on</th></tr></thead>
+      <tbody>
+      {% for pid, st in month.placements.items() %}
+      <tr><td><a href="{{ mount }}/placements/{{ pid }}">{{ placement_names.get(pid, pid) }}</a></td><td>{{ st.impressions }}</td><td>{{ st.clicks }}</td><td>{{ st.ctr }}%</td><td>{% if st.viewable_share is not none %}{{ st.viewable_share }}% of pageviews{% else %}&mdash;{% endif %}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p class="muted">No sponsor impressions rolled up yet this month.</p>{% endif %}
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Sources</h2>
+    <table>
+      <thead><tr><th>Source</th><th>Adapter</th><th>Config</th><th>Every</th><th>Tolerance</th><th>Fetched</th><th>State</th><th>Last error</th></tr></thead>
+      <tbody>
+      {% for s in health %}
+      <tr>
+        <td><span class="mono">{{ s.key }}</span><br><span class="muted">{{ s.label }}</span></td>
+        <td>{{ s.adapter }}</td>
+        <td class="mono">{{ s.config|tojson }}</td>
+        <td>{{ s.cadence_minutes }} min</td>
+        <td>{{ s.tolerance_minutes }} min</td>
+        <td>{% if s.fetched_at %}{{ s.age_minutes }} min ago{% if s.cache_status == 'seeded' %} (seeded){% endif %}{% else %}<span class="muted">never</span>{% endif %}</td>
+        <td><span class="pill {{ s.state }}">{{ s.state }}</span></td>
+        <td class="err">{{ s.last_error or '' }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Cached payloads</h2>
+    {% for key, row in cache.items() %}
+    <details><summary><span class="mono">{{ key }}</span> &middot; {{ row.status }}{% if row.fetched_at %} &middot; {{ row.fetched_at.strftime('%Y-%m-%d %H:%M UTC') }}{% endif %}</summary>
+      <pre>{{ row.payload|tojson(indent=2) }}</pre>{% if row.error %}<p class="err">{{ row.error }}</p>{% endif %}</details>
+    {% else %}
+    <p class="muted">Nothing cached yet. Refresh every source to run the first fetch.</p>
+    {% endfor %}
+  </div>
+</div>
+</body>
+</html>

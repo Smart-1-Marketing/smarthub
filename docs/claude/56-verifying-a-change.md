@@ -55,6 +55,18 @@ python3 test_scheduler_health.py   # the jobs working, not just the loop alive:
                                    #   credential it was written to find
 python3 test_smartforecast.py      # weather lifecycle rules, immutable history,
                                    #   public embeds and Render disk recovery
+python3 test_camhub.py             # CamHub: adapters normalized from recorded
+                                   #   shapes (no socket), a tile with no data
+                                   #   absent rather than dashed, the pool delta
+                                   #   held until the datum is confirmed, a failed
+                                   #   fetch keeping the last good payload, the
+                                   #   cam page public and indexable; the sponsor
+                                   #   system: one presenting slot at a time, tiles
+                                   #   shuffled by weight, house ads in every unsold
+                                   #   slot, a flight that ends itself; tracking:
+                                   #   viewable impressions once per unit, clicks
+                                   #   through /go/, crawlers and double clicks kept
+                                   #   with a reason, reports read only the rollup
 python3 test_smartforecast_store.py # the move off its own SQLite file: a forward
                                    #   foreign key SQLite resolves lazily and
                                    #   Postgres refuses, a generated-id sequence
@@ -775,6 +787,9 @@ python3 test_reports_amazon_dsp.py # the native Amazon DSP pull and the
 python3 test_reports_backfill.py  # history: thirty days further back on request or
                                    #   nightly until nothing is older; the ledger, a
                                    #   pending Trade Desk file, and the button on the lane
+python3 test_reports_backup.py    # the backup: one file per platform-month, rewritten
+                                   #   only when it changed, restore by upsert that never
+                                   #   deletes, and the fact table's late indexes
 python3 test_reports_seo.py        # the organic search section for SEO clients
 python3 test_places.py             # a client's Google listing: proposed once,
                                    #   confirmed by a person, read once a night,

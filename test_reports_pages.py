@@ -114,12 +114,14 @@ for rule in reports_app.app.url_map.iter_rules():
     ROUTES.append((path, methods))
 check("the module serves the staff screens, the picker's search and the client's page",
       sorted({p for p, _ in ROUTES}),
-      sorted(["/", "/unmapped", "/unmapped/alias/forget", "/unmapped/confirm", "/unmapped/refuse",
+      sorted(["/", "/unmapped", "/unmapped/alias/forget", "/unmapped/confirm", "/unmapped/confirm-many", "/unmapped/refuse",
               "/markup", "/budgets", "/budgets/1", "/provider-check", "/provider-check/x", "/provider-check/confirm",
               "/provider-check/withdraw", "/audiogo-check", "/groundtruth-check", "/amazon-check",
               "/callrail-check",
+              "/bing-check", "/bing-check/pull",
               "/quarantine", "/quarantine/decide",
               "/reconcile", "/reconcile/run", "/refresh/x", "/backfill/x", "/backfill/x/nightly",
+              "/backup", "/backup/restore",
               "/pacing", "/pacing.csv", "/cost", "/cost.csv",
               "/api/clients", "/health", "/client/x", "/client/x/campaign", "/client/x/link", "/client/x/push",
               "/client/x/summary", "/client/x/summary/draft",
@@ -287,9 +289,77 @@ r = staff.post("/reports/unmapped", data={
     "platform": "ttd", "account_id": "t-1", "campaign_id": "t-acme",
     "campaign_name": "Acme Co | CTV | Q4", "client_name": "Acme Co", "client_key": "d:acme.com",
     "product": "Streaming TV", "back": "client", "client": "n:zeta-dental"})
+check("moving a proposal off a client forgets what its name taught for them",
+      [a["client"] for a in store.campaign_aliases() if a["client"] == "n:zeta-dental"], [])
 check("moving from the client's page goes back to that page",
       r.status_code == 302 and r.headers["Location"].endswith("/reports/client/n:zeta-dental?saved=moved"))
 check("...and the campaign is off it", store.campaign_map("ttd", "t-1", "t-acme")["client"], "d:acme.com")
+# One client's queue, and confirming in bulk: two proposals filed under
+# Acme Co, a third under Zeta Dental, ticked two at a time.
+_reg.all_clients = lambda refresh=False: [
+    {"name": "Acme Co", "slug": "acme-co", "url": "https://acme.com", "domain": "acme.com", "key": "d:acme.com"},
+    {"name": "Zeta Dental", "slug": "zeta-dental", "url": "", "domain": "", "key": "n:zeta-dental"}]
+store.upsert_rows([
+    {"platform": "meta", "account_id": "act_b", "campaign_id": "b-1", "campaign_name": "Acme Co | CTV | Q4",
+     "date": "2026-09-02", "spend": "3", "impressions": 30, "clicks": 1, "source": "csv"},
+    {"platform": "meta", "account_id": "act_b", "campaign_id": "b-2", "campaign_name": "Acme Co | Leads",
+     "date": "2026-09-02", "spend": "3", "impressions": 30, "clicks": 1, "source": "csv"},
+    {"platform": "meta", "account_id": "act_z", "campaign_id": "z-1", "campaign_name": "Zeta Dental | Reels",
+     "date": "2026-09-02", "spend": "3", "impressions": 30, "clicks": 1, "source": "csv"},
+    {"platform": "meta", "account_id": "act_z", "campaign_id": "z-free", "campaign_name": "Zeta Dental - OTT push",
+     "date": "2026-09-02", "spend": "3", "impressions": 30, "clicks": 1, "source": "csv"},
+])
+for _p, _a, _c, _n, _cl, _cn in (("meta", "act_b", "b-1", "Acme Co | CTV | Q4", "d:acme.com", "Acme Co"),
+                                  ("meta", "act_b", "b-2", "Acme Co | Leads", "d:acme.com", "Acme Co"),
+                                  ("meta", "act_z", "z-1", "Zeta Dental | Reels", "n:zeta-dental", "Zeta Dental")):
+    store.map_campaign(_p, _a, _c, client=_cl, client_name=_cn, product="Paid Social", mapped_by="auto",
+                       auto_rule="fuzzy_v1", campaign_name=_n)
+body = staff.get("/reports/unmapped?client=d:acme.com").get_data(as_text=True)
+tick = lambda p, a, c: f'value="{p}|{a}|{c}"'
+check("one client's queue shows their proposals only",
+      body.count('name="keys" value="') == 2 and tick("meta", "act_b", "b-1") in body
+      and tick("meta", "act_z", "z-1") not in body)
+check("...and the unmapped campaigns that look like theirs, not the others",
+      "Showing <b>Acme Co</b>'s queue" in body and "Zeta Dental - OTT push" not in body)
+body = staff.get("/reports/unmapped?client=n:zeta-dental").get_data(as_text=True)
+check("...the other client's, theirs", "Zeta Dental - OTT push" in body and tick("meta", "act_z", "z-1") in body
+      and tick("meta", "act_b", "b-2") not in body)
+check("the product box opens on what the name says, and says so",
+      'value="Streaming TV" title="the name says &#39;ott&#39;"' in body
+      and "Product: the name says &#39;ott&#39;; check it." in body)
+body = staff.get("/reports/unmapped").get_data(as_text=True)
+check("the whole queue has the bulk form with a tick per proposal",
+      'id="confirm-many"' in body and body.count('name="keys" value="') == 3)
+check("...each tick saying whether its evidence was exact", body.count('data-sure="1"') == 3)
+r = staff.post("/reports/unmapped/confirm-many", data={"keys": []}, follow_redirects=True)
+check("an empty press is refused", "Tick at least one" in r.get_data(as_text=True))
+r = staff.post("/reports/unmapped/confirm-many", data={
+    "keys": ["meta|act_b|b-1", "meta|act_b|b-2", "meta|act_zz|nope", "garbage"], "client": "d:acme.com"},
+    follow_redirects=True)
+body = r.get_data(as_text=True)
+check("confirming in bulk confirms each ticked proposal", r.status_code == 200 and "Confirmed 2 campaigns." in body)
+check("...and names what it could not", "2 not confirmed" in body and "nope" in body)
+check("...back on the same client's queue", "Showing <b>Acme Co</b>" in body and body.count('name="keys" value="') == 0)
+check("the store agrees", [store.campaign_map("meta", "act_b", c)["pending"] for c in ("b-1", "b-2")], [False, False])
+check("...and the third is still waiting", store.campaign_map("meta", "act_z", "z-1")["pending"], True)
+body = staff.get("/reports/unmapped").get_data(as_text=True)
+check("the scorecard card is on the queue, with the batch's confirmations under their rule",
+      'id="scorecard"' in body and "fuzzy_v1" in body and "Confirmed of decided" in body)
+_sc = {r["rule"]: r for r in store.automap_scorecard()["rules"]}
+check("...counting the two confirmed and the one waiting", (_sc["fuzzy_v1"]["confirmed"], _sc["fuzzy_v1"]["pending"]), (2, 1))
+entries = list(reversed(_audit.read(limit=3000)))
+_bulk = [e for e in entries if e.get("type") == "campaign_confirmed" and e.get("campaign_id") in ("b-1", "b-2")]
+check("each confirmation is its own activity row, saying it was a batch",
+      len(_bulk) == 2 and all("in a batch of 4" in e["detail"] and e.get("actor") == "Todd" for e in _bulk))
+_db = store.SessionLocal()
+try:
+    _db.query(store.CampaignMap).filter(store.CampaignMap.campaign_id.in_(["b-1", "b-2", "z-1"])).delete(synchronize_session=False)
+    _db.query(store.AdPerfDaily).filter(store.AdPerfDaily.campaign_id.in_(["b-1", "b-2", "z-1", "z-free"])).delete(synchronize_session=False)
+    _db.commit()
+finally:
+    _db.close()
+_reg.all_clients = _reg_all
+
 # Mapping and moving t-acme taught nothing: its name carried the client's
 # own name. A campaign whose name calls the client something else does.
 store.upsert_rows([{"platform": "ttd", "account_id": "t-9", "campaign_id": "t-nick",
@@ -599,7 +669,17 @@ check("...and one filed under a name that merely contains it is not",
 # The renderer, lifted from the template and driven in node: a copy restated
 # here would be a third thing to keep in step.
 import subprocess                                                   # noqa: E402
-_REC = (ROOT / "hub" / "templates" / "client360.html").read_text(encoding="utf-8")
+def _c360_source():
+    """The Client 360 record as one text: the template plus its script modules
+    (hub/client360_assets.MODULES), because the record's JavaScript lives in
+    files now and a check that asks what the record does reads all of it."""
+    _os, _sys = __import__("os"), __import__("sys")
+    _root = _os.path.dirname(_os.path.abspath(__file__))
+    if _root not in _sys.path:
+        _sys.path.insert(0, _root)
+    return __import__("hub.client360_assets", fromlist=["source_text"]).source_text()
+
+_REC = _c360_source()
 _a = _REC.find("/* ---- c360 ad performance (lifted")
 _b = _REC.find("/* ---- end c360 ad performance ----")
 check("the card's renderer is marked for lifting", 0 < _a < _b)

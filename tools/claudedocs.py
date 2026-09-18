@@ -21,11 +21,28 @@ branches that each add a write-up both add a row at the end of the same table,
 which is a textual conflict every time. One change in this repo hit it three
 times in a single evening, each round-trip costing a full CI run.
 
-This does not make that conflict disappear, and nothing that keeps a browsable
-table in one file could. What it does is make resolving one **mechanical**:
-take either side, run `--write`, and the result is correct by construction
-rather than by whoever merged it getting the ordering and the counts right by
-hand. The check then catches a resolution that was botched anyway.
+Resolving one is **mechanical**: take either side, run `--write`, and the
+result is correct by construction rather than by whoever merged it getting the
+ordering and the counts right by hand. The check then catches a resolution that
+was botched anyway.
+
+**And the conflict itself is gone now**, which this file previously said
+nothing keeping a browsable table in one place could manage. `.gitattributes`
+gives this file `merge=union`, so a merge takes both sides' rows instead of
+stopping. The table comes out duplicated and out of order -- which is fine,
+because it is DERIVED: the check below exits 1 naming the file, and `--write`
+regenerates it from the directory.
+
+That trade is worth making for a reason beyond the delay. **A conflicted pull
+request produces no CI at all**: GitHub runs `pull_request` workflows against a
+merge commit it cannot build for a conflicted branch, so the symptom is silence
+rather than a message saying the branch conflicts. It cost one change two
+pushes and a manual `workflow_dispatch` to diagnose. A union merge turns that
+silence into a gated check failure that names the file and the fix.
+
+Both halves are measured in `test_claude_docs_index.py` rather than reasoned
+about: the same two-branch case conflicts under the default driver and merges
+under union, and the check goes red on the duplicate row union leaves.
 
 **The numbering is the other half.** Two branches also both take the next free
 `NN-`, so both land a file at that number and the second one renames. Caught

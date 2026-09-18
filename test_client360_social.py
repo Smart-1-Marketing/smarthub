@@ -63,7 +63,17 @@ def section(title):
     print(f"\n{title}\n{'-' * len(title)}")
 
 
-TPL = (ROOT / "hub" / "templates" / "client360.html").read_text(encoding="utf-8")
+def _c360_source():
+    """The Client 360 record as one text: the template plus its script modules
+    (hub/client360_assets.MODULES), because the record's JavaScript lives in
+    files now and a check that asks what the record does reads all of it."""
+    _os, _sys = __import__("os"), __import__("sys")
+    _root = _os.path.dirname(_os.path.abspath(__file__))
+    if _root not in _sys.path:
+        _sys.path.insert(0, _root)
+    return __import__("hub.client360_assets", fromlist=["source_text"]).source_text()
+
+TPL = _c360_source()
 
 from hub import seo  # noqa: E402
 

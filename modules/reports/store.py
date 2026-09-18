@@ -45,7 +45,7 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 import secrets
 
-from sqlalchemy import (JSON, BigInteger, Boolean, Column, Date, DateTime,
+from sqlalchemy import (JSON, BigInteger, Boolean, Column, Date, DateTime, Index,
                         Integer, Numeric, String, Text, and_, func, or_)
 from sqlalchemy.orm import declarative_base
 
@@ -196,6 +196,18 @@ class AdPerfDaily(Base):
     source = Column(String(20), default="native")
     synced_at = Column(DateTime(timezone=True), default=now)
 
+    # The key covers a read by platform and account. Two reads it does not
+    # cover, measured on the live table before these existed: "every
+    # platform since a date" (the unmapped list, the automap's recent spend)
+    # and "one platform over a date range" (the reconcile's month, the
+    # quarantine's neighbors, the health reading), each a scan of the whole
+    # table. Declared here so a new table gets them from create_all(), and
+    # in _LATE_INDEXES so a live table gets them at boot.
+    __table_args__ = (
+        Index("ix_reports_ad_perf_daily_date", "date"),
+        Index("ix_reports_ad_perf_daily_platform_date", "platform", "date"),
+    )
+
     @property
     def extras(self) -> dict:
         return self.extras_json if isinstance(self.extras_json, dict) else {}
@@ -264,6 +276,12 @@ class MapRefusal(Base):
     rule = Column(String(120), nullable=True)
     refused_by = Column(String(160), default="")
     refused_at = Column(DateTime(timezone=True), default=now)
+    # The refusals before this one, oldest first, each the same fields:
+    # the row is one per campaign (its key), and a campaign refused under
+    # Acme and then, re-filed, refused under Beta must remember both, or
+    # the next run files it under Acme again from the same name. A LATE
+    # column -- _LATE_COLUMNS adds it to a live table.
+    others_json = Column(JSON, nullable=True)
 
 
 class CampaignAlias(Base):
@@ -613,7 +631,51 @@ _LATE_COLUMNS = (
     ("reports_campaign_map", "confirmed_by", "VARCHAR(160)"),
     ("reports_campaign_map", "confirmed_at", "TIMESTAMP WITH TIME ZONE"),
     ("reports_links", "exec_summary_json", "JSON"),
+    ("reports_map_refusals", "others_json", "JSON"),
 )
+
+
+# Indexes added after their table first shipped. create_all() creates a
+# missing TABLE with its indexes and never adds an index to an existing one,
+# the same gap as the columns above. ``CREATE INDEX IF NOT EXISTS`` on both
+# Postgres and SQLite; a race with the other worker is swallowed the same
+# way, and index_status() says what the live table actually carries.
+_LATE_INDEXES = (
+    ("reports_ad_perf_daily", "ix_reports_ad_perf_daily_date", "(date)"),
+    ("reports_ad_perf_daily", "ix_reports_ad_perf_daily_platform_date", "(platform, date)"),
+)
+
+
+def _add_missing_indexes() -> None:
+    from sqlalchemy import inspect as _inspect, text as _text
+    inspector = _inspect(engine)
+    for table, name, columns in _LATE_INDEXES:
+        try:
+            have = {i["name"] for i in inspector.get_indexes(table)}
+        except Exception:                           # noqa: BLE001 - no table yet
+            continue
+        if name in have:
+            continue
+        try:
+            with engine.begin() as conn:
+                conn.execute(_text(f"CREATE INDEX IF NOT EXISTS {name} ON {table} {columns}"))
+        except Exception:                           # noqa: BLE001 - raced by the other worker
+            pass
+
+
+def index_status() -> list[dict]:
+    """What the live fact table carries, index by index: ``{"name",
+    "columns", "present"}`` for each index the model declares. A reading,
+    not the declaration -- the two can differ on a table that shipped
+    before the index did."""
+    from sqlalchemy import inspect as _inspect
+    try:
+        have = {i["name"]: list(i.get("column_names") or [])
+                for i in _inspect(engine).get_indexes("reports_ad_perf_daily")}
+    except Exception:                               # noqa: BLE001 - no table, no indexes
+        have = {}
+    return [{"name": name, "columns": columns, "present": name in have}
+            for _table, name, columns in _LATE_INDEXES]
 
 
 def _add_missing_columns() -> None:
@@ -641,6 +703,7 @@ def _create_tables() -> str:
     err = create_all_metadata(Base.metadata, DB_URL)
     if not err:
         _add_missing_columns()
+        _add_missing_indexes()
     return err
 
 
@@ -1565,13 +1628,23 @@ def unmapped_campaigns(days: int = 30, limit: int = 200) -> list[dict]:
                             AdPerfDaily.campaign_id).all()):
             recent[(p, a, c)] = Decimal(spend or 0)
         out = {}
-        # Latest name per campaign: the rows come newest-first, so the first
-        # one seen wins.
-        for p, a, c, name, when, extras in (
-                db.query(AdPerfDaily.platform, AdPerfDaily.account_id,
-                         AdPerfDaily.campaign_id, AdPerfDaily.campaign_name,
-                         AdPerfDaily.date, AdPerfDaily.extras_json)
-                  .order_by(AdPerfDaily.date.desc()).all()):
+        # The newest row per campaign, found in the database: the day per
+        # (platform, account, campaign) as a grouped subquery, joined back
+        # for that day's name and extras. The first version ordered the
+        # WHOLE fact table newest-first and walked it in Python until every
+        # campaign had been seen once -- every campaign-day ever synced,
+        # on every queue load, every board load and every hourly run.
+        latest = (db.query(AdPerfDaily.platform.label("p"), AdPerfDaily.account_id.label("a"),
+                           AdPerfDaily.campaign_id.label("c"), func.max(AdPerfDaily.date).label("d"))
+                    .group_by(AdPerfDaily.platform, AdPerfDaily.account_id, AdPerfDaily.campaign_id)
+                    .subquery())
+        newest = (db.query(AdPerfDaily.platform, AdPerfDaily.account_id, AdPerfDaily.campaign_id,
+                           AdPerfDaily.campaign_name, AdPerfDaily.date, AdPerfDaily.extras_json)
+                    .join(latest, and_(AdPerfDaily.platform == latest.c.p,
+                                       AdPerfDaily.account_id == latest.c.a,
+                                       AdPerfDaily.campaign_id == latest.c.c,
+                                       AdPerfDaily.date == latest.c.d)))
+        for p, a, c, name, when, extras in newest.all():
             key = (p, a, c)
             if key in mapped or key in out:
                 continue
@@ -1594,8 +1667,10 @@ def unmapped_campaigns(days: int = 30, limit: int = 200) -> list[dict]:
                 "last_seen": when.isoformat() if when else None,
                 "spend_30d": recent.get(key, Decimal(0)),
                 "refused": None,
+                "refused_clients": [],
                 "channel_type": channel,
                 "default_product": _default_product(p, channel),
+                "product_hint": _product_hint(name or ""),
             }
     finally:
         db.close()
@@ -1606,8 +1681,16 @@ def unmapped_campaigns(days: int = 30, limit: int = 200) -> list[dict]:
     # refused under: renamed, it is a new decision.
     for key, ref in refusals().items():
         row = out.get(key)
-        if row is not None and (row["campaign_name"] or "").strip() == (ref["campaign_name"] or "").strip():
+        if row is None:
+            continue
+        current = (row["campaign_name"] or "").strip()
+        if current == (ref["campaign_name"] or "").strip():
             row["refused"] = ref
+        # Every client a filing of this campaign was refused under while it
+        # carried its present name -- the newest refusal and the ones before
+        # it -- so the suggestions never offer any of them again.
+        row["refused_clients"] = sorted({r["client"] for r in [ref] + list(ref.get("others") or ())
+                                         if r.get("client") and (r.get("campaign_name") or "").strip() == current})
     rows = sorted(out.values(), key=lambda r: (-r["spend_30d"], r["platform"],
                                                r["campaign_name"]))
     return rows[:limit]
@@ -1622,6 +1705,16 @@ def _default_product(platform: str, channel: str = "") -> str:
         return _products.default_for(platform, channel)
     except Exception:                  # noqa: BLE001
         return ""
+
+
+def _product_hint(name: str) -> tuple[str, str]:
+    """``products.product_hint`` without a hard import at the top, for the
+    reason ``_default_product`` gives."""
+    try:
+        from . import products as _products
+        return _products.product_hint(name)
+    except Exception:                  # noqa: BLE001
+        return "", ""
 
 
 def unmapped_count() -> int:
@@ -1749,6 +1842,15 @@ def refuse_mapping(platform: str, account_id: str, campaign_id: str, *,
         if ref is None:
             ref = MapRefusal(platform=platform, account_id=account_id, campaign_id=campaign_id)
             db.add(ref)
+        elif ref.client and ref.client != row.client:
+            # A second refusal of the same campaign under another client:
+            # the first is kept beside it, not overwritten.
+            others = list(ref.others_json) if isinstance(ref.others_json, list) else []
+            others = [o for o in others if o.get("client") != ref.client]
+            others.append({"campaign_name": ref.campaign_name or "", "client": ref.client,
+                           "client_name": ref.client_name or "", "rule": ref.rule,
+                           "refused_by": ref.refused_by or "", "refused_at": iso(ref.refused_at)})
+            ref.others_json = others[-20:]
         ref.campaign_name = name[:400]
         ref.client = row.client
         ref.client_name = row.client_name or ""
@@ -1762,6 +1864,53 @@ def refuse_mapping(platform: str, account_id: str, campaign_id: str, *,
         db.close()
 
 
+AUTO_RULE_FAMILIES = ("name_v1", "account_v1", "account_name_v1", "alias_v1", "fuzzy_v1")
+
+
+def automap_scorecard() -> dict:
+    """How each of the auto-mapper's rules has fared with people: per rule
+    family (the part of ``auto_rule`` before any ``+``), how many of its
+    filings a person confirmed, how many are still waiting, how many were
+    refused. Confirmed and pending are read off CampaignMap, refused off
+    MapRefusal (whose ``rule`` is the filing's). A mapping a person made
+    by hand carries no rule and is not a filing; a refusal of a hand
+    mapping (rule None) is counted under ``"hand"`` so nothing is lost.
+    Never raises past the store: no tables is an empty scorecard."""
+    def family(rule) -> str:
+        return (str(rule or "").split("+", 1)[0] or "hand")
+
+    rows: dict[str, dict] = {}
+
+    def slot(f):
+        return rows.setdefault(f, {"rule": f, "confirmed": 0, "pending": 0, "refused": 0})
+
+    db = None
+    try:
+        db = SessionLocal()
+        for rule, confirmed, n in (db.query(CampaignMap.auto_rule, CampaignMap.confirmed_at.isnot(None), func.count())
+                                     .filter(CampaignMap.auto_rule.isnot(None))
+                                     .group_by(CampaignMap.auto_rule, CampaignMap.confirmed_at.isnot(None)).all()):
+            slot(family(rule))["confirmed" if confirmed else "pending"] += int(n or 0)
+        for rule, n in db.query(MapRefusal.rule, func.count()).group_by(MapRefusal.rule).all():
+            slot(family(rule))["refused"] += int(n or 0)
+    except Exception:                  # noqa: BLE001 - no table yet, or no database
+        return {"rules": [], "total": {"confirmed": 0, "pending": 0, "refused": 0}, "measured": False}
+    finally:
+        if db is not None:
+            db.close()
+    out = []
+    for f in list(AUTO_RULE_FAMILIES) + sorted(k for k in rows if k not in AUTO_RULE_FAMILIES):
+        r = rows.get(f)
+        if r is None:
+            continue
+        decided = r["confirmed"] + r["refused"]
+        r["decided"] = decided
+        r["confirmed_pct"] = int(round(100 * r["confirmed"] / decided)) if decided else None
+        out.append(r)
+    total = {k: sum(r[k] for r in out) for k in ("confirmed", "pending", "refused")}
+    return {"rules": out, "total": total, "measured": True}
+
+
 def refusals() -> dict[tuple, dict]:
     """{(platform, account_id, campaign_id): {...}} for every refused
     auto-mapping. The auto-mapper reads it before it files; the unmapped
@@ -1771,7 +1920,9 @@ def refusals() -> dict[tuple, dict]:
         return {(r.platform, r.account_id, r.campaign_id): {
                     "campaign_name": r.campaign_name or "", "client": r.client or "",
                     "client_name": r.client_name or "", "refused_by": r.refused_by or "",
-                    "refused_at": iso(r.refused_at)}
+                    "refused_at": iso(r.refused_at),
+                    "others": [o for o in (r.others_json if isinstance(r.others_json, list) else [])
+                               if isinstance(o, dict) and o.get("client") != r.client]}
                 for r in db.query(MapRefusal).all()}
     except Exception:                  # noqa: BLE001 - no table yet
         return {}

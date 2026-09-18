@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<title>{{ 'Edit placement' if placement else 'New placement' }} — {{ page.title }}</title>
+{% include "_staff_head.html" %}
+<style>
+  .editor{display:grid;grid-template-columns:minmax(320px,1fr) minmax(360px,1.4fr);gap:18px;align-items:start}
+  @media(max-width:960px){.editor{grid-template-columns:1fr}}
+  .field{display:block;margin-bottom:10px}
+  .field span.lab{display:flex;justify-content:space-between;font-size:12px;font-weight:600;color:#475569;margin-bottom:3px}
+  .field .count{font-weight:400;color:var(--muted)} .field .count.over{color:var(--bad);font-weight:600}
+  .field input[type=text],.field input[type=url],.field input[type=date],.field input[type=number],.field select,.field textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font:13.5px inherit;background:#fff}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .preview{position:sticky;top:12px}
+  .preview iframe{width:100%;height:78vh;border:1px solid var(--line);border-radius:10px;background:#2E0A13}
+  .thumb{max-height:60px;border-radius:6px;border:1px solid var(--line);margin-top:4px;display:block}
+</style>
+</head>
+<body>
+<div class="wrap s1d-page">
+  <p><a href="{{ mount }}/pages/{{ page.slug }}/placements">&larr; Placements on {{ page.title }}</a></p>
+  <h1>{{ 'Edit placement' if placement else 'New placement' }} {{ help_dot('camhub.placement') if help_dot is defined else '' }}</h1>
+  <p class="lede">Type the copy, set the flight, pick the treatment. The page beside the form is the real page with this placement in its slot; it redraws as you type. Nothing changes for visitors until you save with status <b>active</b>.</p>
+  {% if error %}<p class="err">{{ error }}</p>{% endif %}
+  {% for w in warnings %}<p class="err">{{ w }}</p>{% endfor %}
+  {% if request.args.get('saved') %}<p class="pill green">Saved.</p>{% endif %}
+
+  <div class="editor">
+    <form method="post" enctype="multipart/form-data" id="placement-form" class="card"
+          data-preview-base="{{ mount }}/cam/{{ page.slug }}?preview={{ preview_token }}">
+      <div class="two">
+        <label class="field"><span class="lab">Position</span>
+          <select name="position">{% for p in positions %}<option value="{{ p }}"{% if form.position == p %} selected{% endif %}>{{ p }}</option>{% endfor %}</select></label>
+        <label class="field"><span class="lab">Status</span>
+          <select name="status">{% for st in statuses %}<option value="{{ st }}"{% if form.status == st %} selected{% endif %}>{{ st }}</option>{% endfor %}</select></label>
+      </div>
+      <div class="two">
+        <label class="field"><span class="lab">Sponsor</span>
+          <select name="sponsor_id"><option value="">— none (house ad) —</option>{% for s in sponsors %}<option value="{{ s.id }}"{% if form.sponsor_id|string == s.id|string %} selected{% endif %}>{{ s.name }}{% if s.category %} ({{ s.category }}){% endif %}</option>{% endfor %}</select>
+          <span class="muted" style="font-size:12px">Not listed? <a href="{{ mount }}/sponsors">Add the sponsor</a> first.</span></label>
+        <label class="field" style="padding-top:22px"><input type="checkbox" name="is_house" value="1"{% if form.is_house %} checked{% endif %}> House ad (the winery's own; never counts as paid)</label>
+      </div>
+      <label class="field"><span class="lab">Name shown <span class="count" data-for="name">0 / {{ limits.name }}</span></span>
+        <input type="text" name="name" maxlength="{{ limits.name }}" value="{{ form.name or '' }}" placeholder="Defaults to the sponsor's name"></label>
+      <label class="field"><span class="lab">Headline <span class="count" data-for="headline">0 / {{ limits.headline }}</span></span>
+        <input type="text" name="headline" maxlength="{{ limits.headline }}" value="{{ form.headline or '' }}"></label>
+      <label class="field"><span class="lab">Body <span class="count" data-for="body" data-presenting="{{ limits.body_presenting }}" data-supporting="{{ limits.body_supporting }}">0 / {{ limits.body_presenting if form.position == 'presenting' else limits.body_supporting }}</span></span>
+        <textarea name="body" rows="3">{{ form.body or '' }}</textarea></label>
+      <div class="two">
+        <label class="field"><span class="lab">Button label <span class="count" data-for="cta_label">0 / {{ limits.cta_label }}</span></span>
+          <input type="text" name="cta_label" maxlength="{{ limits.cta_label }}" value="{{ form.cta_label or '' }}"></label>
+        <label class="field"><span class="lab">Destination URL</span>
+          <input type="url" name="url" value="{{ form.url or '' }}" placeholder="https://"></label>
+      </div>
+      <div class="two">
+        <label class="field"><span class="lab">Logo (square)</span>
+          <input type="file" name="logo_file" accept="image/*">
+          <input type="hidden" name="logo_url" value="{{ form.logo_url or '' }}">
+          {% if form.logo_url %}<img class="thumb" src="{{ form.logo_url }}" alt="">{% endif %}</label>
+        <label class="field"><span class="lab">Feature image (16:9 or wider)</span>
+          <input type="file" name="image_file" accept="image/*">
+          <input type="hidden" name="image_url" value="{{ form.image_url or '' }}">
+          {% if form.image_url %}<img class="thumb" src="{{ form.image_url }}" alt="">{% endif %}</label>
+      </div>
+      <label class="field"><span class="lab">Image alt text <span class="count" data-for="alt_text">0 / {{ limits.alt_text }}</span></span>
+        <input type="text" name="alt_text" maxlength="{{ limits.alt_text }}" value="{{ form.alt_text or '' }}"></label>
+      <div class="two">
+        <label class="field"><span class="lab">Treatment (presenting only)</span>
+          <select name="animation">{% for a in animations %}<option value="{{ a }}"{% if form.animation == a %} selected{% endif %}>{{ a.replace('_', ' ') }}</option>{% endfor %}</select>
+          <span class="muted" style="font-size:12px">lower third is the premium pitch; wipe never covers the water; static for a house ad.</span></label>
+        <div>
+          <label class="field"><span class="lab">Tagline 2 <span class="count" data-for="tagline_2">0 / {{ limits.tagline }}</span></span>
+            <input type="text" name="tagline_2" maxlength="{{ limits.tagline }}" value="{{ form.tagline_2 or '' }}" placeholder="tagline treatment only"></label>
+          <label class="field"><span class="lab">Tagline 3 <span class="count" data-for="tagline_3">0 / {{ limits.tagline }}</span></span>
+            <input type="text" name="tagline_3" maxlength="{{ limits.tagline }}" value="{{ form.tagline_3 or '' }}"></label>
+        </div>
+      </div>
+      <div class="two">
+        <label class="field"><span class="lab">Flight starts</span><input type="date" name="start_date" value="{{ form.start_date or '' }}"></label>
+        <label class="field"><span class="lab">Flight ends</span><input type="date" name="end_date" value="{{ form.end_date or '' }}"></label>
+      </div>
+      <div class="two">
+        <label class="field"><span class="lab">Weight (supporting rotation, 1–10)</span><input type="number" name="weight" min="1" max="10" value="{{ form.weight or 1 }}"></label>
+        <label class="field"><span class="lab">Sort order</span><input type="number" name="sort_order" value="{{ form.sort_order or 0 }}"></label>
+      </div>
+      <div class="row">
+        <button class="btn" type="submit">Save</button>
+        <a class="btn sec" href="{{ mount }}/pages/{{ page.slug }}/placements">Back</a>
+        {% if placement %}<button class="btn danger" type="submit" name="delete" value="1" onclick="return confirm('Delete this placement?')">Delete</button>{% endif %}
+      </div>
+    </form>
+
+    <div class="preview">
+      <p class="muted" style="margin:0 0 6px">Live preview &middot; redraws a moment after you stop typing &middot; <a id="preview-open" href="#" target="_blank" rel="noopener">open in a tab</a></p>
+      <iframe id="preview" title="Page preview" src="{{ mount }}/cam/{{ page.slug }}?preview={{ preview_token }}"></iframe>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var form = document.getElementById('placement-form');
+  var frame = document.getElementById('preview');
+  var open = document.getElementById('preview-open');
+  if (!form || !frame) { return; }
+  var base = form.getAttribute('data-preview-base');
+  var draftFields = ['name', 'headline', 'body', 'cta_label', 'url', 'animation', 'tagline_2', 'tagline_3', 'alt_text', 'logo_url', 'image_url'];
+  var timer = null;
+
+  function cap(name) {
+    var el = form.querySelector('.count[data-for="' + name + '"]');
+    if (!el) { return null; }
+    if (name === 'body') {
+      var pos = form.querySelector('[name="position"]').value;
+      return parseInt(el.getAttribute(pos === 'presenting' ? 'data-presenting' : 'data-supporting'), 10);
+    }
+    return parseInt((el.textContent.split('/')[1] || '0'), 10);
+  }
+
+  function counters() {
+    draftFields.forEach(function (name) {
+      var input = form.querySelector('[name="' + name + '"]');
+      var el = form.querySelector('.count[data-for="' + name + '"]');
+      if (!input || !el) { return; }
+      var limit = cap(name) || 0;
+      var n = (input.value || '').length;
+      el.textContent = n + ' / ' + limit;
+      el.classList.toggle('over', limit > 0 && n > limit);
+    });
+  }
+
+  function encode(obj) {
+    var json = JSON.stringify(obj);
+    var bytes = new TextEncoder().encode(json);
+    var bin = '';
+    bytes.forEach(function (b) { bin += String.fromCharCode(b); });
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  function redraw() {
+    var draft = {};
+    draftFields.forEach(function (name) {
+      var input = form.querySelector('[name="' + name + '"]');
+      if (input) { draft[name] = input.value || ''; }
+    });
+    var url = base + '&draft=' + encode(draft);
+    frame.src = url;
+    if (open) { open.href = url; }
+  }
+
+  form.addEventListener('input', function () {
+    counters();
+    clearTimeout(timer);
+    timer = setTimeout(redraw, 600);
+  });
+  form.addEventListener('change', function () {
+    counters();
+    clearTimeout(timer);
+    timer = setTimeout(redraw, 200);
+  });
+  counters();
+  redraw();
+})();
+</script>
+</body>
+</html>

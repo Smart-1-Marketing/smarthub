@@ -167,6 +167,7 @@ def index():
         native=_native_status(),
         refresh=_refresh_note(),
         history=_history_rows(),
+        backups=_backup_status(),
         rate_card=products.rate_card_products(),
         health=_health_by_platform(),
         provider=_provider_gate(),
@@ -307,6 +308,51 @@ def backfill_nightly(platform: str):
     _log("reports_backfill_nightly", detail=f"{'on' if on else 'off'} for {', '.join(names)}")
     return redirect(url_for("index") + "?saved="
                     + quote(f"Nightly history {'on' if on else 'off'} for {', '.join(names)}.") + "#history")
+
+
+def _backup_status() -> dict:
+    """The Backups card, or {} -- the index renders without it."""
+    try:
+        from . import backup
+        return backup.status()
+    except Exception:                      # noqa: BLE001
+        app.logger.exception("reports: backup status could not be read")
+        return {}
+
+
+@app.route("/backup", methods=["POST"])
+def backup_run():
+    """Back up now: the landed rows to the disk and off it, in the
+    background. The nightly job runs the same code."""
+    from urllib.parse import quote
+    try:
+        from hub import scheduler
+        res = scheduler.backup_now(actor=actor_name())
+    except Exception as exc:                   # noqa: BLE001
+        app.logger.exception("reports: backup could not start")
+        return redirect(url_for("index") + "?error="
+                        + quote(f"The backup could not start ({type(exc).__name__}).") + "#backups")
+    _log("reports_backup", detail=("started" if res["started"] else "refused: " + res["note"]))
+    key = "saved" if res["started"] else "error"
+    return redirect(url_for("index") + f"?{key}=" + quote(res["note"]) + "#backups")
+
+
+@app.route("/backup/restore", methods=["POST"])
+def backup_restore():
+    """Put the copy back. Adds and updates, never deletes, so it is safe
+    against a table that still has its rows; still a POST with its own
+    button, because it is minutes of writes."""
+    from urllib.parse import quote
+    try:
+        from hub import scheduler
+        res = scheduler.backup_now(actor=actor_name(), restore=True)
+    except Exception as exc:                   # noqa: BLE001
+        app.logger.exception("reports: restore could not start")
+        return redirect(url_for("index") + "?error="
+                        + quote(f"The restore could not start ({type(exc).__name__}).") + "#backups")
+    _log("reports_restore", detail=("started" if res["started"] else "refused: " + res["note"]))
+    key = "saved" if res["started"] else "error"
+    return redirect(url_for("index") + f"?{key}=" + quote(res["note"]) + "#backups")
 
 
 def _native_status() -> list[dict]:
@@ -609,6 +655,41 @@ def callrail_check():
                            documented=provider_fields.DOCUMENTED["callrail"])
 
 
+@app.route("/bing-check")
+def bing_check():
+    """What Microsoft Advertising actually answers, against what
+    modules/reports/bing.py reads -- the amazon-check ladder for the
+    platform whose REST shapes were transcribed without a live account.
+    Climbs as far as the connection allows, asks for a one-day account
+    report at the top rung, and calls nothing while unconfigured or
+    unconsented. The Pull now button beneath runs the campaign pull alone
+    and prints its result, so the first pull is a press here rather than
+    the whole nightly job."""
+    from . import bing
+    return render_template("reports_bing_check.html", chk=bing.check(),
+                           result=None, error=request.args.get("error", ""))
+
+
+@app.route("/bing-check/pull", methods=["POST"])
+def bing_check_pull():
+    """Run the Microsoft Ads campaign pull now, alone, and show what it
+    answered. Every row is an upsert, so a press is safe to repeat; a
+    report still preparing keeps its request id and the next press (or
+    the nightly run) collects it."""
+    from . import bing
+    try:
+        result = bing.pull()
+    except Exception as exc:                            # noqa: BLE001 - a page, not the scheduler
+        ba, _ = bing._client()
+        redact = ba._redact if ba else (lambda t: str(t)[:300])
+        result = {"ok": False, "rows": 0, "error": redact(f"{type(exc).__name__}: {exc}"), "pending": False}
+    _log("bing_pull_now", ok=bool(result.get("ok")), rows=int(result.get("rows") or 0),
+         pending=bool(result.get("pending")), error=str(result.get("error") or "")[:300],
+         detail=f"Microsoft Ads pull now: {result.get('rows') or 0} rows"
+                + (f" -- {result.get('error')}" if result.get("error") else ""))
+    return render_template("reports_bing_check.html", chk=bing.check(), result=result, error="")
+
+
 @app.route("/amazon-check")
 def amazon_check():
     """What the Amazon DSP entity actually answers, against what
@@ -662,12 +743,25 @@ def unmapped():
     # over at read time, never stored -- a registry that cannot be read
     # leaves the lists empty and the page says so.
     likeness = automap.annotate(rows, pending)
+    # ?client=<key> works one client's queue: the proposals filed under
+    # them and the unmapped campaigns that look like theirs. The pacing
+    # board's "look like theirs" link lands here.
+    client_filter = (request.args.get("client") or "").strip()[:200]
+    client_filter_name = ""
+    if client_filter:
+        pending = [m for m in pending if m.get("client") == client_filter]
+        rows = [r for r in rows if any(s["key"] == client_filter for s in r.get("suggestions") or ())]
+        client_filter_name = (next((m.get("client_name") for m in pending if m.get("client_name")), "")
+                              or next((s["name"] for r in rows for s in r["suggestions"] if s["key"] == client_filter), "")
+                              or _client_name_for(client_filter))
     return render_template(
         "reports_unmapped.html",
         rows=rows, pending=pending,
+        client_filter=client_filter, client_filter_name=client_filter_name,
         likeness_error=likeness.get("error", ""),
         file_pct=int(round(automap.FUZZY_FILE_SCORE * 100)),
         aliases=store.campaign_aliases(), alias_file_count=automap.ALIAS_FILE_COUNT,
+        scorecard=store.automap_scorecard(),
         days=days, shape=store.RENAME_SHAPE,
         products=products.catalog(),
         defaults=products.DEFAULT_PRODUCT_FOR_PLATFORM,
@@ -706,6 +800,13 @@ def map_campaign():
     except ValueError as exc:
         return redirect(back + "?error=" + str(exc).replace(" ", "+"))
     moved = before is not None and before.get("client") != row.client
+    automap.forget_likely()
+    if moved and before.get("pending"):
+        # Moving a proposal off a client is Not theirs and a filing in one
+        # press: whatever the name taught for the client it was moved off
+        # is forgotten, as a refusal would forget it.
+        automap.forget(f.get("campaign_name") or before.get("campaign_name") or "",
+                       client=before["client"], client_name=before.get("client_name") or "")
     # A person's filing teaches what this campaign calls the client.
     automap.learn(f.get("campaign_name") or row.display_name or "", client=row.client,
                   client_name=client_name or row.client_name or "", by=actor_name())
@@ -765,6 +866,53 @@ def confirm_mapping():
     return redirect(back + "?saved=confirmed")
 
 
+@app.route("/unmapped/confirm-many", methods=["POST"])
+def confirm_many():
+    """Confirm the proposals a person ticked, each on its own row of the
+    activity log: a bulk press is still one person standing behind each
+    campaign, and the record says so per campaign. A key that is not
+    mapped or cannot be read is counted and named, never a stop for the
+    rest."""
+    from urllib.parse import quote as _quote
+    f = request.form
+    keys = [k for k in f.getlist("keys") if k]
+    back = url_for("unmapped") + (("?client=" + _quote(f.get("client", "")[:200], safe="")) if f.get("client") else "")
+    if not keys:
+        return redirect(back + ("&" if "?" in back else "?") + "error=Tick+at+least+one+campaign+first.")
+    done, skipped = 0, []
+    for key in keys[:500]:
+        parts = key.split("|", 2)
+        if len(parts) != 3:
+            skipped.append(key)
+            continue
+        platform, account_id, campaign_id = parts
+        try:
+            row = store.confirm_mapping(platform, account_id, campaign_id, by=actor_name())
+        except ValueError:
+            row = None
+        if row is None:
+            skipped.append(campaign_id)
+            continue
+        name = row.client_name or row.client
+        try:
+            taught_from = (store.campaign_map(row.platform, row.account_id, row.campaign_id) or {}).get("campaign_name") or ""
+        except Exception:              # noqa: BLE001 - a lesson is not the confirmation
+            taught_from = ""
+        automap.learn(taught_from, client=row.client, client_name=name, by=actor_name())
+        _log("campaign_confirmed", client=name, client_key=row.client,
+             platform=row.platform, campaign_id=row.campaign_id, product=row.product or None,
+             detail=f"{store.platform_label(row.platform)} campaign {row.campaign_id} confirmed "
+                    f"as {name}'s ({row.product or 'no product'}) in a batch of {len(keys)}; "
+                    f"it is on their page from now")
+        done += 1
+    automap.forget_likely()
+    sep = "&" if "?" in back else "?"
+    if skipped:
+        return redirect(back + sep + f"saved=confirmed-{done}&error=" +
+                        f"{len(skipped)}+not+confirmed+(not+mapped+or+unreadable):+{'+'.join(skipped[:5])}")
+    return redirect(back + sep + f"saved=confirmed-{done}")
+
+
 @app.route("/unmapped/refuse", methods=["POST"])
 def refuse_mapping():
     """Not theirs: the proposal is deleted, the refusal remembered so the
@@ -780,6 +928,7 @@ def refuse_mapping():
     if gone is None:
         return redirect(back + "?error=That+campaign+is+not+mapped.")
     name = gone["client_name"] or gone["client"]
+    automap.forget_likely()
     automap.forget(gone["campaign_name"], client=gone["client"], client_name=name)
     _log("campaign_refused", client=name, client_key=gone["client"],
          platform=gone["platform"], campaign_id=gone["campaign_id"],

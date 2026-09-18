@@ -19,7 +19,14 @@ an error -- ``_redact()`` strips it from any provider message before the
 message leaves this module, and ``test_reports_ttd.py`` reads every string
 a pull produces to prove it.
 
-``TTD_PARTNER_ID`` is the partner every advertiser hangs off.
+``TTD_PARTNER_ID`` is the partner every advertiser hangs off, and it is
+optional: ``POST /v3/partner/query`` lists the partners the token's user can
+see, and when there is exactly one the pull uses it and says so. The first
+production run with a partner id typed by hand answered ``HTTP 403 ... not
+authorized to access Partner '1739'`` -- a seat number off a settings page,
+not the API's partner id -- so a refused or absent partner id is answered
+with the partners the token can actually reach, by name and id. Several
+partners and no variable is a refusal naming them: the pull will not pick.
 ``TTD_API_BASE`` defaults to ``https://api.thetradedesk.com/v3`` (the
 sandbox is ``https://ext-api.sb.thetradedesk.com/v3``).
 
@@ -108,6 +115,7 @@ SCHEDULE_NAME = "Smart 1 Hub - daily campaign performance"
 RESTATE_DAYS = 28
 
 ADVERTISER_QUERY = "/advertiser/query/partner"
+PARTNER_QUERY = "/partner/query"
 TEMPLATE_QUERY = "/myreports/reporttemplate/query/partner"
 SCHEDULE_QUERY = "/myreports/reportschedule/query"
 SCHEDULE_CREATE = "/myreports/reportschedule"
@@ -141,10 +149,25 @@ def _first_env(names) -> str:
     return ""
 
 
+# The partner the token sees, when TTD_PARTNER_ID is unset and there is
+# exactly one: found by resolve_partner() during a pull and remembered in
+# the module's note, so cfg() answers without a call.
+_partner: dict = {}
+
+
+def _remembered_partner() -> dict:
+    global _partner
+    if not _partner:
+        _partner = {k: v for k, v in (_remembered().get("partner") or {}).items() if k in ("id", "name")}
+    return _partner
+
+
 def cfg() -> dict:
+    env_partner = (os.environ.get("TTD_PARTNER_ID") or "").strip()
     return {
         "token": _first_env(TOKEN_ENV),
-        "partner_id": (os.environ.get("TTD_PARTNER_ID") or "").strip(),
+        "partner_id": env_partner or str(_remembered_partner().get("id") or ""),
+        "partner_source": "env" if env_partner else ("discovered" if _remembered_partner().get("id") else ""),
         "base": (os.environ.get("TTD_API_BASE") or DEFAULT_BASE).strip().rstrip("/"),
         "template_id": (os.environ.get("TTD_REPORT_TEMPLATE_ID") or "").strip(),
         "date_range": (os.environ.get("TTD_REPORT_DATE_RANGE") or "LastThirtyDays").strip(),
@@ -152,10 +175,10 @@ def cfg() -> dict:
 
 
 def missing() -> list[str]:
+    """The variables without which nothing can be asked: the token. The
+    partner id is asked for from the platform when it is not set."""
     c = cfg()
-    return [name for name, value in (("TTD_API_TOKEN", c["token"]),
-                                     ("TTD_PARTNER_ID", c["partner_id"]))
-            if not value]
+    return [name for name, value in (("TTD_API_TOKEN", c["token"]),) if not value]
 
 
 def configured() -> bool:
@@ -218,6 +241,62 @@ def _paged(path: str, body: dict) -> list[dict]:
         start += PAGE_SIZE
         if start > 100_000:               # a partner does not have a thousand pages
             return out
+
+
+# ---------------------------------------------------------------------------
+# The partner
+# ---------------------------------------------------------------------------
+
+def list_partners() -> list[dict]:
+    """The partners the token's user can see: ``[{"id", "name"}]``. Rows
+    with no ``PartnerId`` are refused naming the keys, like the templates."""
+    rows = _paged(PARTNER_QUERY, {})
+    out = [{"id": str(r.get("PartnerId") or "").strip(),
+            "name": str(r.get("PartnerName") or r.get("Name") or "").strip()} for r in rows]
+    out = [p for p in out if p["id"]]
+    if rows and not out:
+        keys = sorted({k for r in rows for k in r})[:12]
+        raise TTDError("The partner list carried no PartnerId; the rows have " + ", ".join(keys))
+    return out
+
+
+def _partners_text(partners: list[dict]) -> str:
+    return ", ".join(f"{p['name'] or 'unnamed'} ({p['id']})" for p in partners) or "none"
+
+
+def resolve_partner() -> dict:
+    """``{"id", "name", "source"}``: the env variable, else the one partner
+    the token sees (remembered for cfg()). Raises, naming what the token
+    sees, when there are several or none."""
+    global _partner
+    env_partner = (os.environ.get("TTD_PARTNER_ID") or "").strip()
+    if env_partner:
+        return {"id": env_partner, "name": "", "source": "env"}
+    partners = list_partners()
+    if len(partners) == 1:
+        _partner = {"id": partners[0]["id"], "name": partners[0]["name"]}
+        return {**_partner, "source": "discovered"}
+    if not partners:
+        raise TTDError("The token's user can see no partner at all, so nothing can be read: "
+                       "the API token has to belong to a user with partner-level access.")
+    raise TTDError("The token's user can see several partners and TTD_PARTNER_ID is unset; "
+                   "set it to one of: " + _partners_text(partners))
+
+
+def _refused_partner_help(exc: TTDError) -> str:
+    """After a 403 on the partner: what the token can see, or why not."""
+    text = str(exc)
+    if "403" not in text and "not authorized" not in text.lower():
+        return ""
+    try:
+        partners = list_partners()
+    except TTDError as inner:
+        return f" (the partner list could not be read either: {inner})"
+    if not partners:
+        return (" The token's user can see no partner: the API token has to belong to a "
+                "user with partner-level access.")
+    return (" The token's user can see: " + _partners_text(partners)
+            + ". Set TTD_PARTNER_ID to one of those ids, or unset it when there is one.")
 
 
 # ---------------------------------------------------------------------------
@@ -414,15 +493,20 @@ def _remembered() -> dict:
 def pull(days: int = RESTATE_DAYS) -> dict:
     """Read the schedule's newest complete file and land its rows."""
     out = {"ok": False, "rows": 0, "advertisers": 0, "skipped": 0,
-           "executions": 0, "error": "", "template": {}}
+           "executions": 0, "error": "", "template": {}, "partner": {}}
     if not configured():
         out["error"] = "not configured: " + ", ".join(missing()) + " unset"
         return out
     try:
+        out["partner"] = resolve_partner()
         # The advertiser list is the count the index prints and the first
         # call that proves the token and partner id agree; the schedule no
-        # longer carries it.
-        advertisers = list_advertisers()
+        # longer carries it. Refused, the error carries what the token can
+        # see instead, so the next thing to do is on the page.
+        try:
+            advertisers = list_advertisers()
+        except TTDError as exc:
+            raise TTDError(str(exc) + _refused_partner_help(exc))
         out["advertisers"] = len(advertisers)
         schedule = ensure_schedule()
         out["template"] = schedule.get("template") or {}
@@ -552,12 +636,15 @@ def status() -> dict:
     sync = store.sync_status().get("ttd") or {}
     native = sync if sync.get("source") == "native" else {}
     template = remembered.get("template") or {}
+    partner = remembered.get("partner") or {}
     return {
         "configured": not miss,
         "connected": not miss,
         "missing": miss,
         "base": c["base"],
         "partner_id": c["partner_id"],
+        "partner_name": str(partner.get("name") or ""),
+        "partner_source": c["partner_source"],
         # The env override when set; else what the last pull picked or found.
         "template_id": c["template_id"] or str(template.get("id") or ""),
         "template_name": str(template.get("name") or ""),
@@ -572,5 +659,8 @@ def status() -> dict:
                  "Trade Desk: connected, "
                  + (f"{remembered.get('advertisers')} advertisers, " if remembered.get("advertisers") is not None else "")
                  + "last pull " + (native.get("last_run_at") or remembered.get("at") or "never")
+                 + (f" (partner {partner.get('name') or c['partner_id']}, "
+                    f"{'from TTD_PARTNER_ID' if c['partner_source'] == 'env' else 'the one the token sees'})"
+                    if c["partner_id"] else " (partner: not set; the pull asks the platform)")
                  + (f" -- {native.get('error')}" if native.get("error") else "")),
     }

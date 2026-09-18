@@ -466,6 +466,12 @@
     background: var(--panel-2); color: var(--ink); }
   .nsmsg { font-size: 13px; margin-bottom: 9px; }
   .nsmsg.bad { color: var(--fail); }
+  .linknote { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 10px 14px;
+    border-bottom: 1px solid var(--line); border-left: 3px solid var(--warn); background: rgba(224,167,43,.12);
+    font-size: 13px; color: var(--ink); }
+  .linknote.out { border-left-color: var(--fail); background: rgba(217,72,72,.10); }
+  .linknote a, .linknote button { font: inherit; }
+  .qa .retry { margin-top: 6px; }
   .nsacts { display: flex; gap: 8px; flex-wrap: wrap; }
   .nsbtn { text-align: left; font: inherit; padding: 8px 11px; background: var(--bg);
     color: var(--ink); border: 1px solid var(--line); border-radius: 7px; cursor: pointer;
@@ -915,6 +921,70 @@
   };
 
   var $ = function (id) { return document.getElementById(id); };
+
+  /* ------------------------------------------------ what the link is doing
+     Every request on this screen goes through the Hub's proxy, and two things
+     the proxy does read as random failures here: a Hub session that has
+     ended answers with a redirect to /login (a 200 page of HTML, so every
+     .json() throws), and a renderer that is restarting -- every deploy --
+     answers with the proxy's own HTML page and a 503. Both used to surface as
+     "could not save" and "preview unavailable" with nothing saying why.
+
+     One reading of every response, in one place, before any caller sees it.
+     A sign-out is named, with the way back in; a dead renderer is named, with
+     what happens to the edits (kept on this device, and saving retries by
+     itself). The notice clears on the next answer that is what it should be.
+     The standalone renderer never redirects and never speaks HTML on an API
+     route, so outside the Hub this does nothing. */
+  var linkState = '', linkRaisedAt = 0;
+  function noteLink(kind) {
+    if (kind === linkState) return;
+    linkState = kind;
+    if (kind) linkRaisedAt = Date.now();
+    var old = $('linkNote'); if (old) old.remove();
+    if (!kind) return;
+    var box = document.createElement('div');
+    box.id = 'linkNote';
+    box.className = 'linknote' + (kind === 'out' ? ' out' : '');
+    box.setAttribute('role', 'alert');
+    if (kind === 'out') {
+      box.innerHTML = '<b>Your Hub sign-in has ended.</b> Nothing can save until you sign in again. ' +
+        'Your edits are kept on this device. ' +
+        '<a href="/login?next=' + encodeURIComponent(location.pathname + location.search) + '" target="_blank" rel="noopener">Sign in again</a> ' +
+        '(opens in a new tab), then come back here and use Save now.';
+    } else {
+      box.innerHTML = '<b>The Display Ad Builder is not answering right now.</b> This happens for a minute or two during a deploy. ' +
+        'Your edits are kept on this device and saving retries by itself. ' +
+        '<span id="linkRetryHint"></span>';
+    }
+    var bench = $('bench');
+    if (bench) bench.before(box); else document.body.prepend(box);
+  }
+  (function () {
+    var real = window.fetch;
+    window.fetch = function (input, init) {
+      var target = typeof input === 'string' ? input : (input && input.url) || '';
+      var ours = /\/api\/|\/_hub\//.test(target);
+      var startedAt = Date.now();
+      return real.call(this, input, init).then(function (res) {
+        if (!ours) return res;
+        var landed = '';
+        try { landed = new URL(res.url).pathname; } catch (e) { landed = ''; }
+        if (res.redirected && /\/login$/.test(landed)) { noteLink('out'); return res; }
+        var type = (res.headers && res.headers.get('content-type')) || '';
+        if (res.status >= 500 && /text\/html/.test(type)) { noteLink('down'); return res; }
+        // Only an answer to a request STARTED after the notice went up says
+        // the link is back. A request already in flight beside the one that
+        // failed (the carry goes out with every preview) answers a moment
+        // later and would clear a notice nobody had time to read.
+        if (linkState && startedAt > linkRaisedAt) noteLink('');
+        return res;
+      }, function (err) {
+        if (ours) noteLink('down');
+        throw err;
+      });
+    };
+  })();
   function esc(v) {
     return String(v == null ? '' : v).replace(/[&<>"]/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
@@ -4259,6 +4329,8 @@
   var inflight = 0;
   function preview() {
     var c = concept(); if (!c) return;
+    if (!previewRetrying) previewRetried = false;
+    previewRetrying = false;
     refreshStage();
     state.platform = platformsForSize(state.size)[0] || state.platform;
     invalidatePreview();
@@ -4302,12 +4374,21 @@
       })
       .catch(function () {
         if (mine !== inflight) return;
+        // One quiet retry: a dropped connection or a renderer mid-restart
+        // usually answers the second time, and a person should not have to
+        // notice. The second failure is said out loud, with a button.
+        if (!previewRetried) {
+          previewRetried = true;
+          setTimeout(function () { if (mine === inflight) { previewRetrying = true; preview(); } }, 1500);
+          return;
+        }
         state.previewBusy = false;
         $('canvas').classList.remove('busy');
         $('dims').textContent = 'Preview unavailable \u2014 try again';
-        drawQa([{ check: 'preview', status: 'fail', detail: 'The preview could not load. Your edits are still on screen. Change a field or select this size again to retry.' }]);
+        drawQa([{ check: 'preview', status: 'fail', retry: true, detail: 'The preview could not load. Your edits are still on screen; nothing is lost. Try again, or change a field.' }]);
       });
   }
+  var previewRetried = false, previewRetrying = false;
 
   /* ----------------------------------------------------------- size rail */
   function drawRail() {
@@ -4541,13 +4622,14 @@
         ? '<button class="fix try" data-try="' + i + '" title="Applied to the ad so you can see it. Undo puts it back.">' +
           esc(plain.applyLabel || 'Try it') + '</button>'
         : '';
+      var retryBtn = f.retry ? '<button class="fix retry" data-retry="1">Try the preview again</button>' : '';
       return '<li class="' + esc(f.status) + '">' +
         (f.status === 'info' ? '<span class="qnote">Note</span>' : '') +
         '<span class="qt">' + esc(plain.title) + '</span>' +
         (plain.what ? '<span class="qw">' + esc(plain.what) + '</span>' : '') +
         (plain.how ? '<span class="qh">' + esc(plain.how) + '</span>' : '') +
         '<span class="qm" hidden>' + esc(f.check) + ': ' + esc(f.detail) + '</span>' +
-        tryBtn + fixBtn + '</li>';
+        tryBtn + fixBtn + retryBtn + '</li>';
     }).join('') + '</ul>' +
       (advised && advised.warnings && advised.warnings.length
         ? '<div class="qasum">' + esc(advised.warnings.join(' ')) + '</div>' : '');
@@ -4562,6 +4644,9 @@
         setCopy(f.fix.role, current.slice(0, max).join(' '));
         drawControls(); preview();
       });
+    });
+    Array.prototype.forEach.call(el.querySelectorAll('[data-retry]'), function (btn) {
+      btn.addEventListener('click', function () { preview(); });
     });
     Array.prototype.forEach.call(el.querySelectorAll('[data-try]'), function (btn) {
       btn.addEventListener('click', function () {
@@ -5059,17 +5144,31 @@
     savingCampaign = writeCampaign().then(function (body) {
       if (savingRequestId !== state.requestId) return body;
       autosaveBlocked = false;
+      autoRetryAt = 0; autoRetryIn = 0;
       if (!state.dirty) { try { localStorage.removeItem('s1-ad-draft:' + state.requestId); } catch (_) {} }
       $('saveHint').textContent = state.dirty ? 'New changes waiting to save…' : 'Saved';
       return body;
     }).catch(function (error) {
       if (savingRequestId !== state.requestId) throw error;
       autosaveBlocked = true;
-      $('saveHint').textContent = 'Couldn’t save — your draft is kept here. Use Save now to retry.';
+      // A save that failed for a reason a person has to act on -- a
+      // conflict with somebody else's save -- waits for them. Any other
+      // failure is the link, and the link comes back: retry on its own,
+      // at a widening interval, and say when the next try is.
+      var conflict = /latest campaign|saved version changed|409|superseded/i.test(String(error && error.message || ''));
+      if (conflict || linkState === 'out') {
+        autoRetryAt = 0;
+        $('saveHint').textContent = 'Couldn’t save — your draft is kept here. Use Save now to retry.';
+      } else {
+        autoRetryIn = Math.min(60000, autoRetryIn ? autoRetryIn * 2 : 10000);
+        autoRetryAt = Date.now() + autoRetryIn;
+        $('saveHint').textContent = 'Couldn’t save — your draft is kept here. Trying again in ' + Math.round(autoRetryIn / 1000) + 's, or use Save now.';
+      }
       throw error;
     }).finally(function () { savingCampaign = null; });
     return savingCampaign;
   }
+  var autoRetryAt = 0, autoRetryIn = 0;
   function writeCampaign() {
     var requestId = state.requestId;
     var sent = JSON.stringify(state.doc);
@@ -5128,6 +5227,12 @@
       catch (_) { $('saveHint').textContent = 'Device backup unavailable. Keep this tab open until Saved appears.'; }
     }
     if (!savingCampaign && !autosaveBlocked && Date.now() - autoChangedAt >= 1800) saveCampaign().catch(function () {});
+    // A blocked autosave tries again by itself when the block was the link
+    // rather than a conflict (autoRetryAt is set only for those).
+    if (!savingCampaign && autosaveBlocked && autoRetryAt && Date.now() >= autoRetryAt) {
+      autoRetryAt = 0;
+      saveCampaign().catch(function () {});
+    }
   }, 750);
 
   function projectIdForCurrent() {
