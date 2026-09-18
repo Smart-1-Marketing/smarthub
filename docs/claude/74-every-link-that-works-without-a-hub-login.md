@@ -68,7 +68,7 @@ bulk of the client-facing surface.
 | `/tools/smartforecast/embed/<token>`, `/api/public/embed/<token>` | The forecast widget on their own site; sends CORS headers |
 | `/wx/<token>…` | The weather-trigger setup wizard, and its writes |
 | `/hot/<token>…`, `/hot/ecwid-hook/<token>` | Their store hotsheet; the hook is Ecwid's order webhook |
-| `/tools/display-ads/client-proof/<uuid>`, `/decision`, `/download` | Approves or returns a set of banners |
+| `/tools/display-ads/client-proof/<uuid>`, `/decision`, `/download`, `/comment`, `/cell/<i>` | Approves or returns a set of banners; `/cell/<i>` streams a frozen ad image from the proof's own directory so the page stays under 20 KB |
 
 ## Published by slug, living on somebody else's website
 

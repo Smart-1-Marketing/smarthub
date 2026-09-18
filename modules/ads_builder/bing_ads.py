@@ -80,6 +80,26 @@ token: ``_redact()`` strips every one of them from any provider message
 before it reaches a result, an error, a watermark or a log line, and
 ``test_reports_bing.py`` reads every string a pull produces to prove it.
 
+## Every account the login can see, under the customer that owns it
+
+``discover_accounts()`` reads the connected user (``User/Query``) and then
+``Accounts/Search`` by that user's id -- every advertiser account the
+consent reaches, across every customer the agency manages, not only the
+accounts the manager customer owns outright. When Microsoft refuses the
+``UserId`` predicate or answers nothing, the search is asked again by the
+manager's ``CustomerId``, and the answer says which strategy produced it.
+Pages are followed. Each account carries ``parent_customer_id``, because a
+report is scoped to accounts and authorized by the ``CustomerId`` header,
+and the header has to be the customer that owns the accounts in the scope:
+``modules/reports/bing.py`` submits one report per owning customer.
+
+## What a transient refusal costs
+
+One retry, two seconds later, on a connection error, a 429 or a 5xx --
+never on a 4xx that names the request, which a retry would only repeat.
+A download URL that answers HTML or XML (expired, or a sign-in page) is a
+refusal in words rather than a parse of nothing.
+
 ## Transcribed, not exercised
 
 No live Microsoft account has answered this code yet. The REST shapes below
@@ -107,6 +127,14 @@ import requests
 MOUNT = "/tools/ads"
 CALLBACK_PATH = MOUNT + "/oauth/bing/callback"
 TIMEOUT = 60
+# One retry on a transient answer, this long after the first. A module
+# attribute so the test drives it without waiting.
+RETRY_WAIT = 2.0
+RETRY_STATUSES = (429, 500, 502, 503, 504)
+# Customer Management pages accounts; this is the largest page it allows.
+PAGE_SIZE = 1000
+# Accounts a report cannot be run on. A Draft account has never served.
+ACCOUNT_STATUSES_SKIPPED = ("Draft",)
 
 # The /common/ endpoints: what is sent unless MICROSOFT_ADS_TENANT narrows
 # the tenant (auth_url() / token_url() below).
@@ -565,12 +593,16 @@ def _record(url: str, ok: bool, api: str, module: str = "ads_builder") -> None:
         pass
 
 
-def api_headers(store=None, account_id: str = "") -> dict:
+def api_headers(store=None, account_id: str = "", customer_id: str = "") -> dict:
+    """The four headers. ``customer_id`` overrides the manager's id for a
+    call that has to be authorized by the customer that owns the accounts
+    it names -- a report over an account the agency manages but does not
+    own."""
     c = cfg()
     h = {
         "Authorization": "Bearer " + access_token(store),
         "DeveloperToken": c["developer_token"],
-        "CustomerId": c["manager_id"],
+        "CustomerId": digits(customer_id) or c["manager_id"],
         "Content-Type": "application/json",
     }
     if account_id:
@@ -578,22 +610,39 @@ def api_headers(store=None, account_id: str = "") -> dict:
     return h
 
 
+def _sleep(seconds: float) -> None:
+    time.sleep(seconds)
+
+
 def call(store, service: str, path: str, body: dict, *, account_id: str = "",
-         module: str = "ads_builder") -> dict:
+         customer_id: str = "", module: str = "ads_builder") -> dict:
     """POST ``body`` to ``<host>/<path>`` on the reporting or customer
     service and answer the JSON, or raise a BingAdsError carrying the
     provider's own sentence -- redacted, and naming the environment it was
     refused on, because a sandbox token against the production host and a
-    revoked token look identical from here."""
+    revoked token look identical from here. A connection error, a 429 or a
+    5xx is asked once more after RETRY_WAIT; a 4xx that names the request
+    is not, because a retry would only repeat it."""
     assert_configured()
     base = hosts()[service]
     url = base.rstrip("/") + "/" + path.lstrip("/")
-    try:
-        resp = _http("POST", url, headers=api_headers(store, account_id), json=body)
-    except requests.RequestException as exc:
-        _record(url, False, service, module)
-        raise BingAdsError(f"Microsoft Advertising could not be reached: {type(exc).__name__}",
-                           status=502, code="UNREACHABLE")
+    headers = api_headers(store, account_id, customer_id)
+    resp = None
+    for attempt in (1, 2):
+        try:
+            resp = _http("POST", url, headers=headers, json=body)
+        except requests.RequestException as exc:
+            _record(url, False, service, module)
+            if attempt == 1:
+                _sleep(RETRY_WAIT)
+                continue
+            raise BingAdsError(f"Microsoft Advertising could not be reached twice: {type(exc).__name__}",
+                               status=502, code="UNREACHABLE")
+        if resp.status_code in RETRY_STATUSES and attempt == 1:
+            _record(url, False, service, module)
+            _sleep(RETRY_WAIT)
+            continue
+        break
     ok = 200 <= resp.status_code < 300
     _record(url, ok, service, module)
     if not ok:
@@ -616,32 +665,114 @@ def call(store, service: str, path: str, body: dict, *, account_id: str = "",
     return payload
 
 
-def list_accounts(store=None, *, module: str = "ads_builder") -> list[dict]:
-    """Every advertiser account under the manager, from Customer
-    Management's ``Accounts/Search`` -- read on each pull, so an account
-    added to the manager next month is swept without anybody typing its
-    id. ASSUMED, until a live account answers: that a ``CustomerId``
-    predicate on the manager's id lists the accounts it manages, and that
-    each carries ``Id``, ``Name``, ``Number``, ``AccountLifeCycleStatus``
-    and ``CurrencyCode``."""
+def connected_user(store=None, *, module: str = "ads_builder") -> dict:
+    """The user the consent belongs to: ``{"id", "name", "customers"}``
+    off Customer Management's ``User/Query`` asked with no id, which
+    answers the authenticated user. ``customers`` is every customer id the
+    user holds a role on, read defensively: a role missing its id is
+    skipped, never a KeyError."""
+    payload = call(store, "customer", "User/Query", {"UserId": None}, module=module)
+    user = payload.get("User") if isinstance(payload.get("User"), dict) else {}
+    customers = []
+    for role in payload.get("CustomerRoles") or []:
+        if isinstance(role, dict) and role.get("CustomerId") not in (None, ""):
+            customers.append(str(role["CustomerId"]))
+    return {"id": str(user.get("Id") or "").strip(),
+            "name": str(user.get("UserName") or user.get("Name") or "").strip(),
+            "customers": customers}
+
+
+def _account_row(acct: dict, manager_id: str) -> dict:
+    return {
+        "id": str(acct.get("Id")),
+        "name": str(acct.get("Name") or "").strip(),
+        "number": str(acct.get("Number") or "").strip(),
+        "status": str(acct.get("AccountLifeCycleStatus") or "").strip(),
+        "currency": str(acct.get("CurrencyCode") or "").strip(),
+        "parent_customer_id": digits(acct.get("ParentCustomerId")) or manager_id,
+        "timezone": str(acct.get("TimeZone") or "").strip(),
+    }
+
+
+def _search_accounts(store, field: str, value: str, *, module: str) -> tuple[list[dict], list]:
+    """``Accounts/Search`` by one predicate, every page followed.
+    ``(rows, raw_keys)`` -- the keys of the first raw account, for the
+    check page to show against what this reads."""
     c = cfg()
-    payload = call(store, "customer", "Accounts/Search", {
-        "Predicates": [{"Field": "CustomerId", "Operator": "Equals", "Value": c["manager_id"]}],
-        "Ordering": None,
-        "PageInfo": {"Index": 0, "Size": 1000},
-    }, module=module)
-    out = []
-    for acct in payload.get("Accounts") or []:
-        if not isinstance(acct, dict) or acct.get("Id") in (None, ""):
+    rows, raw_keys, index = [], [], 0
+    while True:
+        payload = call(store, "customer", "Accounts/Search", {
+            "Predicates": [{"Field": field, "Operator": "Equals", "Value": str(value)}],
+            "Ordering": None,
+            "PageInfo": {"Index": index, "Size": PAGE_SIZE},
+        }, module=module)
+        page = [a for a in (payload.get("Accounts") or []) if isinstance(a, dict)]
+        if page and not raw_keys:
+            raw_keys = sorted(str(k) for k in page[0].keys())
+        for acct in page:
+            if acct.get("Id") in (None, ""):
+                continue
+            rows.append(_account_row(acct, c["manager_id"]))
+        if len(page) < PAGE_SIZE or index >= 50:
+            break
+        index += 1
+    return rows, raw_keys
+
+
+def discover_accounts(store=None, *, module: str = "ads_builder") -> dict:
+    """Every advertiser account the consent can see, and how they were
+    found.
+
+    ``{"accounts": [...], "strategy": "user"|"customer", "user": {...},
+    "raw_keys": [...], "notes": [...], "skipped": [...]}``. Strategy
+    ``user`` is ``Accounts/Search`` by the connected user's id, which
+    reaches accounts under every customer the agency manages; ``customer``
+    is the search by the manager's own customer id, asked when the first is
+    refused or answers nothing. Accounts in ACCOUNT_STATUSES_SKIPPED are
+    listed under ``skipped`` rather than returned, because a report over
+    them fails the whole request.
+    """
+    c = cfg()
+    out = {"accounts": [], "strategy": "", "user": {}, "raw_keys": [], "notes": [], "skipped": []}
+    found: list[dict] = []
+    try:
+        out["user"] = connected_user(store, module=module)
+    except BingAdsError as exc:
+        if exc.code == "REFUSED":
+            # The credentials themselves: nothing after this answers
+            # differently, and a second refusal would only say it twice.
+            raise
+        out["notes"].append("the connected user could not be read: " + exc.message)
+    if out["user"].get("id"):
+        try:
+            found, out["raw_keys"] = _search_accounts(store, "UserId", out["user"]["id"], module=module)
+            out["strategy"] = "user"
+            if not found:
+                out["notes"].append("the search by the connected user's id answered no accounts")
+        except BingAdsError as exc:
+            out["notes"].append("the search by the connected user's id was refused: " + exc.message)
+    if not found:
+        found, keys = _search_accounts(store, "CustomerId", c["manager_id"], module=module)
+        out["strategy"] = "customer"
+        out["raw_keys"] = out["raw_keys"] or keys
+        if not found:
+            out["notes"].append("the search by the manager's customer id answered no accounts either")
+    seen: set = set()
+    for a in found:
+        if a["id"] in seen:
             continue
-        out.append({
-            "id": str(acct.get("Id")),
-            "name": str(acct.get("Name") or "").strip(),
-            "number": str(acct.get("Number") or "").strip(),
-            "status": str(acct.get("AccountLifeCycleStatus") or "").strip(),
-            "currency": str(acct.get("CurrencyCode") or "").strip(),
-        })
+        seen.add(a["id"])
+        if a["status"] in ACCOUNT_STATUSES_SKIPPED:
+            out["skipped"].append(a)
+        else:
+            out["accounts"].append(a)
     return out
+
+
+def list_accounts(store=None, *, module: str = "ads_builder") -> list[dict]:
+    """Every advertiser account the consent can see -- ``discover_accounts()``'s
+    list, for the callers that want only that."""
+    return discover_accounts(store, module=module)["accounts"]
 
 
 # ---------------------------------------------------------------------------
@@ -682,8 +813,9 @@ def report_request(kind: str, start, end, account_ids: list[str], *,
     }}
 
 
-def submit_report(store, body: dict, *, module: str = "reports") -> str:
-    payload = call(store, "reporting", "GenerateReport/Submit", body, module=module)
+def submit_report(store, body: dict, *, module: str = "reports", customer_id: str = "") -> str:
+    payload = call(store, "reporting", "GenerateReport/Submit", body, module=module,
+                   customer_id=customer_id)
     rid = str(payload.get("ReportRequestId") or "").strip()
     if not rid:
         raise BingAdsError("the report was submitted and Microsoft answered with no "
@@ -691,13 +823,15 @@ def submit_report(store, body: dict, *, module: str = "reports") -> str:
     return rid
 
 
-def poll_report(store, request_id: str, *, module: str = "reports") -> dict:
+def poll_report(store, request_id: str, *, module: str = "reports", customer_id: str = "") -> dict:
     """``{"status": "Success"|"Pending"|"Error", "url": ...}`` off
     ``GenerateReport/Poll``. A status this module does not know reads as
     Pending -- treating it as finished attaches nothing while reporting
-    success, the HeyGen lesson."""
+    success, the HeyGen lesson. A Success with no URL is a report with no
+    rows, which Microsoft answers that way rather than with an empty file;
+    the caller reads an empty ``url`` on Success as zero rows."""
     payload = call(store, "reporting", "GenerateReport/Poll",
-                   {"ReportRequestId": request_id}, module=module)
+                   {"ReportRequestId": request_id}, module=module, customer_id=customer_id)
     st = payload.get("ReportRequestStatus") or {}
     status = str(st.get("Status") or "").strip() if isinstance(st, dict) else ""
     url = str(st.get("ReportDownloadUrl") or "").strip() if isinstance(st, dict) else ""
@@ -710,11 +844,22 @@ def download_report(url: str, *, module: str = "reports") -> str:
     """The finished report: a ZIP holding one CSV, or the CSV itself.
     Fetched with no credential -- the download URL is pre-signed and
     short-lived -- and read into text."""
-    try:
-        resp = requests.get(url, timeout=TIMEOUT)
-    except requests.RequestException as exc:
-        raise BingAdsError(f"the report could not be downloaded: {type(exc).__name__}",
-                           status=502, code="UNREACHABLE")
+    resp = None
+    for attempt in (1, 2):
+        try:
+            resp = requests.get(url, timeout=TIMEOUT)
+        except requests.RequestException as exc:
+            _record(url.split("?")[0], False, "download", module)
+            if attempt == 1:
+                _sleep(RETRY_WAIT)
+                continue
+            raise BingAdsError(f"the report could not be downloaded twice: {type(exc).__name__}",
+                               status=502, code="UNREACHABLE")
+        if resp.status_code in RETRY_STATUSES and attempt == 1:
+            _record(url.split("?")[0], False, "download", module)
+            _sleep(RETRY_WAIT)
+            continue
+        break
     _record(url.split("?")[0], resp.ok, "download", module)
     if not resp.ok:
         raise BingAdsError(f"HTTP {resp.status_code} downloading the report", status=resp.status_code)
@@ -725,12 +870,23 @@ def report_text(data: bytes) -> str:
     """CSV text out of the download: a ZIP's first .csv member, or the
     bytes as they are."""
     if data[:2] == b"PK":
-        with zipfile.ZipFile(io.BytesIO(data)) as zf:
-            names = [n for n in zf.namelist() if n.lower().endswith(".csv")] or zf.namelist()
-            if not names:
-                raise BingAdsError("the report ZIP holds no file", status=502, code="BAD_ANSWER")
-            data = zf.read(names[0])
-    return data.decode("utf-8-sig", errors="replace")
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                names = [n for n in zf.namelist() if n.lower().endswith(".csv")] or zf.namelist()
+                if not names:
+                    raise BingAdsError("the report ZIP holds no file", status=502, code="BAD_ANSWER")
+                data = zf.read(names[0])
+        except zipfile.BadZipFile:
+            raise BingAdsError("the report download began like a ZIP and was not one",
+                               status=502, code="BAD_ANSWER")
+    text = data.decode("utf-8-sig", errors="replace")
+    head = text.lstrip("\ufeff \t\r\n")[:64].lower()
+    if head.startswith(("<!doctype", "<html", "<?xml", "<s:envelope", "<error")):
+        # An expired download URL, or a sign-in page: a refusal in words,
+        # never a parse that finds no column row and says so instead.
+        raise BingAdsError("the report download answered a web page rather than a report "
+                           "(an expired download URL answers this way)", status=502, code="BAD_ANSWER")
+    return text
 
 
 def rows_of(text: str) -> list[list[str]]:

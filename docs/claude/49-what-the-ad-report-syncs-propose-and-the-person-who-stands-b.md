@@ -392,3 +392,14 @@ standing**: moving a proposal off a client now forgets what its name
 taught for them, as Not theirs does. And the run reads each distinct
 campaign name once across all its accounts, and drops the board's held
 "look like theirs" count when it finishes.
+
+**Two workers now share the "look like theirs" reading, and pending age is
+visible.** ``store.queue_version()`` returns a digest of the newest mapping
+time and refusal time, and ``automap.likely_by_client()`` cache-keys on it,
+so a mapping press on one gunicorn worker invalidates the other worker's
+cache on its next call. The TTL is a ceiling in case an empty book returns
+``"boot"``; on that book the reading is empty and stays that way.
+``store.pending_age()`` returns the oldest and median days of the pending
+proposals and how many are over ``PENDING_STALE_DAYS`` (3), rendered on the
+queue's pending heading -- a pileup nobody is working is now visible rather
+than hidden inside "50 waiting for confirmation".

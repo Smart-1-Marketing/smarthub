@@ -880,9 +880,9 @@ const server = http.createServer(async (req, res) => {
     // Overview ad images must be publicly viewable via their /files paths —
     // covered below by the renders exemption added to the admin gate.
 
-    const frozenProof = url.pathname.match(/^\/client-proof\/([a-f0-9-]{36})(?:\/(decision|download|comment))?$/);
+    const frozenProof = url.pathname.match(/^\/client-proof\/([a-f0-9-]{36})(?:\/(decision|download|comment|cell))?(?:\/(\d+))?$/);
     if (frozenProof) {
-      const [, token, action] = frozenProof;
+      const [, token, action, cellIndex] = frozenProof;
       if(req.method==='GET' && !action) {
         res.writeHead(200, {'content-type':'text/html; charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer'});
         return res.end(withBase(req,clientProofHtml(getClientProof(OUT,token))));
@@ -890,6 +890,22 @@ const server = http.createServer(async (req, res) => {
       if(req.method==='GET' && action==='download') {
         const file=proofDownload(OUT,token);
         res.writeHead(200,{'content-type':'application/zip','content-disposition':'attachment; filename="approved-display-ads.zip"','cache-control':'private, no-store'});
+        return fs.createReadStream(file).pipe(res);
+      }
+      // A frozen cell image, served from disk instead of inlined as base64.
+      // The Meta set with the story and the square at 2x is ten megabytes of
+      // HTML per open on a phone; this brings the page under 20 KB. The
+      // regex has already refused a non-UUID token and a non-digit index; the
+      // index must also be inside proof.cells, and the file's path is derived
+      // from the proof (never from user input), so a "../" cannot land here.
+      if(req.method==='GET' && action==='cell') {
+        const proof=getClientProof(OUT,token);
+        const i=Number(cellIndex);
+        if(!Number.isInteger(i) || i<0 || i>=proof.cells.length) return json(res,404,{error:'No such ad on this proof.'});
+        const file=proof.cells[i].file;
+        if(!fs.existsSync(file)) return json(res,404,{error:'That ad file is unavailable.'});
+        const type=path.extname(file)==='.png'?'image/png':'image/jpeg';
+        res.writeHead(200,{'content-type':type,'cache-control':'public, max-age=86400, immutable','referrer-policy':'no-referrer'});
         return fs.createReadStream(file).pipe(res);
       }
       if(req.method==='POST' && action==='decision') {
@@ -901,7 +917,15 @@ const server = http.createServer(async (req, res) => {
       // a decision: the proof stays where it is.
       if(req.method==='POST' && action==='comment') {
         const body=JSON.parse(await readBody(req,10_000));
-        const note=commentOnClientProof(OUT,projects,token,body);
+        const note=commentOnClientProof(OUT,projects,token,body,(ctx)=>{
+          const where=ctx.note.size?`${ctx.note.size}${ctx.platform?` (${ctx.platform})`:''}`:'the whole set';
+          const link=`${PUBLIC_URL}/build?request=${encodeURIComponent(ctx.project.requestId)}${ctx.note.size?`&size=${encodeURIComponent(ctx.note.size)}`:''}`;
+          void notify({
+            subject:`Client note on ${where} — ${ctx.project.client} / ${ctx.project.projectName}`,
+            body:`${ctx.project.client} left a note on version ${ctx.proof.version} (${where}):\n\n"${ctx.note.text}"`,
+            url:link,
+          },OUT);
+        });
         return json(res,201,note);
       }
       return json(res,405,{error:'Unsupported proof action.'});
