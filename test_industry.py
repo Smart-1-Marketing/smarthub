@@ -288,6 +288,86 @@ check("a real reading from today is not due",
       industry.due_for_resweep(client7) is False)
 
 
+# ---------------------------------------------------------------------------
+section("The sweep passes the domain from the SEO store to the resolver")
+
+client_dom = "Fixture Domain Co Xyz"
+_fresh_client(client_dom)
+store_dom = seo.load_store(client_dom)
+store_dom["site_url"] = "https://www.domainco.com/about"
+seo.save_store(client_dom, store_dom)
+check("_client_domain reads site_url",
+      industry._client_domain(client_dom) == "domainco.com")            # noqa: SLF001
+
+_fresh_client("Fixture Attached Web Xyz")
+store_att = seo.load_store("Fixture Attached Web Xyz")
+store_att.setdefault("attached", {})["website"] = [
+    {"name": "Fixture Attached Web Xyz", "domain": "attachedweb.com"}
+]
+seo.save_store("Fixture Attached Web Xyz", store_att)
+check("_client_domain reads attached.website",
+      industry._client_domain("Fixture Attached Web Xyz") == "attachedweb.com")  # noqa: SLF001
+
+check("_client_domain is empty when nothing is on file",
+      industry._client_domain("Fixture Nothing Yet Xyz") == "")         # noqa: SLF001
+
+# Verify sweep() actually passes the domain to resolve_industry
+_fresh_client("Fixture Sweep Domain Xyz")
+store_sw = seo.load_store("Fixture Sweep Domain Xyz")
+store_sw["site_url"] = "https://sweeptest.example.com"
+seo.save_store("Fixture Sweep Domain Xyz", store_sw)
+_resolve_calls = []
+_orig_resolve = industry.resolve_industry
+def _spy_resolve(**kw):
+    _resolve_calls.append(kw)
+    return _orig_resolve(**kw)
+with mock.patch.object(industry, "resolve_industry", side_effect=_spy_resolve):
+    with mock.patch.object(industry, "_client_universe",
+                           return_value=["Fixture Sweep Domain Xyz"]):
+        industry.sweep(limit=10)
+check("sweep passed the domain to resolve_industry",
+      any(c.get("domain") == "sweeptest.example.com" for c in _resolve_calls),
+      _resolve_calls)
+
+
+# ---------------------------------------------------------------------------
+section("Ambiguous name-tier aliases are skipped")
+
+# "bar" inside "Bar Lazy H Percherons" is a horse ranch, not a restaurant.
+with mock.patch("hub.scan_facts.latest_report", return_value=({}, {}, "")):
+    got_bar = industry.resolve_industry(client="Bar Lazy H Percherons")
+check("'Bar Lazy H Percherons' does not resolve to restaurant from the name",
+      got_bar["key"] == "general", got_bar)
+
+# But a scan that says "bar" is still valid.
+report_bar = {"meta": {"primary_industry": "Bar"}}
+with mock.patch("hub.scan_facts.latest_report", return_value=(report_bar, {}, "")):
+    got_bar2 = industry.resolve_industry(client="Bar Lazy H Percherons")
+check("a scan with 'Bar' still resolves restaurant",
+      got_bar2["key"] == "restaurant" and got_bar2["source"] == "scan_primary",
+      got_bar2)
+
+with mock.patch("hub.scan_facts.latest_report", return_value=({}, {}, "")):
+    got_county = industry.resolve_industry(client="Tri County Disposal")
+check("'Tri County Disposal' does not resolve to government from the name",
+      got_county["key"] == "general", got_county)
+
+# A real restaurant name still resolves fine.
+with mock.patch("hub.scan_facts.latest_report", return_value=({}, {}, "")):
+    got_real = industry.resolve_industry(client="Joe's Pizza Palace")
+check("a real restaurant name still resolves",
+      got_real["key"] == "restaurant" and got_real["source"] == "name", got_real)
+
+
+# ---------------------------------------------------------------------------
+section("Legacy typed categories normalize")
+
+check('industry("auto_broker") -> automotive',
+      (industry.industry("auto_broker") or {}).get("key") == "automotive")
+check('industry("builder") -> real_estate',
+      (industry.industry("builder") or {}).get("key") == "real_estate")
+
+
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

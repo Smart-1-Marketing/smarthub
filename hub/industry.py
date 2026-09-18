@@ -144,6 +144,9 @@ for _i in INDUSTRIES:
 # Legacy spellings this file's own docstring names, not otherwise declared
 # above (medical_dental is already on healthcare's own legacy list).
 LEGACY_MAP.setdefault("medical_dental", "healthcare")
+# Pre-unification typed categories found on live records.
+LEGACY_MAP.setdefault("auto_broker", "automotive")
+LEGACY_MAP.setdefault("builder", "real_estate")
 
 
 def industry(key: str | None) -> dict | None:
@@ -171,6 +174,17 @@ ALIAS_LABELS = {
     "winery": "Winery", "vineyard": "Vineyard", "distillery": "Distillery",
     "brewery": "Brewery",
 }
+
+# Aliases that are too ambiguous when they appear in a *business name*.
+# "Bar Lazy H Percherons" is a horse ranch, not a restaurant; "Tri County
+# Disposal" is a waste hauler, not a government office. These aliases are
+# valid in scan and GBP data (where they describe the industry), but when
+# the only evidence is the name itself they produce more wrong answers than
+# right ones. Skipped only for the `name` tier in resolve_industry().
+_NAME_TIER_SKIP = frozenset({
+    "bar", "store", "county", "club", "inn", "resort",
+    "academy", "printing", "app", "team", "arena",
+})
 
 
 def alias_label(text: str | None) -> str:
@@ -254,6 +268,35 @@ def _stored_industry(client: str) -> dict:
     return ind if isinstance(ind, dict) else {}
 
 
+def _client_domain(client: str) -> str:
+    """The website domain for this client, read from its own SEO store.
+
+    Two local fields, no Knack call: `site_url` (a direct override) and
+    `attached.website` (the links filed on the record). The sweep runs this
+    for every client on every pass, so it must stay cheap and offline.
+    """
+    try:
+        from hub import seo
+        from hub.client_context import canonical_domain
+        store = seo.load_store(client) or {}
+        site = str(store.get("site_url") or "").strip()
+        if site:
+            return canonical_domain(site)
+        attached = (store.get("attached") or {}).get("website")
+        if isinstance(attached, list):
+            for w in attached:
+                d = str((w or {}).get("domain") or "").strip()
+                if d:
+                    return canonical_domain(d)
+        elif isinstance(attached, dict):
+            d = str(attached.get("domain") or "").strip()
+            if d:
+                return canonical_domain(d)
+    except Exception:                                     # noqa: BLE001
+        pass
+    return ""
+
+
 def _scan_field(report: dict, path: str) -> Any:
     try:
         from modules.scans.audit_fields import get_field
@@ -326,8 +369,10 @@ def resolve_industry(client: str, domain: str = "", hint: str = "", **_kw) -> di
         return got
 
     got = _try(client, "name")
-    if got:
-        return got
+    if got and got.get("evidence"):
+        _, _, alias = _match(client)
+        if alias not in _NAME_TIER_SKIP:
+            return got
 
     return {"key": "general", "subtype": "", "source": "general",
             "confidence": 0.0, "evidence": ""}
@@ -553,7 +598,8 @@ def sweep(limit: int = 200) -> dict:
             if not due_for_resweep(name):
                 continue
             checked += 1
-            result = resolve_industry(client=name)
+            domain = _client_domain(name)
+            result = resolve_industry(client=name, domain=domain)
             if write_industry(name, result):
                 written += 1
             else:
@@ -585,7 +631,8 @@ def diagnostics_summary(limit: int = 500) -> dict:
             on_general.append(name)
             continue
         try:
-            fresh = resolve_industry(client=name)
+            domain = _client_domain(name)
+            fresh = resolve_industry(client=name, domain=domain)
         except Exception:                                  # noqa: BLE001
             continue
         if (fresh.get("key") and fresh.get("key") != "general"

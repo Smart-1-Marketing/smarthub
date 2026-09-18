@@ -395,6 +395,14 @@ from hub import knack_data, knack_products                     # noqa: E402
 LIVE_ROW = {"client": "Zeta Live Only", "product": "Website SEO and Blogs",
             "status": "Live", "start": "01/01/2026", "end": "12/31/2026",
             "monthly": "900", "partner": "Smart 1 Marketing", "sales": "Todd"}
+# Seed a products.json so the export fallback has rows to return. Without
+# this the fallback returns [] and "with the export's rows still on it" fails.
+_export_dir = os.path.join(knack_data.BASE)
+os.makedirs(_export_dir, exist_ok=True)
+import json as _json
+with open(os.path.join(_export_dir, "products.json"), "w") as _f:
+    _json.dump({"records": [LIVE_ROW]}, _f)
+knack_data._cache.clear()
 _real_rows = knack_products.rows
 
 
