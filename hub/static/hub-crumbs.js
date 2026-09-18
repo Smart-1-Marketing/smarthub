@@ -80,6 +80,7 @@
     "gpt-ads": "GPT Ads Builder", "social": "Social Content Planner",
     "site-blocks": "Website Blocks",
     "smartforecast": "SmartForecast Dynamic Website",
+    "camhub": "CamHub Live Cam Pages",
     "widgets": "Scan Widgets",
     "google-access": "Google Access", "utm": "UTM Builder",
     "youtube": "YouTube Studio",
