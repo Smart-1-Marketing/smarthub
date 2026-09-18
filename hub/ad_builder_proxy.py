@@ -75,6 +75,7 @@ TIMEOUT = (10, 180)          # connect, read — a full ad package takes a while
 # that are billed per call, so it stays with the operator.
 PUBLIC_PATTERNS = (
     re.compile(r"^client-proof/[a-f0-9-]{36}(?:/(decision|download|comment))?$"),
+    re.compile(r"^client-proof/[a-f0-9-]{36}/cell/\d+$"),
     re.compile(r"^proof/[\w.-]+$"),
     re.compile(r"^api/proof/[\w.-]+/(approve|revision)$"),
 )

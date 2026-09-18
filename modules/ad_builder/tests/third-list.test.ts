@@ -168,6 +168,34 @@ test('the proof page has a note box under each ad and lists what was said', (t) 
   assert.doesNotMatch(closed, /<button type="button" data-send-note/, 'no note box once approved');
 });
 
+test('the proof page streams cells from disk instead of inlining them as base64', (t) => {
+  // A Meta set with the story and the square at 2x is ten megabytes of HTML
+  // per open, on a phone. The frozen cell URL brings the page under 20 KB
+  // and the browser caches the images between opens.
+  const { out, token } = proofFixture(t);
+  const html = clientProofHtml(getClientProof(out, token));
+  assert.doesNotMatch(html, /data:image\//, 'no cell is inlined as base64');
+  assert.match(html, /src="\/client-proof\/11111111-2222-4333-8444-555555555555\/cell\/0"/, 'each ad links to its own frozen file');
+  assert.match(html, /src="\/client-proof\/11111111-2222-4333-8444-555555555555\/cell\/1"/);
+  assert.match(html, /loading="lazy"/, 'and the browser can defer offscreen ones');
+  assert.ok(html.length < 20_000, `two-cell proof page is ${html.length} bytes; the ceiling in docs/claude/83 is 20 KB`);
+});
+
+test('the proof cell URL matches only a UUID token and a digit index, so a bad index or a "../" cannot land', () => {
+  // The server matches these paths with this regex; refusing at the regex
+  // level means no case ever reaches the cells array with an out-of-shape
+  // value. A "../" cannot occur inside \d+, and a non-UUID token cannot
+  // occur inside [a-f0-9-]{36}.
+  const rx = /^\/client-proof\/([a-f0-9-]{36})(?:\/(decision|download|comment|cell))?(?:\/(\d+))?$/;
+  assert.ok(rx.test('/client-proof/11111111-2222-4333-8444-555555555555/cell/0'), 'a good cell path matches');
+  assert.ok(rx.test('/client-proof/11111111-2222-4333-8444-555555555555/cell/17'));
+  assert.ok(!rx.test('/client-proof/not-a-uuid/cell/0'), 'a non-UUID token is refused');
+  assert.ok(!rx.test('/client-proof/11111111-2222-4333-8444-555555555555/cell/../etc/passwd'), 'a "../" in the index is refused');
+  assert.ok(!rx.test('/client-proof/11111111-2222-4333-8444-555555555555/cell/-1'), 'a negative index is refused');
+  assert.ok(!rx.test('/client-proof/11111111-2222-4333-8444-555555555555/cell/'), 'an empty index is refused');
+  assert.ok(!rx.test('/client-proof/11111111-2222-4333-8444-555555555555/cell/0x'), 'a mixed index is refused');
+});
+
 /* ------------------------------------------------------------ health */
 
 const proj = (extra: any = {}) => ({
