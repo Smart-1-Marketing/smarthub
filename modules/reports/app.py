@@ -655,6 +655,41 @@ def callrail_check():
                            documented=provider_fields.DOCUMENTED["callrail"])
 
 
+@app.route("/bing-check")
+def bing_check():
+    """What Microsoft Advertising actually answers, against what
+    modules/reports/bing.py reads -- the amazon-check ladder for the
+    platform whose REST shapes were transcribed without a live account.
+    Climbs as far as the connection allows, asks for a one-day account
+    report at the top rung, and calls nothing while unconfigured or
+    unconsented. The Pull now button beneath runs the campaign pull alone
+    and prints its result, so the first pull is a press here rather than
+    the whole nightly job."""
+    from . import bing
+    return render_template("reports_bing_check.html", chk=bing.check(),
+                           result=None, error=request.args.get("error", ""))
+
+
+@app.route("/bing-check/pull", methods=["POST"])
+def bing_check_pull():
+    """Run the Microsoft Ads campaign pull now, alone, and show what it
+    answered. Every row is an upsert, so a press is safe to repeat; a
+    report still preparing keeps its request id and the next press (or
+    the nightly run) collects it."""
+    from . import bing
+    try:
+        result = bing.pull()
+    except Exception as exc:                            # noqa: BLE001 - a page, not the scheduler
+        ba, _ = bing._client()
+        redact = ba._redact if ba else (lambda t: str(t)[:300])
+        result = {"ok": False, "rows": 0, "error": redact(f"{type(exc).__name__}: {exc}"), "pending": False}
+    _log("bing_pull_now", ok=bool(result.get("ok")), rows=int(result.get("rows") or 0),
+         pending=bool(result.get("pending")), error=str(result.get("error") or "")[:300],
+         detail=f"Microsoft Ads pull now: {result.get('rows') or 0} rows"
+                + (f" -- {result.get('error')}" if result.get("error") else ""))
+    return render_template("reports_bing_check.html", chk=bing.check(), result=result, error="")
+
+
 @app.route("/amazon-check")
 def amazon_check():
     """What the Amazon DSP entity actually answers, against what

@@ -1,0 +1,161 @@
+{% extends "_reports_base.html" %}
+{% block title %}Microsoft Ads check · Reports{% endblock %}
+{% block heading %}Microsoft Ads check{% endblock %}
+{% block lede %}What Microsoft Advertising actually answers, against what
+  <span class="mono">modules/reports/bing.py</span> reads. The REST shapes were transcribed from
+  the v13 reference before any live account had answered them, so this page climbs the five things
+  that have to be true, stops at the first that is not, and asks for the smallest report the
+  service makes so the column row can be read against the parser. Pull now runs the campaign
+  pull alone.{% endblock %}
+
+{% block body %}
+{% if result %}
+<div class="s1d-card">
+  <div class="s1d-cardhead"><h2>Pull now</h2>
+    <span class="s1d-muted">
+      {% if result.ok %}<span class="s1d-pill ok">landed</span>
+      {% elif result.pending %}<span class="s1d-pill warn">still preparing</span>
+      {% else %}<span class="s1d-pill bad">did not land</span>{% endif %}</span></div>
+  {% if result.ok %}
+    <div class="notice ok">{{ result.rows }} campaign-day{{ '' if result.rows == 1 else 's' }} written
+      across {{ result.campaigns }} campaign{{ '' if result.campaigns == 1 else 's' }} in
+      {{ result.accounts }} account{{ '' if result.accounts == 1 else 's' }}{% if result.groups and result.groups > 1 %}
+      under {{ result.groups }} customers{% endif %}{% if result.skipped %}; {{ result.skipped }} row{{ '' if result.skipped == 1 else 's' }}
+      skipped for a missing day, account or campaign{% endif %}. The native watermark is stamped;
+      <a href="/reports/">the Reports index</a> reads it.</div>
+  {% elif result.pending %}
+    <div class="notice">{{ result.error }}{% if result.rows %} {{ result.rows }} row{{ '' if result.rows == 1 else 's' }}
+      from the customers that did finish are already written.{% endif %} Press Pull now again in a
+      minute, or leave it: the nightly run collects the same report.</div>
+  {% else %}
+    <div class="notice err">{{ result.error }}</div>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="s1d-card">
+  <div class="s1d-cardhead"><h2>The connection {{ help_dot('reports.bing.check') if help_dot is defined else '' }}</h2>
+    <span class="s1d-muted">
+      {% if chk.status.connected %}<span class="s1d-pill ok">connected</span>
+      {% elif chk.status.configured %}<span class="s1d-pill warn">not connected</span>
+      {% else %}<span class="s1d-pill warn">not configured</span>{% endif %}
+      {% if chk.environment %}&middot; {{ chk.environment }}{% endif %}</span></div>
+  {% if chk.error %}<div class="notice err">{{ chk.error }}</div>{% endif %}
+  {% if not chk.status.configured %}
+  <div class="notice">Nothing was called: the credentials are not all set, and a credential is not
+    sent to find out whether it is set. The <a href="/tools/ads/settings">Smart 1 Ads settings</a>
+    card names each one.</div>
+  {% elif not chk.status.connected %}
+  <div class="notice">Nothing was called: nobody has consented yet. Press <b>Connect Microsoft Ads</b> on
+    <a href="/tools/ads/settings">Smart 1 Ads settings</a>, signed in as a user with a role on the
+    <b>manager account</b>: the consent inherits that person's access, and a login with no role on
+    the manager reaches no accounts.</div>
+  {% endif %}
+  {% for p in chk.problems %}<div class="notice">{{ p }}</div>{% endfor %}
+  <div class="s1d-kv"><b>Status line</b><span>{{ chk.status.line }}</span></div>
+  {% if chk.user and chk.user.id %}
+  <div class="s1d-kv"><b>Connected user</b><span class="mono">{{ chk.user.name or '(unnamed)' }} &middot; id {{ chk.user.id }}
+    {% if chk.user.customers %}&middot; roles on customer{{ '' if chk.user.customers|length == 1 else 's' }} {{ chk.user.customers|join(', ') }}{% endif %}</span></div>
+  {% endif %}
+  {% if chk.carried %}
+  <div class="notice">{{ chk.carried|length }} report request{{ '' if chk.carried|length == 1 else 's' }} carried from
+    an earlier pull, still to be collected: the next pull polls {{ 'it' if chk.carried|length == 1 else 'them' }}
+    first rather than paying for a new report.</div>
+  {% endif %}
+  <form method="post" action="/reports/bing-check/pull" style="margin-top:10px">
+    <button class="s1d-btn" type="submit" {% if not chk.status.connected %}disabled{% endif %}>Pull now</button>
+    <span class="s1d-muted">The last 14 days, every account, campaign by day. Safe to repeat: every row is an upsert.</span>
+  </form>
+</div>
+
+<div class="s1d-card">
+  <div class="s1d-cardhead"><h2>The ladder</h2>
+    <span class="s1d-muted">{% if chk.rung > 5 %}every rung met{% else %}rung {{ chk.rung }} of 5{% endif %}</span></div>
+  <p class="s1d-hint">&ldquo;Microsoft Ads is connected&rdquo; is five claims, and every one of them fails
+    with the same bare <span class="mono">InvalidCredentials</span> from the API. Each is separated here.</p>
+  <div class="s1d-scroll">
+  <table class="s1d-t">
+    <thead><tr><th>#</th><th>What has to be true</th><th>How it reads when it is not</th><th></th></tr></thead>
+    <tbody>
+      {% for n, claim, fails in chk.ladder %}
+      <tr>
+        <td>{{ n }}</td>
+        <td>{{ claim }}</td>
+        <td class="s1d-muted">{{ fails }}</td>
+        <td>{% if chk.rung > n %}<span class="s1d-pill ok">met</span>
+            {% elif chk.rung == n %}<span class="s1d-pill bad">here</span>
+            {% else %}<span class="s1d-muted">not reached</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<div class="s1d-grid">
+  <div class="s1d-card">
+    <div class="s1d-cardhead"><h2>Accounts the login can see</h2>
+      <span class="s1d-muted">{% if chk.accounts %}{{ chk.accounts|length }} &middot; found by {{ 'the connected user\'s id' if chk.strategy == 'user' else 'the manager\'s customer id' }}{% else %}none listed{% endif %}</span></div>
+    {% if chk.accounts %}
+    <div class="s1d-scroll">
+    <table class="s1d-t">
+      <thead><tr><th>Account</th><th>Id</th><th>Number</th><th>Status</th><th>Currency</th><th>Owning customer</th></tr></thead>
+      <tbody>
+      {% for a in chk.accounts %}
+        <tr><td>{{ a.name or '(unnamed)' }}</td><td class="mono">{{ a.id }}</td><td class="mono">{{ a.number }}</td>
+          <td>{{ a.status or '?' }}</td><td>{{ a.currency }}</td><td class="mono">{{ a.parent_customer_id }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% if chk.groups|length > 1 %}
+    <p class="s1d-hint">{{ chk.groups|length }} owning customers, so the pull submits {{ chk.groups|length }} reports,
+      each authorized by the customer that owns its accounts.</p>
+    {% endif %}
+    {% if chk.skipped %}
+    <p class="s1d-hint">Not reported on: {% for a in chk.skipped %}{{ a.name or a.id }} ({{ a.status }}){{ ', ' if not loop.last }}{% endfor %}.
+      A Draft account has never served and a report over it fails the whole request.</p>
+    {% endif %}
+    {% if chk.raw_keys %}
+    <p class="s1d-hint">Fields each raw account carried: <span class="mono">{{ chk.raw_keys|join(', ') }}</span>.
+      This module reads Id, Name, Number, AccountLifeCycleStatus, CurrencyCode and ParentCustomerId.</p>
+    {% endif %}
+    {% else %}
+    <p class="empty">{% if chk.rung >= 4 %}Microsoft listed no advertiser account for this login, by either search.
+      Connect again as a user with a role on the manager account.{% else %}Not reached.{% endif %}</p>
+    {% endif %}
+  </div>
+
+  <div class="s1d-card">
+    <div class="s1d-cardhead"><h2>One-day account report</h2>
+      <span class="s1d-muted">{% if chk.report %}{% if chk.report.pending %}preparing{% else %}{{ chk.report.rows }} row{{ '' if chk.report.rows == 1 else 's' }} for {{ chk.window.start }}{% endif %}{% else %}not asked for{% endif %}</span></div>
+    {% if chk.report %}
+      {% if chk.report.note %}<p class="s1d-hint">{{ chk.report.note }}</p>{% endif %}
+      {% if chk.report.header %}
+      <div class="s1d-kv"><b>Column row</b><span class="mono">{{ chk.report.header|join(' | ') }}</span></div>
+      {% endif %}
+      {% if chk.report.first %}
+      <div class="s1d-kv"><b>First row</b><span class="mono">{{ chk.report.first|join(' | ') }}</span></div>
+      {% endif %}
+      {% if chk.columns %}
+      <div class="s1d-kv"><b>Read as</b><span class="mono">{% for f, h in chk.columns.items() %}{{ f }} &larr; {{ h }}<br>{% endfor %}</span></div>
+      {% endif %}
+    {% else %}
+      <p class="empty">{% if chk.status.connected %}Not reached: the rung above says why.{% else %}Connect first.{% endif %}</p>
+    {% endif %}
+    <p class="s1d-hint">The campaign pull reads {{ chk.required|join(', ') }} by these header names, spacing and case
+      ignored: {% for f, names in chk.aliases.items() %}<span class="mono">{{ f }}</span> from {{ names|join(' / ') }}{{ '; ' if not loop.last }}{% endfor %}.
+      A header the report carries under another name is a line to add to <span class="mono">ALIASES</span>
+      in <span class="mono">modules/reports/bing.py</span>.</p>
+  </div>
+</div>
+
+{% if chk.last %}
+<div class="s1d-card">
+  <div class="s1d-cardhead"><h2>Last pull</h2>
+    <span class="s1d-muted">{{ chk.last.at or 'never' }}</span></div>
+  <div class="s1d-kv"><b>Outcome</b><span>{% if chk.last.ok %}landed: {{ chk.last.rows }} rows, {{ chk.last.accounts }} accounts,
+    {{ chk.last.campaigns }} campaigns{% elif chk.last.pending %}still preparing{% else %}{{ chk.last.error or 'not run yet' }}{% endif %}</span></div>
+</div>
+{% endif %}
+{% endblock %}

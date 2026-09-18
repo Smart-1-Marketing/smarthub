@@ -1203,6 +1203,17 @@ REGISTRY: list[Help] = [
        "details masked and the key never among them. It calls nothing "
        "until CALLRAIL_API_BASE is set: a guessed host would hand the key "
        "to whoever answers there."),
+    _h("reports.bing.check", "Five claims, then one report",
+       "No live Microsoft Advertising account had answered this code when it was "
+       "written, so every REST shape in bing.py is a transcription. This page climbs "
+       "the five things that have to be true -- the variables set, the refresh token "
+       "still consented, the connected user readable, advertiser accounts visible "
+       "to that user, and a one-day account report answering with a column row the "
+       "parser reads -- and stops at the first that is not, in words. Pull now runs "
+       "the campaign pull alone and prints what it answered; every row is an upsert, "
+       "so pressing it twice costs nothing. A report Microsoft is still preparing "
+       "keeps its request id and is collected on the next press or the nightly run.",
+       link="/reports/bing-check", link_text="Open the Microsoft Ads check"),
     _h("reports.amazon.check", "Five claims, and four fail as a working setup",
        "No live Amazon entity has answered this code, so every field name in "
        "amazon_dsp.py is a transcription. This page walks the five things "
