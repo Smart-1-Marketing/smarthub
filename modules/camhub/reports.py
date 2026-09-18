@@ -660,7 +660,8 @@ def csv_for_sponsor(sponsor_id: int, start: str, end: str) -> str:
         pl = placement_map.get(r.placement_id) or {}
         imp = int(r.impressions or 0)
         clk = int(r.clicks or 0)
-        writer.writerow([r.day, pl.get("name", ""), pl.get("position", ""),
+        writer.writerow([r.day, _csv_safe(pl.get("name", "")),
+                         _csv_safe(pl.get("position", "")),
                          imp, clk, f"{_pct(clk, imp):.2f}",
                          int(r.unique_sessions or 0)])
         tot_i += imp
@@ -670,3 +671,18 @@ def csv_for_sponsor(sponsor_id: int, start: str, end: str) -> str:
     writer.writerow(["total", "", "", tot_i, tot_c,
                      f"{_pct(tot_c, tot_i):.2f}", tot_u])
     return buf.getvalue()
+
+
+# CWE-1236: a sponsor whose name starts with `=`, `+`, `-`, `@`, or a
+# leading tab or carriage return could execute a spreadsheet formula the
+# moment the CSV is opened in Excel or Sheets. csv.writer quotes commas
+# and newlines; it does not defend against this. Every operator-typed or
+# person-supplied cell that goes into the CSV writes through this.
+_CSV_INJECTION_LEADS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _csv_safe(cell: str) -> str:
+    s = "" if cell is None else str(cell)
+    if s and s[0] in _CSV_INJECTION_LEADS:
+        return "'" + s
+    return s

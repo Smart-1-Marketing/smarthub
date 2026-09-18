@@ -107,6 +107,12 @@ class Sponsor(Base):
     phone = Column(String(60))
     website = Column(String(300))
     notes = Column(Text)
+    # Every portal token carries the time it was minted; a token issued
+    # before this timestamp is refused. Rotating on the staff /sponsors/<id>
+    # screen sets this to now(), which turns off every link a sponsor has
+    # ever been sent. Defaults to zero (unix epoch) so tokens minted before
+    # this column existed keep working.
+    portal_rotated_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), default=_now)
     updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
 

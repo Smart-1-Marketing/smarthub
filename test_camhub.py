@@ -1426,6 +1426,135 @@ class McpToolTests(unittest.TestCase):
         self.assertEqual(out["reason"], "no_pages")
 
 
+class HardeningTests(unittest.TestCase):
+    """The Sprint-7 hardening pass: CSV cells that could execute a
+    spreadsheet formula, a portal-token rotation that turns off every
+    old link, the daily chart's zero-peak case, the portal's own
+    friendly boot-error page, and the outbox status on /health."""
+
+    @classmethod
+    def setUpClass(cls):
+        from modules.camhub import models, seeds, sponsors as _sp
+        from modules.camhub.models import (DailyStat, Event, Placement,
+                                           Sponsor, SponsorReport, session)
+        from sqlalchemy import delete
+        assert not models.init_db()
+        import wsgi  # noqa: F401 -- see BuilderTests.setUpClass for why
+        cls.page = seeds.provision("buckeye-lake", fetch=False)["page"]
+        with session() as s:
+            for table in (SponsorReport, Event, DailyStat, Placement, Sponsor):
+                s.execute(delete(table))
+            s.commit()
+        _sp.ensure_house_placements(cls.page)
+
+    @classmethod
+    def tearDownClass(cls):
+        from modules.camhub.models import Placement, Sponsor, session
+        from sqlalchemy import delete
+        with session() as s:
+            s.execute(delete(Placement))
+            s.execute(delete(Sponsor))
+            s.commit()
+
+    def test_csv_cell_starting_with_a_formula_lead_is_quoted(self):
+        """A sponsor whose name starts with `=`, `+`, `-`, `@`, `\\t` or
+        `\\r` could execute a spreadsheet formula on open. Every cell
+        the CSV writes through _csv_safe gets a leading `'` when it
+        starts with one of these."""
+        from modules.camhub import reports
+        for lead in ("=", "+", "-", "@", "\t", "\r"):
+            self.assertEqual(reports._csv_safe(lead + "cmd|/c calc"),
+                             "'" + lead + "cmd|/c calc")
+        # A name that starts benignly is untouched.
+        self.assertEqual(reports._csv_safe("Rosewood Marine"),
+                         "Rosewood Marine")
+        # None → empty string, not None.
+        self.assertEqual(reports._csv_safe(None), "")
+
+    def test_csv_for_a_sponsor_named_with_a_formula_lead_neutralizes_it(self):
+        from modules.camhub import reports, sponsors as _sp
+        from modules.camhub.models import DailyStat, session
+        sp = _sp.save_sponsor({"name": "=SUM(A1:A9)"})
+        pl, _ = _sp.save_placement({"position": "supporting", "status": "active",
+                                     "animation": "static", "sponsor_id": sp["id"],
+                                     "name": "=SUM(A1:A9)", "start_date": "2026-01-01"},
+                                    self.page["id"])
+        with session() as s:
+            s.add(DailyStat(page_id=self.page["id"], placement_id=pl["id"],
+                            sponsor_id=sp["id"], day="2026-09-10",
+                            impressions=5, clicks=1, unique_sessions=4,
+                            filtered=0, pageviews=0))
+            s.commit()
+        text = reports.csv_for_sponsor(sp["id"], "2026-09-01", "2026-09-30")
+        # Every row that names the placement has a leading quote, so the
+        # cell reads as text in Excel rather than a live formula.
+        for line in text.splitlines():
+            if "SUM" in line:
+                # The leading quote sits on the placement cell, not the
+                # day cell -- day is 2026-09-10 which is safe.
+                self.assertIn(",'=SUM(A1:A9),", line)
+
+    def test_portal_rotation_turns_off_every_previous_link(self):
+        import time
+        from modules.camhub import portal, sponsors as _sp
+        sp = _sp.save_sponsor({"name": "Rotate Test"})
+        old = portal.mint(sp["id"])
+        self.assertEqual(portal.read(old), sp["id"])
+        time.sleep(1.1)
+        new = portal.rotate(sp["id"], actor="tester")
+        self.assertIsNone(portal.read(old))
+        self.assertEqual(portal.read(new), sp["id"])
+        # A rotate on a nonexistent sponsor raises rather than logs silently.
+        with self.assertRaises(LookupError):
+            portal.rotate(9_999_999)
+
+    def test_portal_route_rejects_a_rotated_token_with_the_friendly_page(self):
+        import time
+        from modules.camhub import app as mod_app, portal, sponsors as _sp
+        sp = _sp.save_sponsor({"name": "Portal Reject"})
+        old = portal.mint(sp["id"])
+        time.sleep(1.1)
+        portal.rotate(sp["id"], actor="tester")
+        client = mod_app.app.test_client()
+        resp = client.get(f"/portal/{old}")
+        self.assertEqual(resp.status_code, 404)
+        # The visitor sees the portal-scoped page, not the cam-missing
+        # page (which is written for stranded live-cam visitors).
+        self.assertIn(b"Sponsor Portal", resp.data)
+        self.assertIn(b"rotated", resp.data)
+
+    def test_the_rotate_route_activity_logs_and_redirects(self):
+        from modules.camhub import app as mod_app, sponsors as _sp
+        sp = _sp.save_sponsor({"name": "Rotate Route"})
+        client = mod_app.app.test_client()
+        resp = client.post(f"/sponsors/{sp['id']}/rotate-portal")
+        self.assertIn(resp.status_code, (302, 303))
+        self.assertIn(f"/sponsors/{sp['id']}", resp.headers.get("Location", ""))
+        # 404 for a sponsor that does not exist.
+        resp = client.post("/sponsors/9999999/rotate-portal")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_daily_chart_handles_zero_impressions_gracefully(self):
+        """Every day in the window has zero impressions -- the axis
+        ceiling is zero and no bars are drawn. The PNG is still valid."""
+        from modules.camhub import reports
+        png = reports.daily_chart_png(
+            [{"day": f"2026-09-{d:02d}", "impressions": 0} for d in range(1, 31)])
+        self.assertTrue(png.startswith(b"\x89PNG"))
+        self.assertGreater(len(png), 400)
+
+    def test_health_names_reports_and_the_rollup_age(self):
+        from modules.camhub import app as mod_app
+        client = mod_app.app.test_client()
+        resp = client.get("/health")
+        body = resp.get_json()
+        self.assertIn("reports", body)
+        self.assertIn("rollup_age_minutes", body)
+        # Every report status the outbox tracks appears in the count map.
+        for k in ("rendered", "sent", "failed", "total"):
+            self.assertIn(k, body["reports"])
+
+
 class BuilderTests(unittest.TestCase):
     """Sprint 6: the Cam Builder wizard, re-probe, and the second seed at a
     different location type. Every adapter's probe is stubbed, so the tests

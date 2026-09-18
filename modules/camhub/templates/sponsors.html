@@ -30,6 +30,16 @@
         {% if editing %}<a class="btn sec" href="{{ mount }}/sponsors">Cancel</a>{% endif %}
       </div>
     </form>
+    {% if editing %}
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line)">
+      <h3 style="margin:0 0 6px;font-size:14px">Portal link</h3>
+      <p class="muted" style="margin:0 0 10px;font-size:12.5px">Rotating turns off every portal link this sponsor has ever been sent, and hands you a fresh one.</p>
+      <form method="post" action="{{ mount }}/sponsors/{{ editing.id }}/rotate-portal" onsubmit="return confirm('Turn off every existing portal link for {{ editing.name|e }}?')">
+        <button class="btn sec" type="submit" title="Every existing link for this sponsor stops working">Rotate portal link</button>
+      </form>
+      {% if request.args.get('rotated') %}<div class="muted" style="margin-top:8px;color:var(--ok);font-size:12.5px">Rotated. Copy the new link from the Reports page.</div>{% endif %}
+    </div>
+    {% endif %}
   </div>
 
   <div class="card">
