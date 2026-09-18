@@ -92,5 +92,5 @@ say "above" or "below" mean earlier or later files in this list.
 | [`84-camhub-sprint-5-reporting-portal-the-hub-card-and-the-mcp-tool.md`](84-camhub-sprint-5-reporting-portal-the-hub-card-and-the-mcp-tool.md) | CamHub Sprint 5: reporting, the portal, the Client 360 card and the MCP tool | 105 |
 | [`85-camhub-sprint-6-the-cam-builder-and-the-second-page.md`](85-camhub-sprint-6-the-cam-builder-and-the-second-page.md) | CamHub Sprint 6: the Cam Builder wizard, re-probe, and a second location type | 80 |
 | [`86-camhub-hardening-csv-formulas-portal-rotation-and-outbox-in-health.md`](86-camhub-hardening-csv-formulas-portal-rotation-and-outbox-in-health.md) | CamHub hardening: CSV formulas, portal rotation, and the outbox in /health | 72 |
-| [`87-camhub-outbox-smtp-the-last-unmet-sprint-5-done-when.md`](87-camhub-outbox-smtp-the-last-unmet-sprint-5-done-when.md) | CamHub outbox: SMTP is the last unmet Sprint 5 done-when | 78 |
 | [`87-the-404-was-a-url-the-hub-composed.md`](87-the-404-was-a-url-the-hub-composed.md) | The 404 was a URL the Hub composed | 86 |
+| [`88-camhub-outbox-smtp-the-last-unmet-sprint-5-done-when.md`](88-camhub-outbox-smtp-the-last-unmet-sprint-5-done-when.md) | CamHub outbox: SMTP is the last unmet Sprint 5 done-when | 78 |
