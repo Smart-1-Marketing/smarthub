@@ -2570,6 +2570,64 @@ def test_the_sixth_round_a_red_night_is_seen_by_the_team():
           "(through-the-hub)" in nightly and "(staging)" in nightly)
 
 
+def test_the_seventh_round_font_manifest_and_bucket_persistence():
+    """A boot cost of 350ms disappears into a committed manifest, and the
+    public proof budget survives a deploy."""
+    fonts_ts = (MODULE / "src" / "fonts.ts").read_text()
+    manifest_file = MODULE / "src" / "fonts.manifest.json"
+    auth_ts = (MODULE / "src" / "auth.ts").read_text()
+    server_ts = (MODULE / "src" / "server.ts").read_text()
+    pkg = (MODULE / "package.json").read_text()
+    build_script = MODULE / "scripts" / "build-fonts-manifest.mjs"
+
+    # 8. Font manifest
+    check("the manifest is committed", manifest_file.exists())
+    manifest = json.loads(manifest_file.read_text()) if manifest_file.exists() else []
+    check("the manifest lists at least thirty families",
+          len(manifest) >= 30)
+    check("Montserrat is in the manifest and Roboto is not",
+          any(r.get("family") == "Montserrat" for r in manifest)
+          and not any(r.get("family") == "Roboto" for r in manifest))
+    check("fonts.ts prefers the manifest and falls back to the probe",
+          "MANIFEST_FILE" in fonts_ts and "probeFamilies" in fonts_ts
+          and "Built on first use" in fonts_ts)
+    check("the paths are basenames, so a different node_modules layout still resolves",
+          "path.basename(file)" in fonts_ts and 'files: {}' not in fonts_ts.replace(' ', ''))
+    check("a prebuild step regenerates the manifest",
+          '"prebuild"' in pkg and "build-fonts-manifest.mjs" in pkg and build_script.exists())
+
+    # 10. Rate-limit bucket persistence
+    check("auth.ts loads and flushes the buckets to OUTPUT_DIR/limits.json",
+          "export function loadBuckets" in auth_ts and "export function flushBuckets" in auth_ts
+          and "limits.json" in auth_ts)
+    check("the write is atomic (tmp+rename), so a torn file is impossible",
+          ".tmp" in auth_ts and "renameSync" in auth_ts)
+    check("expired rows are dropped at load time, never rehydrated",
+          "b.resetAt <= now" in auth_ts and "dropped++" in auth_ts)
+    check("a corrupt file is logged, not a boot failure",
+          "unreadable, starting empty" in auth_ts)
+    check("rateLimit marks the map dirty so the flush actually writes",
+          "bucketsDirty = true" in auth_ts)
+    check("server.ts rehydrates at boot and flushes every 10 seconds",
+          "loadBuckets(OUT)" in server_ts and "flushBuckets(OUT), 10_000" in server_ts)
+    check("SIGTERM at deploy time flushes what has not yet been persisted",
+          "'SIGTERM'" in server_ts and "flushBuckets(OUT)" in server_ts)
+
+    # 9. Preview cache
+    cache_ts = (MODULE / "src" / "preview-cache.ts").read_text()
+    check("the preview cache is a small LRU keyed on the campaign JSON",
+          "PREVIEW_CACHE_MAX = 24" in cache_ts and "PREVIEW_CACHE_TTL_MS = 60_000" in cache_ts
+          and "createHash('sha256')" in cache_ts
+          and "JSON.stringify(campaign)" in cache_ts)
+    check("the LRU moves a read row to the newest slot",
+          "// LRU: move to the newest slot on read." in cache_ts)
+    check("the preview handler serves hits without touching sharp",
+          "previewCache.get(cacheKey)" in server_ts and "cached: true }" in server_ts
+          and "previewCache.set(cacheKey" in server_ts)
+    check("and an override bypasses the cache above (its file changes without the campaign changing)",
+          server_ts.index("if (override)") < server_ts.index("previewCache.get(cacheKey)"))
+
+
 def main():
     print(__doc__.strip().splitlines()[0])
     print()

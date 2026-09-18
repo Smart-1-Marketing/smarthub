@@ -7,6 +7,7 @@
     "assets": "tsx scripts/make-sample-assets.ts",
     "render:google": "tsx src/cli.ts --platform google",
     "render:amazon": "tsx src/cli.ts --platform amazon",
+    "prebuild": "node scripts/build-fonts-manifest.mjs",
     "build": "tsc -p tsconfig.json && node scripts/copy-assets.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "render:google:upload": "tsx src/cli.ts --platform google --upload",

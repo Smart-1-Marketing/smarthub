@@ -151,17 +151,72 @@ function familyFromPackage(family: string, pkg: string): FamilySpec | null {
   return { family, files };
 }
 
-let registry: FamilySpec[] | null = null;
-/** Built on first use rather than at import, so a test that imports this
- *  module for `measure()` does not pay for probing forty packages. */
-function families(): FamilySpec[] {
-  if (!registry) {
-    registry = GOOGLE_FAMILIES
-      .map(([family, pkg]) => familyFromPackage(family, pkg))
-      .filter((f): f is FamilySpec => f !== null);
+/**
+ * The probe itself, exposed so `scripts/build-fonts-manifest.mjs` can walk the
+ * families and write the answer to `src/fonts.manifest.json`. Serialised paths
+ * are relative to `@fontsource/<pkg>/files/`, so the manifest survives a
+ * different `node_modules` layout at runtime (and reads back through the same
+ * `NM` lookup the probe uses).
+ */
+export type FontsManifest = Array<{ family: string; pkg: string; files: Partial<Record<Weight, string>> }>;
+const MANIFEST_FILE = path.join(__dirname, 'fonts.manifest.json');
+export function probeFamilies(): FontsManifest {
+  const rows: FontsManifest = [];
+  for (const [family, pkg] of GOOGLE_FAMILIES) {
+    const spec = familyFromPackage(family, pkg);
+    if (!spec) continue;
+    // Serialise as basenames so the manifest is portable across node_modules layouts.
+    const files: Partial<Record<Weight, string>> = {};
+    for (const [w, file] of Object.entries(spec.files) as Array<[Weight, string]>) files[w] = path.basename(file);
+    rows.push({ family, pkg, files });
   }
+  return rows;
+}
+function fromManifest(rows: FontsManifest): FamilySpec[] {
+  const out: FamilySpec[] = [];
+  for (const { family, pkg, files } of rows) {
+    const dir = `${NM}/@fontsource/${pkg}/files`;
+    const resolved: Partial<Record<Weight, string>> = {};
+    let complete = true;
+    for (const [w, base] of Object.entries(files) as Array<[Weight, string]>) {
+      const file = `${dir}/${base}`;
+      if (fs.existsSync(file)) resolved[w] = file; else { complete = false; break; }
+    }
+    // A manifest row whose files no longer exist is skipped; the caller falls
+    // back to a full probe rather than serving a family the disk cannot back.
+    if (complete && resolved.regular) out.push({ family, files: resolved });
+    else return [];
+  }
+  return out;
+}
+
+let registry: FamilySpec[] | null = null;
+/**
+ * The registry, from the manifest when it exists (about 3ms; the probe is
+ * ~350ms because opentype.js has to parse every file to reject the fifteen
+ * families it cannot draw). The probe is the fallback -- so a missing or
+ * stale manifest is at worst the old startup cost, never a wrong answer.
+ * Built on first use rather than at import.
+ */
+function families(): FamilySpec[] {
+  if (registry) return registry;
+  try {
+    const raw = fs.readFileSync(MANIFEST_FILE, 'utf8');
+    const rows = JSON.parse(raw) as FontsManifest;
+    const rehydrated = fromManifest(rows);
+    if (rehydrated.length) return (registry = rehydrated);
+  } catch {
+    // No manifest yet is the ordinary case in dev; a torn one is treated the
+    // same as absent so a stale manifest cannot pin a wrong answer.
+  }
+  registry = GOOGLE_FAMILIES
+    .map(([family, pkg]) => familyFromPackage(family, pkg))
+    .filter((f): f is FamilySpec => f !== null);
   return registry;
 }
+
+/** For tests: forget the cached registry so the next families() call rebuilds. */
+export function _resetRegistryForTest(): void { registry = null; }
 
 /** Every Google family this build knows how to load, whether or not its
  *  package is installed -- so a diagnostics page can say which are missing

@@ -15,8 +15,15 @@ when a client leaves a note; the proof page streams its cell images from
 disk instead of inlining base64; bulk approval can accept a size's
 warnings; the style panel's number boxes track state; nightly failures
 reach the team channel; the decision has its own alert line). Items 1, 2
-and 3 landed in PR #752; items 6, 11 and 12 in PR #750. The remaining six
-items stand.
+and 3 landed in PR #752; items 6, 11 and 12 in PR #750. A seventh pass
+closed **items 8, 9 and 10**: the font registry loads from a committed
+manifest (~3ms) instead of probing every file at boot (~350ms), the
+`/api/preview` route serves a 24-entry LRU keyed on the campaign JSON
+plus concept/size/platform so a size switch never re-renders inputs
+that have not changed, and the rate-limit buckets flush to
+`OUTPUT_DIR/limits.json` every 10s so the public proof budget actually
+is per hour, not "per deploy interval or per hour, whichever is
+shorter". Three items remain (4, 5, 7).
 
 ### Where it stands
 
@@ -200,29 +207,39 @@ name; `tests/editor-startup.test.ts` and the e2e are the net. Do not do
 this in the same PR as a behaviour change. `withBase()` must rewrite the
 new `<script src>` paths; it rewrites `src` attributes already.
 
-**8. Font manifest at build time. (S)** `fonts.ts` probes every
-`@fontsource` file at first use (~350ms) to find the fifteen families
-opentype.js cannot parse. Write the probe's answer to
-`src/fonts.manifest.json` in a `prebuild` script and read it at load, with
-the probe as the fallback when the manifest is missing. Prove:
-`tests/fonts-google.test.ts` asserts the manifest names the same families
-the probe does.
+**8. Font manifest at build time. ~~(S)~~ DONE.** `scripts/build-fonts-manifest.mjs`
+runs as `prebuild` and writes `src/fonts.manifest.json`; `fonts.ts`
+loads it at first use (~3ms) instead of probing every `@fontsource`
+file (~350ms). The probe stays as the fallback when the manifest is
+missing or its files no longer resolve, so a stale manifest is at
+worst the old startup cost, never a wrong answer. Paths are stored as
+basenames (`montserrat-latin-400-normal.woff`), rehydrated through the
+same `NM` lookup at boot, so the manifest is portable across
+`node_modules` layouts. `tests/fonts-google.test.ts` asserts the
+manifest and probe list the same families in the same order.
 
-**9. Preview cache per size and revision. (M)** Switching size re-renders a
-preview that has not changed since the last visit. Key a small in-memory
-LRU in `server.ts` on `sha256(campaign JSON + conceptId + size + platform)`,
-24 entries, 60-second expiry, and serve hits without touching sharp. The
-build screen already sends the whole campaign, so the key is exact. Prove
-with the http test: two identical previews, the second answers in under
-20ms and carries `cached: true`.
+**9. Preview cache per size and revision. ~~(M)~~ DONE.** `src/preview-cache.ts`
+is a small LRU keyed on `sha256(campaign JSON | conceptId | size |
+platform)`, 24 entries, 60-second TTL; the /api/preview handler serves
+hits without touching sharp and adds `cached: true` to the response.
+The build screen sends the whole campaign, so any edit invalidates the
+key exactly. A manual override bypasses the cache since overrides are
+stored on the project and can change without the campaign JSON
+changing. `tests/preview-cache.test.ts` proves LRU eviction, TTL
+expiry, read-freshness, and that campaign/size/platform each change
+the key.
 
-**10. The rate-limit buckets are per process and reset on every deploy.
-(S, decide rather than build)** `auth.ts` holds budgets in memory. A deploy
-resets them, which is harmless for the preview budget and slightly
-generous for the public proof routes. The honest fix is a file under
-`OUTPUT_DIR/limits.json` rewritten every 10s; the honest alternative is a
-sentence in `docs/claude/74` saying the ceiling is per process. Either is
-fine; today it is neither.
+**10. The rate-limit buckets survive a deploy. ~~(S, decide rather than
+build)~~ DONE.** `auth.ts` now flushes buckets to
+`OUTPUT_DIR/limits.json` every 10s when the map has changed, and
+rehydrates from it at boot; the write is atomic (tmp+rename) so a torn
+file is impossible even on a hard kill. Expired rows are dropped at
+load. A corrupt file is logged and the ceiling starts empty rather
+than crashing the process. So the public proof routes' per-hour
+budget actually is per hour now, not "per deploy interval or per
+hour, whichever is shorter". Proved in `tests/failure-paths.test.ts`
+by climbing a bucket, flushing, clearing the in-memory map, loading,
+and verifying the next request is still refused.
 
 **11. Nightly failures go to one inbox. ~~(S)~~ DONE (sixth pass).** Both
 jobs in `nightly-browser.yml` now post the run URL to
