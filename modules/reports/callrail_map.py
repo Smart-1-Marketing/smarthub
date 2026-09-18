@@ -40,7 +40,10 @@ Nothing else in the module knows a CallRail field name. Each name is
 overridable by environment variable so a correction can land without a
 deploy (``CALLRAIL_CALLS_PATH``, ``CALLRAIL_AUTH_FORMAT``,
 ``CALLRAIL_FIELD_<name>`` ...), spelled the way the key is; this file is
-where the settled answer is written down.
+where the settled answer is written down. ``overrides()`` names the ones
+an environment variable is answering for right now, and the check page
+prints them as what is still owed to this file -- an override nobody
+settles is two answers that disagree with no screen saying so.
 
 ## What a call becomes
 
@@ -149,6 +152,41 @@ def _env(name: str, default: str) -> str:
     return val.strip() if val is not None and val.strip() else default
 
 
+def overrides() -> list[dict]:
+    """Every name in this file that an environment variable is currently
+    answering for, as ``[{"what", "env", "value"}]``.
+
+    A correction is *tried* as an environment variable and *settled* here,
+    and until it is settled the two disagree with nothing on any screen
+    saying so -- the same shape as the service-level value that quietly
+    beats a linked env group (``docs/claude/03``). So the check page prints
+    this list under what is still owed to this file, and an empty list is
+    the honest way to read "the file is the whole answer"."""
+    out = []
+    for name, var in _ENV.items():
+        val = os.environ.get(var)
+        if val is not None and val.strip() and val.strip() != globals()[name]:
+            out.append({"what": name.lower(), "env": var, "value": val.strip()})
+    for k in FIELDS:
+        val = os.environ.get(f"CALLRAIL_FIELD_{k.upper()}")
+        if val is not None and (val.strip() or None) != FIELDS[k]:
+            out.append({"what": f"fields.{k}", "env": f"CALLRAIL_FIELD_{k.upper()}",
+                        "value": val.strip() or "(not reported)"})
+    for k in DATE_PARAMS:
+        val = os.environ.get(f"CALLRAIL_PARAM_{k.upper()}")
+        if val is not None and val.strip() and val.strip() != DATE_PARAMS[k]:
+            out.append({"what": f"date_params.{k}", "env": f"CALLRAIL_PARAM_{k.upper()}",
+                        "value": val.strip()})
+    for k in ACCOUNT_FIELDS:
+        val = os.environ.get(f"CALLRAIL_ACCOUNT_FIELD_{k.upper()}")
+        if val is not None and val.strip() and val.strip() != ACCOUNT_FIELDS[k]:
+            out.append({"what": f"account_fields.{k}",
+                        "env": f"CALLRAIL_ACCOUNT_FIELD_{k.upper()}", "value": val.strip()})
+    if _per_page() != PER_PAGE:
+        out.append({"what": "per_page", "env": "CALLRAIL_PER_PAGE", "value": str(_per_page())})
+    return out
+
+
 def config() -> dict:
     """The whole configuration, environment overrides applied. The key is
     NOT in it: ``callrail.cfg()`` reads that, and this dict is rendered onto
@@ -194,6 +232,7 @@ def config() -> dict:
         "account_fields": account_fields,
         "inbound_values": tuple(INBOUND_VALUES),
         "good_lead_values": tuple(GOOD_LEAD_VALUES),
+        "overrides": overrides(),
         "placeholder": True,
     }
 

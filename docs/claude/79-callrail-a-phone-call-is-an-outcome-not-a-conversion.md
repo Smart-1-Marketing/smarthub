@@ -81,6 +81,41 @@ field whose name has been blanked is unresolved and named by the fact
 column it leaves unfilled, and an unreadable `start_time` costs that call
 and is counted, both from the GroundTruth review.
 
+**The map is judged on whether a NAME is real, across a sample of calls
+rather than on the first one.** `check_map()` originally asked `_dig()` of
+`rows[0]`, and `_dig()` renders a missing key and a present-but-null key
+alike as `None`. An unattributed call has no source, it is the first call
+on the page as often as any other, and `source` is REQUIRED -- so one such
+call at the top of the answer made the map read as broken, `to_facts()`
+refuse every call in the window, and the error send somebody to correct a
+name in `callrail_map.py` that was right. The same three calls filed
+cleanly or lost the night on nothing but the order CallRail returned them
+in. A wrong name is absent from *every* row, while a real field is simply
+empty on some calls, so `_has()` asks whether the key is present at all
+and `check_map()` asks it of `MAP_SAMPLE` (50) rows: resolved if any call
+answers to the name. A name that is answered to and empty on every call
+read still resolves -- the name is real -- and says so in `why`, since an
+always-empty required field is worth a second look even though it is not a
+map fault. `to_facts()` already filed a sourceless call as `no-source`;
+it is the gate in front of it that disagreed.
+
+**An override is a correction being tried, and the check page says which
+ones are still owed to the file.** Every name is overridable by
+environment variable so a correction lands without a deploy, and an
+overridden name used to render on the check page exactly like a settled
+one -- so once a variable was set, nothing anywhere said `callrail_map.py`
+still disagreed with the running Hub. That is the shape of the
+service-level value that quietly beats a linked env group (`docs/claude/03`)
+minus the panel that reports it. `callrail_map.overrides()` names each one
+with its variable and the value answering, `config()` carries the list, and
+the page prints *n not settled* over a table of them, or says every name is
+the one in the file. A variable set to the value already in the file is not
+a disagreement and is not listed. The check page also runs the whole map
+through `_redact_deep()` now: the map holds `{key}` rather than the key,
+but an override is a person typing into Render, and `CALLRAIL_AUTH_FORMAT`
+set to the finished header rather than the pattern would otherwise print
+the key onto a staff screen.
+
 **The check page masks the caller.** One page of yesterday's calls is
 what it prints, and a call record carries the caller's name and number,
 the recording and any note. Those are about a person, and a staff screen
