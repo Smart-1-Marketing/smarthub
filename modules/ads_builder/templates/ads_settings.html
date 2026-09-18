@@ -341,6 +341,10 @@
       <div class="f" id="tiersource">
         {% if tier.source == 'observed' %}observed by a planning check{% elif tier.source == 'none' %}not recorded{% else %}recorded in {{ tier.source }} &mdash; a claim, not a check{% endif %}
       </div>
+      {# The stamp api_readiness.record_probe() keeps. An observation from
+         three weeks ago is still an observation, but undated it reads as
+         current -- and a tier can be granted or revoked between visits. #}
+      <div class="f" id="tierstamp">{% if tier.at %}checked {{ (tier.at or '')[:16].replace('T', ' ') }} UTC{% endif %}</div>
     </div>
     <div class="s1d-tile">
       <div class="l">Measured cost per click</div>
@@ -351,7 +355,7 @@
     </div>
     <div class="s1d-tile">
       <div class="l">Daily operations</div>
-      <div class="v" style="font-size:17px">
+      <div class="v" style="font-size:17px" id="tierops">
         {% if tier.tier == 'explorer' %}2,880{% elif tier.tier in ('basic', 'test') %}15,000{% elif tier.tier == 'standard' %}No cap{% else %}&mdash;{% endif %}
       </div>
       <div class="f">Resets midnight Pacific</div>
@@ -443,6 +447,10 @@ async function disconnect() {
   } catch (err) { toast('bad', err.message); }
 }
 
+// The operation cap per tier, in the same words the card renders on load.
+// Kept beside the check so the two cannot say different things.
+const DAILY_OPS = {explorer: '2,880', basic: '15,000', test: '15,000', standard: 'No cap'};
+
 // One call, behind this button. Never on load: it costs an operation against
 // the same daily cap a deploy needs, and a page that spent it on rendering
 // would be a page that cannot deploy at 4pm.
@@ -455,10 +463,22 @@ async function checkPlanning() {
     const t = d.tier || {};
     const p = d.planning || {};
     document.getElementById('tierlabel').textContent = t.label || 'Not recorded';
+    // The same three sources the template distinguishes. Collapsing anything
+    // that is not a probe to "not recorded" erased the difference between
+    // nobody having said and somebody having typed it -- which is the whole
+    // point of the row.
     document.getElementById('tiersource').textContent =
-      t.source === 'observed' ? 'observed by a planning check' : 'not recorded';
+      t.source === 'observed' ? 'observed by a planning check'
+      : (!t.source || t.source === 'none') ? 'not recorded'
+      : 'recorded in ' + t.source + ' \u2014 a claim, not a check';
+    document.getElementById('tierstamp').textContent =
+      t.at ? 'checked ' + String(t.at).slice(0, 16).replace('T', ' ') + ' UTC' : '';
     document.getElementById('planstate').textContent =
       p.available ? 'Available' : (p.state === 'tier_too_low' ? 'Not at this tier' : 'Not measured');
+    // Left behind by the check until now: the card said Basic access and
+    // Available with a dash under Daily operations, so the one tile that had
+    // not been told still read as unknown.
+    document.getElementById('tierops').textContent = DAILY_OPS[t.tier] || '\u2014';
     document.getElementById('tiernote').textContent = p.detail || t.note || '';
     // A refusal is an answer, not a failure — it is the one that tells you to
     // apply for Basic access, so it must not come back looking like an error.
