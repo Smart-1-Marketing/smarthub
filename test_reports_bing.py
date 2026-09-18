@@ -389,11 +389,28 @@ def fake_record(provider, **kw):
 
 quotas.record = fake_record
 
+RETRY_SLEPT = []
+_time_sleep_real = bing_ads._sleep
+bing_ads._sleep = RETRY_SLEPT.append          # the retry wait, never actually waited
+
+
+def USER(uid=9001, customers=(12345678,)):
+    return _Resp(200, {"User": {"Id": uid, "UserName": "ops@smart1.agency"},
+                       "CustomerRoles": [{"CustomerId": c, "RoleId": 41} for c in customers]})
+
+
+def ACCOUNTS(*accts):
+    return _Resp(200, {"Accounts": list(accts)})
+
+
+A111 = {"Id": 111, "Name": "Acme Plumbing", "Number": "X111", "AccountLifeCycleStatus": "Active",
+        "CurrencyCode": "USD", "ParentCustomerId": 12345678}
+A222 = {"Id": 222, "Name": "Riverside HVAC", "Number": "X222", "AccountLifeCycleStatus": "Active",
+        "CurrencyCode": "USD", "ParentCustomerId": 12345678}
+
 ANSWERS.extend([
-    _Resp(200, {"Accounts": [{"Id": 111, "Name": "Acme Plumbing", "Number": "X111",
-                              "AccountLifeCycleStatus": "Active", "CurrencyCode": "USD"},
-                             {"Id": 222, "Name": "Riverside HVAC", "Number": "X222",
-                              "AccountLifeCycleStatus": "Active", "CurrencyCode": "USD"}]}),
+    USER(),
+    ACCOUNTS(A111, A222),
     _Resp(200, {"ReportRequestId": "req-1"}),
     _Resp(200, {"ReportRequestStatus": {"Status": "Pending", "ReportDownloadUrl": None}}),
     _Resp(200, {"ReportRequestStatus": {"Status": "Success",
@@ -404,13 +421,17 @@ res = bing.pull(days=10, today=date(2026, 9, 10), sleep=slept.append)
 check("the pull is ok", (res["ok"], res["error"]), (True, ""), note=res)
 check("...landing the three complete rows and counting the two it could not read",
       (res["rows"], res["skipped"]), (3, 2))
-check("...across two accounts and three campaigns", (res["accounts"], res["campaigns"]), (2, 3))
+check("...across two accounts and three campaigns, one owning customer",
+      (res["accounts"], res["campaigns"], res["groups"], res["strategy"]), (2, 3, 1, "user"))
 check("...on the production host", res["environment"], "production")
 
-acct, submit, poll1, poll2 = CALLS[-4:]
-check("the accounts were read from Customer Management under the manager's id",
+user, acct, submit, poll1, poll2 = CALLS[-5:]
+check("the connected user was read first, asked with no id",
+      (user["url"].endswith("/CustomerManagement/v13/User/Query"), user["body"]), (True, {"UserId": None}))
+check("then the accounts that user can see, by the user's id -- not only the manager's own",
       (acct["url"].endswith("/CustomerManagement/v13/Accounts/Search"),
-       acct["body"]["Predicates"][0]), (True, {"Field": "CustomerId", "Operator": "Equals", "Value": "12345678"}))
+       acct["body"]["Predicates"][0], acct["body"]["PageInfo"]),
+      (True, {"Field": "UserId", "Operator": "Equals", "Value": "9001"}, {"Index": 0, "Size": bing_ads.PAGE_SIZE}))
 check("...on the production host", acct["url"].startswith("https://clientcenter.api.bingads.microsoft.com/"))
 rr = submit["body"]["ReportRequest"]
 check("ONE daily campaign report was submitted for both accounts",
@@ -428,11 +449,13 @@ check("polled with the request id until Success", (poll1["body"], poll2["body"])
       ({"ReportRequestId": "req-1"}, {"ReportRequestId": "req-1"}))
 check("...waiting once between", slept, [bing.POLL_WAIT])
 check("then downloaded from the URL the platform handed back", DOWNLOADS, ["https://download.example/report.zip?sig=abc"])
-for c in (acct, submit, poll1, poll2):
+for c in (user, acct, submit, poll1, poll2):
     check(f"every call carried the four headers ({c['url'].rsplit('/', 1)[-1]})",
           (c["headers"]["Authorization"], c["headers"]["DeveloperToken"], c["headers"]["CustomerId"]),
           ("Bearer " + ACCESS, DEVTOKEN, "12345678"))
-check("...and the body carried none of them", _secrets_in([c["body"] for c in CALLS[-4:]]), [])
+check("...and the body carried none of them", _secrets_in([c["body"] for c in CALLS[-5:]]), [])
+check("nothing was retried: the retry wait was never taken", RETRY_SLEPT, [])
+check("the report id was collected, so nothing is carried to the next pull", bing.pending_ids(), {})
 
 rows = store.facts_for  # noqa: F841 - the store's own reader is exercised below through the watermark
 from modules.reports.store import SessionLocal, AdPerfDaily          # noqa: E402
@@ -459,7 +482,7 @@ by_api = {}
 for r in RECORDED:
     by_api[r.get("api")] = by_api.get(r.get("api"), 0) + 1
 check("every call was recorded under microsoft_ads, by service",
-      ({r["provider"] for r in RECORDED}, by_api), ({"microsoft_ads"}, {"customer": 1, "reporting": 3, "download": 1}))
+      ({r["provider"] for r in RECORDED}, by_api), ({"microsoft_ads"}, {"customer": 2, "reporting": 3, "download": 1}))
 check("...filed under the reports module", {r["module"] for r in RECORDED}, {"reports"})
 check("...with no credential in the detail", _secrets_in(RECORDED), [])
 
@@ -493,6 +516,23 @@ check("...and an empty file too", "empty" in bing.parse_report("")["error"])
 check("a bare CSV is read as it is; a ZIP's first .csv member is read",
       (bing_ads.report_text(b"TimePeriod,x\n"), bing_ads.report_text(_zip("TimePeriod,y\n"))),
       ("TimePeriod,x\n", "TimePeriod,y\n"))
+check("every day shape the report has been seen to write is read",
+      [bing._day(v) for v in ("2026-09-10", "9/10/2026", "09/10/2026 12:00:00 AM", "9/10/2026 0:00",
+                              "2026-09-10T00:00:00", "Sep 10, 2026", "10.09.2026", '"9/10/2026"')],
+      [date(2026, 9, 10)] * 8)
+check("...and anything else is None, a skipped row rather than a raise",
+      [bing._day(v) for v in ("", None, "yesterday", "Totals")], [None] * 4)
+check("every number shape is read, and anything else is 0",
+      [bing._num(v) for v in ("1,234.56", "$12", "12.5%", "", "-", "--", "N/A", None, "abc", "1e3", "-4.5")],
+      [1234.56, 12.0, 12.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1000.0, -4.5])
+for body, why in ((b"<!DOCTYPE html><html><body>Sign in</body></html>", "expired"),
+                  (b"<?xml version='1.0'?><Error>AuthenticationFailed</Error>", "web page"),
+                  (b"PK\x03\x04 not really a zip", "was not one")):
+    try:
+        bing_ads.report_text(body)
+        check(f"a download that is not a report is refused in words ({why})", False)
+    except bing_ads.BingAdsError as exc:
+        check(f"a download that is not a report is refused in words ({why})", why in exc.message)
 
 
 # ------------------------------------------------------------ refusals
@@ -508,20 +548,49 @@ check("...and the watermark carries the redacted error", "[redacted]" in store.s
       and _secrets_in(store.sync_status()["bing"]) == [])
 check("...and so does the status line", "InvalidCredentials" in bing.status()["line"] and _secrets_in(bing.status()) == [])
 
-ANSWERS.extend([_Resp(200, {"Accounts": [{"Id": 111, "Name": "A"}]}), _Resp(200, {"ReportRequestId": "req-2"}),
+check("...and the refusal was not retried: a 401 names the request, not the network", RETRY_SLEPT, [])
+ANSWERS.extend([USER(), ACCOUNTS({"Id": 111, "Name": "A"}), _Resp(200, {"ReportRequestId": "req-2"}),
                 _Resp(200, {"ReportRequestStatus": {"Status": "Error", "ReportDownloadUrl": None}})])
 res = bing.pull(days=2, today=date(2026, 9, 10), sleep=lambda s: None)
 check("a report the platform reports as failed is a refusal in words", "reported the report request as failed" in res["error"])
-ANSWERS.extend([_Resp(200, {"Accounts": [{"Id": 111, "Name": "A"}]}), _Resp(200, {"ReportRequestId": "req-3"}),
+check("...and its id is not carried to the next pull", bing.pending_ids(), {})
+ANSWERS.extend([USER(), ACCOUNTS({"Id": 111, "Name": "A"}), _Resp(200, {"ReportRequestId": "req-3"}),
                 _Resp(200, {"ReportRequestStatus": {"Status": "Success", "ReportDownloadUrl": ""}})])
 res = bing.pull(days=2, today=date(2026, 9, 10), sleep=lambda s: None)
-check("a Success with no download URL is a refusal, not a KeyError", "no download URL" in res["error"])
-ANSWERS.extend([_Resp(200, {"Accounts": []})])
+check("a Success with no download URL is a report with no rows: ok, nothing landed, nothing refused",
+      (res["ok"], res["rows"], res["error"]), (True, 0, ""))
+ANSWERS.extend([USER(), ACCOUNTS(), ACCOUNTS()])
 res = bing.pull(days=2, today=date(2026, 9, 10), sleep=lambda s: None)
-check("a manager with no accounts under it says so", "no advertiser accounts" in res["error"])
-ANSWERS.extend([_Resp(200, {"Accounts": [{"Id": 111}]}), _Resp(500, None, content=b"<html>oops</html>")])
+check("a login that can see no accounts is asked both ways, then says so",
+      "no advertiser accounts" in res["error"] and "connected user" in res["error"] and "manager's customer id" in res["error"])
+ANSWERS.extend([USER(), ACCOUNTS({"Id": 111}), _Resp(500, None, content=b"<html>oops</html>"),
+                _Resp(500, None, content=b"<html>oops</html>")])
 res = bing.pull(days=2, today=date(2026, 9, 10), sleep=lambda s: None)
-check("a non-JSON refusal is said with its status", "HTTP 500" in res["error"])
+check("a 500 is asked once more after the retry wait, then said with its status",
+      ("HTTP 500" in res["error"], RETRY_SLEPT), (True, [bing_ads.RETRY_WAIT]))
+RETRY_SLEPT.clear()
+ANSWERS.extend([USER(), ACCOUNTS({"Id": 111}), _Resp(503, {"Errors": [{"Message": "busy"}]}),
+                _Resp(200, {"ReportRequestId": "req-3b"}),
+                _Resp(200, {"ReportRequestStatus": {"Status": "Success", "ReportDownloadUrl": ""}})])
+res = bing.pull(days=2, today=date(2026, 9, 10), sleep=lambda s: None)
+check("...and a 503 that clears on the retry costs nothing", (res["ok"], RETRY_SLEPT), (True, [bing_ads.RETRY_WAIT]))
+RETRY_SLEPT.clear()
+_conn_err = [True]
+
+
+def flaky_http(method, url, *, headers, json=None, timeout=60):
+    if _conn_err and _conn_err.pop():
+        raise requests.ConnectionError("reset")
+    return fake_http(method, url, headers=headers, json=json, timeout=timeout)
+
+
+bing_ads._http = flaky_http
+ANSWERS.extend([USER(), ACCOUNTS({"Id": 111}), _Resp(200, {"ReportRequestId": "req-3c"}),
+                _Resp(200, {"ReportRequestStatus": {"Status": "Success", "ReportDownloadUrl": ""}})])
+res = bing.pull(days=2, today=date(2026, 9, 10), sleep=lambda s: None)
+check("a connection reset is asked once more too", (res["ok"], RETRY_SLEPT), (True, [bing_ads.RETRY_WAIT]))
+bing_ads._http = fake_http
+RETRY_SLEPT.clear()
 check("an unknown poll status reads as pending, never as finished",
       bing_ads.poll_report.__doc__ and "Pending" in bing_ads.poll_report.__doc__)
 check("the queue is drained", ANSWERS, [])
@@ -540,18 +609,18 @@ def _tick(seconds):
 
 
 # A good pull first, so there is a native watermark to leave untouched.
-ANSWERS.extend([_Resp(200, {"Accounts": [{"Id": 111, "Name": "A"}]}), _Resp(200, {"ReportRequestId": "req-4"}),
+ANSWERS.extend([USER(), ACCOUNTS({"Id": 111, "Name": "A"}), _Resp(200, {"ReportRequestId": "req-4"}),
                 _Resp(200, {"ReportRequestStatus": {"Status": "Success", "ReportDownloadUrl": "https://d/x.zip"}})])
 res = bing.pull(days=2, today=date(2026, 9, 10), sleep=lambda s: None)
 check("a good pull lands", res["ok"], True)
 before_wm = dict(store.sync_status()["bing"])
 pending = _Resp(200, {"ReportRequestStatus": {"Status": "Pending"}})
-ANSWERS.extend([_Resp(200, {"Accounts": [{"Id": 111, "Name": "A"}]}), _Resp(200, {"ReportRequestId": "req-5"}),
+ANSWERS.extend([USER(), ACCOUNTS({"Id": 111, "Name": "A"}), _Resp(200, {"ReportRequestId": "req-5"}),
                 pending, pending, pending, pending])
 res = bing.pull(days=2, today=date(2026, 9, 10), sleep=_tick, clock=lambda: clock[0], budget=20)
 check("past the wait budget the report is pending rather than failed",
-      (res["pending"], res["ok"], res["rows"]), (True, False, 0))
-check("...saying so, with the seconds spent", "still preparing after 18s" in res["error"])
+      (res["pending"], res["ok"], res["rows"], res["pending_groups"]), (True, False, 0, 1))
+check("...saying so, and that the id is kept", "still preparing" in res["error"] and "request id is kept" in res["error"])
 check("...after exactly the waits the budget had room for", slept, [5, 5, 5])
 check("...every queued answer was consumed", ANSWERS, [])
 check("the watermark is untouched: nothing landed and nothing failed", store.sync_status()["bing"], before_wm)
@@ -560,14 +629,86 @@ check("the module's own note carries pending", bing._remembered().get("pending")
 check("...and the index line says so", "still preparing" in bing.status()["line"])
 check("the budget is a house number beside the polls",
       (bing.BUDGET_SECONDS, bing.POLL_WAIT * bing.POLL_TRIES), (20, 30))
+check("the request id is carried in the note, keyed by the owning customer",
+      bing.pending_ids(), {"12345678": "req-5"})
 
-ANSWERS.extend([_Resp(200, {"Accounts": [{"Id": 111, "Name": "A"}]}), _Resp(200, {"ReportRequestId": "req-6"})]
+# The next pull collects the carried report rather than paying for a new one.
+n_calls = len(CALLS)
+ANSWERS.extend([USER(), ACCOUNTS({"Id": 111, "Name": "A"}),
+                _Resp(200, {"ReportRequestStatus": {"Status": "Success", "ReportDownloadUrl": "https://d/x.zip"}})])
+res = bing.pull(days=2, today=date(2026, 9, 10), sleep=lambda s: None)
+check("the next pull polls the carried id first and lands it", (res["ok"], res["rows"] > 0), (True, True))
+check("...submitting no new report", [c["url"].rsplit("/", 1)[-1] for c in CALLS[n_calls:]],
+      ["Query", "Search", "Poll"])
+check("...and the carried id is forgotten once collected", bing.pending_ids(), {})
+check("...with the watermark stamped afresh", store.sync_status()["bing"]["error"], "")
+
+ANSWERS.extend([USER(), ACCOUNTS({"Id": 111, "Name": "A"}), _Resp(200, {"ReportRequestId": "req-6"})]
                + [pending] * 8)
 res = bing.pull(days=2, today=date(2026, 9, 10), sleep=lambda s: None)
 check("a report that never finishes is refused by name after the polls, whatever the clock says",
       "still in progress" in res["error"] and not res["pending"])
 check("...and that one IS on the watermark", "still in progress" in store.sync_status()["bing"]["error"])
 check("...after exactly POLL_TRIES polls, leaving the rest queued", len(ANSWERS), 8 - bing.POLL_TRIES)
+check("...and its id is dropped rather than polled again next pull", bing.pending_ids(), {})
+ANSWERS.clear()
+
+# A carried id older than the TTL is dropped: Microsoft has lost that one.
+from datetime import timedelta as _td                                # noqa: E402
+bing._remember_pending("12345678", "req-old", date(2026, 9, 9), date(2026, 9, 10))
+_state = bing._remembered()
+_state["pending_ids"]["12345678"]["since"] = store.iso(store.now() - _td(hours=bing.PENDING_TTL_HOURS + 1))
+bing._remember(_state, keep_pending=False)
+check("a carried id past the TTL is dropped rather than polled", bing.pending_ids(), {})
+bing._remember_pending("12345678", "req-fresh", date(2026, 9, 9), date(2026, 9, 10))
+check("...a fresh one is kept", bing.pending_ids(), {"12345678": "req-fresh"})
+bing._forget_pending("12345678")
+
+# Two owning customers: one report each, authorized by the customer that
+# owns its accounts, and one still preparing does not cost the other's rows.
+ANSWERS.extend([USER(customers=(12345678, 555)),
+                ACCOUNTS({**A111}, {**A222, "ParentCustomerId": 555}),
+                _Resp(200, {"ReportRequestId": "req-c1"}),
+                _Resp(200, {"ReportRequestStatus": {"Status": "Success", "ReportDownloadUrl": "https://d/c1.zip"}}),
+                _Resp(200, {"ReportRequestId": "req-c2"}),
+                pending, pending, pending, pending])
+slept.clear(); clock[0] = 0.0
+res = bing.pull(days=10, today=date(2026, 9, 10), sleep=_tick, clock=lambda: clock[0], budget=20)
+subs = [c for c in CALLS if c["url"].endswith("GenerateReport/Submit")][-2:]
+check("two owning customers get two reports, each under its own CustomerId header",
+      [(c["headers"]["CustomerId"], c["body"]["ReportRequest"]["Scope"]["AccountIds"]) for c in subs],
+      [("12345678", [111]), ("555", [222])])
+check("...the polls carry the same customer",
+      [c["headers"]["CustomerId"] for c in CALLS if c["url"].endswith("GenerateReport/Poll")][-5:],
+      ["12345678", "555", "555", "555", "555"])
+check("the customer that finished landed its rows; the other is pending and carried",
+      (res["ok"], res["pending"], res["rows"] > 0, res["groups"], res["pending_groups"], bing.pending_ids()),
+      (False, True, True, 2, 1, {"555": "req-c2"}))
+check("...said as such", "1 of 2 reports still preparing" in res["error"])
+bing._forget_pending("555")
+ANSWERS.clear()
+
+# The user search refused: the manager's customer id is asked instead, and
+# the answer says which strategy produced the accounts.
+ANSWERS.extend([USER(), _Resp(400, {"Errors": [{"Code": 1, "Message": "UserId is not a valid predicate"}]}),
+                ACCOUNTS(A111), _Resp(200, {"ReportRequestId": "req-f"}),
+                _Resp(200, {"ReportRequestStatus": {"Status": "Success", "ReportDownloadUrl": ""}})])
+res = bing.pull(days=2, today=date(2026, 9, 10), sleep=lambda s: None)
+search = [c for c in CALLS if c["url"].endswith("Accounts/Search")][-2:]
+check("a refused user search falls back to the manager's customer id",
+      [c["body"]["Predicates"][0]["Field"] for c in search], ["UserId", "CustomerId"])
+check("...and the pull lands under that strategy", (res["ok"], res["strategy"]), (True, "customer"))
+found = None
+ANSWERS.extend([USER(), ACCOUNTS(*[{"Id": 1000 + i, "ParentCustomerId": 12345678} for i in range(bing_ads.PAGE_SIZE)]),
+                ACCOUNTS({"Id": 5, "ParentCustomerId": 12345678}, {"Id": 6, "AccountLifeCycleStatus": "Draft"})])
+found = bing_ads.discover_accounts(ads_store)
+pages = [c["body"]["PageInfo"]["Index"] for c in CALLS if c["url"].endswith("Accounts/Search")][-2:]
+check("a full page is followed by the next", pages, [0, 1])
+check("...every account landing once, the Draft one set aside by name",
+      (len(found["accounts"]), [a["id"] for a in found["skipped"]], found["strategy"]),
+      (bing_ads.PAGE_SIZE + 1, ["6"], "user"))
+check("...with the raw keys the first account carried, for the check page",
+      found["raw_keys"], ["Id", "ParentCustomerId"])
 ANSWERS.clear()
 
 
@@ -580,7 +721,7 @@ ACCT_CSV = ('AccountId,AccountName,CurrencyCode,Spend,Impressions,Clicks\n'
             '222,Riverside HVAC,USD,100,2000,30\n'
             '©2026 Microsoft Corporation. All rights reserved.\n')
 requests.get = lambda url, timeout=None, **kw: _Resp(200, None, content=_zip(ACCT_CSV))
-ANSWERS.extend([_Resp(200, {"Accounts": [{"Id": 111, "Name": "A"}, {"Id": 222, "Name": "B"}]}),
+ANSWERS.extend([USER(), ACCOUNTS({"Id": 111, "Name": "A"}, {"Id": 222, "Name": "B"}),
                 _Resp(200, {"ReportRequestId": "req-7"}),
                 _Resp(200, {"ReportRequestStatus": {"Status": "Success", "ReportDownloadUrl": "https://d/a.zip"}})])
 their = reconcile.theirs("bing", date(2026, 9, 1), date(2026, 9, 10))
@@ -591,13 +732,80 @@ rr = CALLS[-2]["body"]["ReportRequest"]
 check("the request was an AccountPerformanceReportRequest, Summary aggregation, both accounts",
       (rr["Type"], rr["Aggregation"], rr["Scope"]["AccountIds"]), ("AccountPerformanceReportRequest", "Summary", [111, 222]))
 check("bing is not among the platforms declared unmeasurable", "bing" not in reconcile.NOT_MEASURABLE)
-ANSWERS.append(_Resp(401, {"OperationErrors": [{"Code": 105, "Message": "Authentication failed"}]}))
+check("...and the reconcile carries no request id into the nightly pull", bing.pending_ids(), {})
+ANSWERS.extend([_Resp(401, {"OperationErrors": [{"Code": 105, "Message": "Authentication failed"}]})])
 their = reconcile.theirs("bing", date(2026, 9, 1), date(2026, 9, 10))
 check("a refusal is not measured with the reason, not an exception",
       their["measured"] is False and "refused" in their["reason"])
 ANSWERS.clear()
 
+
+# ------------------------------------------------------------ the check page
+section("/reports/bing-check: the ladder, the accounts, one day's report, and Pull now")
+
+chk = bing.check(today=date(2026, 9, 11))
+check("the check page never raises, and with the wire answering nothing it says so",
+      (chk["rung"], "could not be built" in chk["error"]), (0, True))
+ANSWERS.extend([USER(), ACCOUNTS(A111, A222), _Resp(200, {"ReportRequestId": "req-chk"}),
+                _Resp(200, {"ReportRequestStatus": {"Status": "Success", "ReportDownloadUrl": "https://d/chk.zip"}})])
+requests.get = lambda url, timeout=None, **kw: _Resp(200, None, content=_zip(
+    'TimePeriod,AccountId,AccountName,CurrencyCode,Spend,Impressions,Clicks\n'
+    '9/10/2026,111,Acme Plumbing,USD,12.50,1000,12\n'))
+chk = bing.check(today=date(2026, 9, 11))
+check("connected, the ladder is climbed to the top", (chk["rung"], chk["error"]), (6, ""))
+check("...the user and the accounts are on the page, with how they were found",
+      (chk["user"]["id"], [a["id"] for a in chk["accounts"]], chk["strategy"]), ("9001", ["111", "222"], "user"))
+check("...one day's account report was asked for, over yesterday, the first customer only",
+      (CALLS[-2]["body"]["ReportRequest"]["Type"], CALLS[-2]["body"]["ReportRequest"]["Time"]["CustomDateRangeStart"],
+       CALLS[-2]["body"]["ReportRequest"]["Scope"]["AccountIds"]),
+      ("AccountPerformanceReportRequest", {"Day": 10, "Month": 9, "Year": 2026}, [111, 222]))
+check("...and its column row is read against the parser's names",
+      (chk["report"]["header"][:2], chk["report"]["first"][1], chk["columns"].get("spend")),
+      (["TimePeriod", "AccountId"], "111", "Spend"))
+check("...carrying no request id into the nightly pull", bing.pending_ids(), {})
+check("nothing on the page carries a credential", _secrets_in(chk), [])
+ANSWERS.extend([USER(), ACCOUNTS(A111), _Resp(200, {"ReportRequestId": "req-chk2"}),
+                _Resp(200, {"ReportRequestStatus": {"Status": "Success", "ReportDownloadUrl": ""}})])
+chk = bing.check(today=date(2026, 9, 11))
+check("a day with no rows is said to be one, not a fault",
+      (chk["rung"], chk["report"]["rows"], "no rows" in chk["report"]["note"]), (6, 0, True))
+ANSWERS.extend([USER(), ACCOUNTS(), ACCOUNTS()])
+chk = bing.check(today=date(2026, 9, 11))
+check("no accounts stops at rung 4 in words", (chk["rung"], "no advertiser accounts" in chk["error"]), (4, True))
+ANSWERS.extend([_Resp(401, {"OperationErrors": [{"Code": 105, "ErrorCode": "InvalidCredentials", "Message": "no"}]})])
+chk = bing.check(today=date(2026, 9, 11))
+check("a refused developer token stops at rung 3 naming the host, asked once and not again",
+      (chk["rung"], "production host" in chk["error"], ANSWERS), (3, True, []))
+ANSWERS.clear()
+
+from modules.reports import app as reports_app_mod                   # noqa: E402
+from hub import auth as hub_auth                                     # noqa: E402
+rclient = reports_app_mod.app.test_client()
+rclient.set_cookie(hub_auth.COOKIE_NAME, hub_auth.issue_cookie_value("Todd"))
+RENV = {"s1hub.user": "Todd"}
+ANSWERS.extend([USER(), ACCOUNTS(A111), _Resp(200, {"ReportRequestId": "req-page"}),
+                _Resp(200, {"ReportRequestStatus": {"Status": "Success", "ReportDownloadUrl": ""}})])
+r = rclient.get("/bing-check", environ_base=RENV)
+html = r.get_data(as_text=True)
+check("the page renders the ladder, the accounts and the Pull now button",
+      (r.status_code, "The ladder" in html, "Acme Plumbing" in html, "Pull now" in html), (200, True, True, True))
+check("...the template places its bubble's key", "reports.bing.check" in
+      (ROOT / "modules" / "reports" / "templates" / "reports_bing_check.html").read_text(encoding="utf-8"))
+check("...and no credential", _secrets_in(html), [])
+ANSWERS.extend([USER(), ACCOUNTS(A111), _Resp(200, {"ReportRequestId": "req-now"}),
+                _Resp(200, {"ReportRequestStatus": {"Status": "Success", "ReportDownloadUrl": "https://d/x.zip"}}),
+                USER(), ACCOUNTS(A111), _Resp(200, {"ReportRequestId": "req-page2"}),
+                _Resp(200, {"ReportRequestStatus": {"Status": "Success", "ReportDownloadUrl": ""}})])
+requests.get = lambda url, timeout=None, **kw: _Resp(200, None, content=_zip(CSV_TEXT))
+r = rclient.post("/bing-check/pull", environ_base=RENV)
+html = r.get_data(as_text=True)
+check("Pull now runs the campaign pull alone and prints what landed",
+      (r.status_code, "landed" in html, "campaign-days written" in html), (200, True, True))
+check("...every queued answer was consumed", ANSWERS, [])
+check("the index line links the check page", bing.status()["check_page"], "/reports/bing-check")
+
 bing_ads._http, requests.get, requests.post, quotas.record = _real_http, _real_get, _real_post, _real_record
+bing_ads._sleep = _time_sleep_real
 
 
 # ---------------------------------------------------------- the scheduler
