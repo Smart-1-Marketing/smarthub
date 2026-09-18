@@ -150,6 +150,34 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual((p["temp_f"], p["wind_mph"], p["wind_dir"]), (81, 6, "W"))
         self.assertEqual(p["distance_mi"], 12)
 
+    def test_probe_resolves_the_grid_and_says_ohio_has_no_marine_zones(self):
+        from modules.camhub.adapters import nws
+        points = {"properties": {"gridId": "ILN", "gridX": 104, "gridY": 81, "timeZone": "America/New_York",
+                                 "radarStation": "KILN", "forecastZone": "https://api.weather.gov/zones/forecast/OHZ065",
+                                 "county": "https://api.weather.gov/zones/county/OHC045",
+                                 "observationStations": "https://api.weather.gov/gridpoints/ILN/104,81/stations"}}
+        stations = {"features": [
+            {"properties": {"stationIdentifier": "KVTA", "name": "Newark-Heath Airport"}, "geometry": {"coordinates": [-82.463, 40.023]}},
+            {"properties": {"stationIdentifier": "KCMH", "name": "Columbus"}, "geometry": {"coordinates": [-82.88, 39.99]}}]}
+
+        def route(url, params=None, **_):
+            if "/points/" in url:
+                return points
+            if url.endswith("/stations"):
+                return stations
+            if "/zones" in url:
+                self.assertEqual(params, {"type": "marine", "area": "OH"})
+                return {"features": []}
+            raise AssertionError(url)
+
+        with patch("modules.camhub.adapters.nws.get_json", side_effect=route):
+            rows = {r["key"]: r for r in nws.probe(39.9214, -82.4696)}
+        self.assertEqual(rows["weather_now"]["config"]["grid_x"], 104)
+        self.assertEqual(rows["alerts"]["config"]["own_zone"], "OHZ065")
+        self.assertEqual(rows["observation"]["config"]["station"], "KVTA")
+        self.assertFalse(rows["marine_alerts"]["found"])
+        self.assertIn("no marine zones in OH", rows["marine_alerts"]["detail"])
+
     def test_unknown_kind_is_refused_by_name(self):
         from modules.camhub.adapters import nws
         from modules.camhub.adapters.http import SourceError

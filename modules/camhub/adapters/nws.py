@@ -94,6 +94,22 @@ def probe(lat: float, lon: float, location_type: str = "inland_lake") -> list[di
                     "own_zone": p["forecast_zone"]},
          "detail": f"By coordinate; zone {p['forecast_zone']} ({p['county_zone']})"},
     ]
+    # Whether marine products exist here at all. Zero for Ohio, 21 for Lake
+    # Erie: a marine-warning tile on an inland lake would sit dead forever,
+    # so the row says so rather than proposing one.
+    state = (p.get("forecast_zone") or "")[:2]
+    try:
+        marine = marine_zone_count(state)
+        rows.append({"key": "marine_alerts", "adapter": "nws", "label": "NWS marine zone warnings",
+                     "found": marine > 0, "cadence_minutes": 15,
+                     "config": ({"kind": "alerts", "lat": lat, "lon": lon, "zones": [],
+                                 "marine": True} if marine else {}),
+                     "detail": (f"{marine} marine zone{'s' if marine != 1 else ''} in {state}"
+                                if marine else f"no marine zones in {state or 'this state'}; "
+                                "marine products exist only for the Great Lakes and the coasts")})
+    except SourceError as exc:
+        rows.append({"key": "marine_alerts", "adapter": "nws", "label": "NWS marine zone warnings",
+                     "found": False, "config": {}, "detail": f"zone list failed: {exc}"})
     station = None
     if p.get("stations_url"):
         try:
