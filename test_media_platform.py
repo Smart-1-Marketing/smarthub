@@ -312,5 +312,56 @@ unknown_consumer = http.get(
     f"/api/clients/{client_id}/media/for/not-a-tool")
 check("unknown consumers fail closed", unknown_consumer.status_code, 400)
 
+# Phase 5: deterministic inventory health, explainable recommendations, and
+# client-wide usage history. These deliberately make no performance claim.
+health = http.get(f"/api/clients/{client_id}/media/health").get_json()["health"]
+check("Media Health is a bounded coverage score", health["score"], 60)
+check("Media Health exposes the five equal checks", len(health["categories"]), 5)
+check("missing logo is an actionable collection opportunity",
+      "logo" in {gap["key"] for gap in health["opportunities"]}, True)
+check("missing video is visible rather than invented",
+      "video" in {gap["key"] for gap in health["opportunities"]}, True)
+
+hero = http.get(
+    f"/api/clients/{client_id}/media/recommendations?use=hero").get_json()
+check("hero suggestions require desktop-ready approved media",
+      hero["recommendations"][0]["id"], asset_id)
+campaign = http.get(
+    f"/api/clients/{client_id}/media/recommendations?use=campaign&q=technician").get_json()
+check("campaign recommendations explain metadata relevance",
+      "matches" in " ".join(campaign["recommendations"][0]["reasons"]), True)
+check("campaign score is labelled non-performance",
+      "not performance-based" in campaign["method"], True)
+
+history = http.get(f"/api/clients/{client_id}/media/usage").get_json()
+check("usage history includes all recorded tools", history["total"], 2)
+check("usage history retains canonical asset identity",
+      {row["asset_id"] for row in history["usage"]}, {asset_id})
+check("usage history exposes campaign and placement",
+      any(row["campaign_id"] == "fall-2026" and row["placement"] == "feed image"
+          for row in history["usage"]), True)
+
+http.patch(f"/api/media/{asset_id}", json={"rights_status": "Do Not Use"})
+withheld = http.get(
+    f"/api/clients/{client_id}/media/recommendations?use=website").get_json()
+check("recommendations respect a revoked right", withheld["recommendations"], [])
+http.patch(f"/api/media/{asset_id}", json={"rights_status": "Client Approved"})
+http.patch(f"/api/media/{asset_id}", json={
+    "license_expiration": "2020-01-01T00:00:00Z"})
+expired = http.get(
+    f"/api/clients/{client_id}/media/recommendations?use=website").get_json()
+check("an expired license is not recommended", expired["recommendations"], [])
+http.patch(f"/api/media/{asset_id}", json={"license_expiration": None})
+http.patch(f"/api/media/{duplicate_id}", json={
+    "rights_status": "Client Approved", "approved_for_web": True})
+deduplicated = http.get(
+    f"/api/clients/{client_id}/media/recommendations?use=website").get_json()
+check("an approved duplicate is still not recommended",
+      [row["id"] for row in deduplicated["recommendations"]], [asset_id])
+check("an unknown recommendation use fails closed", http.get(
+    f"/api/clients/{client_id}/media/recommendations?use=unknown").status_code, 400)
+check("Media Health requires staff authentication", app.test_client().get(
+    f"/api/clients/{client_id}/media/health").status_code, 401)
+
 print(f"\n{passed} passed, {failed} failed")
 raise SystemExit(1 if failed else 0)

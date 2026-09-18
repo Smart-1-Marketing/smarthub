@@ -44,6 +44,14 @@
 .connector{border:1px solid var(--line);border-radius:8px;padding:10px;background:#fff}
 .connector strong{display:block;font-size:13px}.connector p{margin:4px 0 0;font-size:11px;color:var(--ink-3)}
 .connector.off{opacity:.55}
+.health-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px;margin:12px 0}
+.health-check{border:1px solid var(--line);border-radius:8px;padding:10px;background:#fff;font-size:12px}
+.health-check strong{display:block;font-size:15px}
+.recommend-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;margin-top:12px}
+.recommend-card{border:1px solid var(--line);border-radius:8px;padding:10px;background:#fff;font-size:12px}
+.recommend-card img{width:100%;height:130px;object-fit:cover;border-radius:5px;background:var(--paper)}
+.recommend-card strong{display:block;margin:7px 0 3px}
+.usage-list{list-style:none;padding:0;margin:8px 0}.usage-list li{padding:9px 0;border-bottom:1px solid var(--line);font-size:12px}
 </style>
 <header class="top">
   <div class="wrap">
@@ -65,7 +73,7 @@
     <a href="#collections">Collections</a>
     <a href="#import">Import</a>
     <a href="#upload">Upload Requests</a>
-    <a href="{{ url_for('image_picker.staff_picker', client_id=client.id) }}">AI Recommendations</a>
+    <a href="#recommendations">Recommendations</a>
     <a href="#library" data-filter="logo">Brand Assets</a>
     <a href="#usage">Usage</a>
   </nav>
@@ -109,6 +117,20 @@
       <button class="btn quiet small" id="createCollection" type="button">Create collection</button>
     </div>
     <div class="collection-list" id="collectionList"><span class="hint">Loading…</span></div>
+  </section>
+
+  <section class="panel" id="recommendations">
+    <div class="panel-head"><h2>Media Health &amp; Recommendations</h2><span class="hint">Inventory coverage, not campaign performance.</span></div>
+    <div id="mediaHealth">Loading Media Health…</div>
+    <h3>Best website images</h3>
+    <div id="websiteRecommendations" class="recommend-list"><span class="hint">Loading…</span></div>
+    <h3>Campaign imagery</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <input id="campaignMediaQuery" type="search" placeholder="Service, product, audience, or campaign theme"
+             style="flex:1;min-width:220px;padding:8px;border:1px solid var(--line);border-radius:7px">
+      <button id="campaignMediaSearch" class="btn quiet small" type="button">Find campaign images</button>
+    </div>
+    <div id="campaignRecommendations" class="recommend-list"></div>
   </section>
 
   <section class="panel" id="library">
@@ -158,7 +180,8 @@
 
   <section class="panel" id="usage">
     <div class="panel-head"><h2>Usage</h2></div>
-    <p class="hint">SmartHub tools record campaign, creative, placement and use dates against the canonical asset through the Media API. Open an asset from an integrated tool to see its history.</p>
+    <p class="hint">Recorded uses across SmartHub; an asset can appear in multiple campaigns without duplicating the file.</p>
+    <ul id="mediaUsage" class="usage-list"><li>Loading usage history…</li></ul>
   </section>
 
   <div class="foot">Attribution is stored with every asset in client gallery context.</div>
@@ -252,6 +275,47 @@
         }
       }).catch(function(){document.getElementById('connectorList').innerHTML='<span class="hint">Connector status unavailable.</span>';});
   }
+  var MEDIA_API='/api/clients/'+encodeURIComponent(CLIENT_ID)+'/media';
+  function mediaGet(path){return fetch(MEDIA_API+path,{credentials:'same-origin',
+    headers:{'Accept':'application/json'}}).then(function(r){if(!r.ok)throw Error('HTTP '+r.status);return r.json();});}
+  function renderRecommendations(hostId, rows){
+    var host=document.getElementById(hostId);
+    host.innerHTML=rows.length?rows.map(function(a){return '<div class="recommend-card">'
+      +'<img src="'+esc(a.thumbnail_url||a.storage_url)+'" alt="">'
+      +'<strong>'+esc(a.original_filename||a.original_alt||'Asset #'+a.id)+'</strong>'
+      +'<div>Score '+esc(a.recommendation_score)+'/100 · Used '+esc(a.usage_count||0)+' time(s)</div>'
+      +'<div class="hint">'+(a.reasons||[]).map(esc).join(' · ')+'</div></div>';}).join('')
+      :'<span class="hint">No approved images match this use yet.</span>';
+  }
+  function loadMediaInsights(){
+    mediaGet('/health').then(function(d){
+      var h=d.health||{}, host=document.getElementById('mediaHealth');
+      host.innerHTML='<div style="font-size:25px;font-weight:700">'+esc(h.score||0)+'/100 <span class="hint">Media Health</span></div>'
+        +'<div class="hint">'+esc(h.method||'')+'</div>'
+        +'<div class="health-grid">'+(h.categories||[]).map(function(c){return '<div class="health-check"><strong>'
+          +esc(c.points)+'/'+esc(c.maximum)+'</strong>'+esc(c.label)+'</div>';}).join('')+'</div>'
+        +'<h3>Photography to request</h3><ul>'+(h.opportunities||[]).map(function(g){return '<li>'
+          +esc(g.action)+'</li>';}).join('')+'</ul>';
+    }).catch(function(){document.getElementById('mediaHealth').textContent='Media Health unavailable.';});
+    mediaGet('/recommendations?use=website&limit=6').then(function(d){
+      renderRecommendations('websiteRecommendations',d.recommendations||[]);
+    }).catch(function(){document.getElementById('websiteRecommendations').textContent='Recommendations unavailable.';});
+    mediaGet('/usage?limit=30').then(function(d){
+      var host=document.getElementById('mediaUsage'), rows=d.usage||[];
+      host.innerHTML=rows.length?rows.map(function(u){return '<li><strong>'
+        +esc(u.filename||'Asset #'+u.asset_id)+'</strong> · '+esc(u.tool)
+        +(u.campaign_id?' · Campaign '+esc(u.campaign_id):'')
+        +(u.placement?' · '+esc(u.placement):'')+' · '+esc(u.used_at)+'</li>';}).join('')
+        :'<li>No recorded uses yet.</li>';
+    }).catch(function(){document.getElementById('mediaUsage').innerHTML='<li>Usage history unavailable.</li>';});
+  }
+  document.getElementById('campaignMediaSearch').onclick=function(){
+    var q=document.getElementById('campaignMediaQuery').value.trim();
+    mediaGet('/recommendations?use=campaign&limit=12&q='+encodeURIComponent(q)).then(function(d){
+      renderRecommendations('campaignRecommendations',d.recommendations||[]);
+    }).catch(function(){document.getElementById('campaignRecommendations').textContent='Campaign recommendations unavailable.';});
+  };
+  loadMediaInsights();
   document.getElementById('queueWebsiteImport').onclick=function(){
     var input=document.getElementById('websiteImportUrl'), url=input.value.trim(), button=this;
     if(!url){note('bad','Website required','Enter the client’s public website URL.');return;}

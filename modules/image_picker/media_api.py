@@ -235,34 +235,40 @@ def media_recommendations(client_ref):
     client, error = _library(db, client_ref)
     if error:
         return error
-    use = str(request.args.get("use") or "website").lower()
-    score_field = {"website": "website_score", "social": "social_score",
-                   "advertising": "advertising_score",
-                   "hero": "hero_score"}.get(use, "website_score")
-    rows, details, observations = _assets(db, client.id)
-    ranked = []
-    for row in rows:
-        payload = asset_dict(row, details.get(row.id), observation=observations.get(row.id))
-        if payload["rights_status"] in {"Do Not Use", "Expired"}:
-            continue
-        # A social import is provenance, not blanket marketing permission.
-        # Recommendations fail closed until the requested use is explicitly
-        # approved, which prevents a convenient suggestion becoming an
-        # accidental rights assertion.
-        approval_field = {"website": "approved_for_web",
-                          "hero": "approved_for_web",
-                          "social": "approved_for_social",
-                          "advertising": "approved_for_paid_media"}.get(use)
-        if approval_field and payload.get(approval_field) is not True:
-            continue
-        score = payload.get(score_field)
-        if score is None:
-            score = payload.get("quality_score") or 0
-        ranked.append((score, payload))
-    ranked.sort(key=lambda pair: (pair[0], pair[1].get("created_at") or ""), reverse=True)
-    return jsonify({"ok": True, "client": client.to_dict(), "use": use,
-                    "recommendations": [{**p, "recommendation_score": s}
-                                        for s, p in ranked[:25]]})
+    from .recommendations import recommend
+    result = recommend(db, client.id,
+                       use=str(request.args.get("use") or "website").lower(),
+                       query=str(request.args.get("q") or "").strip(),
+                       limit=request.args.get("limit", 25, type=int) or 25)
+    return jsonify({**result, "client": client.to_dict()}), (200 if result["ok"] else 400)
+
+
+@bp.get("/api/clients/<client_ref>/media/health")
+@staff_only
+@db_guard
+def client_media_health(client_ref):
+    db = session()
+    client, error = _library(db, client_ref)
+    if error:
+        return error
+    from .recommendations import media_health
+    return jsonify({"ok": True, "client": client.to_dict(),
+                    "health": media_health(db, client.id)})
+
+
+@bp.get("/api/clients/<client_ref>/media/usage")
+@staff_only
+@db_guard
+def client_media_usage(client_ref):
+    db = session()
+    client, error = _library(db, client_ref)
+    if error:
+        return error
+    from .recommendations import usage_history
+    result = usage_history(db, client.id,
+                           limit=request.args.get("limit", 100, type=int) or 100,
+                           offset=request.args.get("offset", 0, type=int) or 0)
+    return jsonify({**result, "client": client.to_dict()})
 
 
 @bp.get("/api/clients/<client_ref>/media/collections")

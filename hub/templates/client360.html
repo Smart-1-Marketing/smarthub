@@ -1117,6 +1117,15 @@ function render(g,q){
           +x[1]+'</b> '+x[0]+'</span>';}).join('')+'</div>'
         +(warns.length?'<div style="margin-top:8px;color:#92400e;font-size:12px">Needs attention: '
           +warns.map(function(x){return x[1]+' '+x[0];}).join(' &middot; ')+'</div>':'');
+      fetch('/api/clients/'+encodeURIComponent(name)+'/media/health',
+            {headers:{'Accept':'application/json'},credentials:'same-origin'})
+        .then(function(r){return r.ok?r.json():Promise.reject();})
+        .then(function(result){
+          var h=result.health||{}, score=document.createElement('div');
+          score.style.cssText='margin-top:10px;font-size:13px;color:var(--navy)';
+          score.textContent='Media Health: '+h.score+'/100 · '+(h.opportunities||[]).length+' collection opportunities';
+          host.appendChild(score);
+        }).catch(function(){});
     }).catch(function(){var host=$('c-media-summary');if(host)host.innerHTML='<div class="empty">Media summary unavailable.</div>';});
 
   /* The link a client uploads their own photographs through.

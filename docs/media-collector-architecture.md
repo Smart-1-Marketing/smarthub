@@ -142,6 +142,29 @@ consumer-specific endpoints for their interfaces. The shared use endpoint
 idempotently creates the appropriate project link and an attribution event;
 Social Planner also writes those records when it assigns media automatically.
 
+## Phase 5 recommendations and Media Health
+
+`modules.image_picker.recommendations` adds explainable, read-only inventory
+intelligence without another AI run or a parallel asset store. Website, hero,
+social, and advertising recommendations use stored suitability scores and
+explicit destination approval. A hero must be at least 1600 × 900 and
+landscape. Campaign search adds metadata term relevance and a modest reuse
+penalty; its score is labelled as a heuristic, never as measured performance.
+Revoked/expired rights, duplicate rows, and missing storage URLs are excluded.
+
+Media Health is a 0–100 coverage score with five visible 20-point checks:
+approved logo, desktop-ready hero, high-resolution team/people photography,
+high-resolution service/product photography, and paid-media-approved video.
+Missing coverage generates specific collection requests, with an additional
+vertical social-photo check. A known team photo older than two years does not
+meet the team check. The score is an inventory measure, not creative ROI.
+
+The client Media Center displays the score, checks, collection opportunities,
+website and campaign suggestions, and recent usage history. Client 360 shows
+the score and opportunity count. The history joins existing `media_asset_usage`
+rows to canonical assets and carries tool, campaign, creative, placement, and
+time; it creates no new event or performance tables.
+
 ## API contract
 
 - `GET /api/clients/:clientRef/media`
@@ -155,6 +178,8 @@ Social Planner also writes those records when it assigns media automatically.
 - `POST /api/media/:assetId/usage`
 - `GET /api/clients/:clientRef/media/for/:consumer`
 - `POST /api/media/:assetId/use`
+- `GET /api/clients/:clientRef/media/health`
+- `GET /api/clients/:clientRef/media/usage`
 - `POST /api/media/admin/backfill`
 - `GET /api/clients/:clientRef/media/imports`
 - `POST /api/clients/:clientRef/media/imports/website`
@@ -166,8 +191,8 @@ second identity system.
 
 ## Phase boundary
 
-Phases 1 through 4 are established. Semantic embedding generation/vector
-ranking, provider-managed background social sync, Media Health
-recommendations, and performance attribution remain later phases. The
+Phases 1 through 5 are established. Semantic embedding generation/vector
+ranking, provider-managed background social sync, and performance attribution
+remain later phases. The
 durable asset IDs, intelligence versions, search documents, links, and usage
 events let those phases arrive without moving or duplicating files.
