@@ -1426,6 +1426,248 @@ class McpToolTests(unittest.TestCase):
         self.assertEqual(out["reason"], "no_pages")
 
 
+class BuilderTests(unittest.TestCase):
+    """Sprint 6: the Cam Builder wizard, re-probe, and the second seed at a
+    different location type. Every adapter's probe is stubbed, so the tests
+    exercise the flow the wizard drives without a socket."""
+
+    @classmethod
+    def setUpClass(cls):
+        from modules.camhub import models
+        from modules.camhub.models import CamPage, CamSource, Placement, Sponsor, session
+        from sqlalchemy import delete, select
+        assert not models.init_db()
+        # Import wsgi here, before any test_client() call, so wsgi's
+        # _install_error_reporter runs while the CamHub Flask app is still
+        # unfinalized. PageTests below imports wsgi too; because Python
+        # caches the import, that call is a no-op and the error handlers
+        # attach exactly once, in the right order.
+        import wsgi  # noqa: F401
+        # Do not delete the seed rows that other suites depend on; write to
+        # slugs unique to this class instead.
+        cls._cleanup_test_pages()
+
+    @classmethod
+    def tearDownClass(cls):
+        # Order-safety: PageTests and StoreTests run after this class
+        # alphabetically and expect the seed-only shape of the pages table.
+        # Any test-wizard page or the freshly-materialized vermilion seed
+        # left behind here would flip /health to 503 (an unrefreshed source
+        # reads as red) and inflate list_pages() from one to many.
+        cls._cleanup_test_pages()
+
+    @classmethod
+    def _cleanup_test_pages(cls):
+        from modules.camhub.models import CamPage, CamSource, Placement, session
+        from sqlalchemy import delete, select
+        with session() as s:
+            for row in s.execute(select(CamPage).where(CamPage.slug.in_(
+                    ("test-wizard-lake", "vermilion-harbor", "test-reprobe",
+                     "test-skip", "test-empty")))).scalars().all():
+                s.execute(delete(CamSource).where(CamSource.page_id == row.id))
+                s.execute(delete(Placement).where(Placement.page_id == row.id))
+                s.delete(row)
+            s.commit()
+
+    def test_slugify_is_url_safe_and_falls_back(self):
+        from modules.camhub import builder
+        self.assertEqual(builder.slugify("Vermilion Harbor, OH"), "vermilion-harbor-oh")
+        self.assertEqual(builder.slugify("!!!"), "cam")
+        self.assertEqual(builder.slugify(""), "cam")
+        # Ninety chars in, eighty out.
+        self.assertLessEqual(len(builder.slugify("x" * 200)), 80)
+
+    def test_spec_from_answers_writes_the_wizard_output(self):
+        from modules.camhub import builder
+        probe = {
+            "lat": 41.5, "lon": -82.5, "location_type": "great_lakes",
+            "confirmed": [
+                {"key": "weather_now", "candidates": [
+                    {"key": "weather_now", "adapter": "nws",
+                     "label": "NWS gridpoint", "found": True,
+                     "config": {"kind": "gridpoint", "office": "CLE"},
+                     "distance_mi": 0}]},
+                {"key": "astronomy", "candidates": [
+                    {"key": "astronomy", "adapter": "astro",
+                     "label": "Computed", "found": True,
+                     "config": {"lat": 41.5, "lon": -82.5,
+                                "timezone": "America/New_York"}}]},
+            ],
+            "decide": [
+                {"key": "observation", "candidates": [
+                    {"key": "observation", "adapter": "nws",
+                     "label": "KCLE", "config": {"station": "KCLE"},
+                     "distance_mi": 8.0},
+                    {"key": "observation", "adapter": "nws",
+                     "label": "KTOL", "config": {"station": "KTOL"},
+                     "distance_mi": 22.0}]},
+            ],
+            "absent": [{"key": "tides", "reason": "no NOAA station near here"}],
+        }
+        answers = {"title": "Lake Erie Cam", "slug": "test-wizard-lake",
+                   "client_name": "Test Client", "business_name": "Test Biz",
+                   "location_name": "Vermilion", "timezone": "America/New_York",
+                   "address": "5741 Liberty Ave, Vermilion, OH",
+                   "city": "Vermilion", "state": "OH",
+                   "picked": {"weather_now": True, "astronomy": True, "observation": 0}}
+        spec = builder.spec_from_answers(answers, probe)
+        self.assertEqual(spec["slug"], "test-wizard-lake")
+        self.assertEqual(spec["location_type"], "great_lakes")
+        self.assertEqual([s["key"] for s in spec["sources"]],
+                         ["weather_now", "astronomy", "observation"])
+        obs = next(s for s in spec["sources"] if s["key"] == "observation")
+        self.assertEqual(obs["config"]["station"], "KCLE")     # first candidate
+        # The config scaffold has every field the render layer reads.
+        self.assertIn("business", spec["config"])
+        self.assertIn("house_ads", spec["config"])
+        self.assertEqual(spec["config"]["business"]["state"], "OH")
+
+    def test_a_skipped_decide_source_is_not_written(self):
+        from modules.camhub import builder
+        probe = {"lat": 41, "lon": -82, "location_type": "great_lakes",
+                 "confirmed": [], "decide": [
+                     {"key": "observation", "candidates": [
+                         {"key": "observation", "adapter": "nws",
+                          "label": "KCLE", "config": {}, "distance_mi": 8},
+                         {"key": "observation", "adapter": "nws",
+                          "label": "KTOL", "config": {}, "distance_mi": 22}]}
+                 ], "absent": []}
+        spec = builder.spec_from_answers({"picked": {"observation": None},
+                                          "slug": "test-skip"}, probe)
+        self.assertEqual(spec["sources"], [])
+
+    def test_probe_route_answers_a_lat_and_lon(self):
+        from modules.camhub import app as mod_app
+        client = mod_app.app.test_client()
+        with patch("modules.camhub.builder.adapters.probe_all",
+                   return_value=[{"key": "astronomy", "adapter": "astro",
+                                   "label": "Computed", "found": True,
+                                   "config": {"lat": 41.5, "lon": -82.5,
+                                              "timezone": "America/New_York"}}]):
+            resp = client.get("/api/probe?lat=41.5&lon=-82.5&type=great_lakes")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.get_json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["location_type"], "great_lakes")
+
+    def test_builder_provision_writes_a_page_from_json(self):
+        from modules.camhub import app as mod_app, store
+        client = mod_app.app.test_client()
+        payload = {
+            "answers": {"slug": "test-wizard-lake", "title": "Test Wizard Lake",
+                        "client_name": "Test Client", "business_name": "Test Biz",
+                        "location_name": "Test Lake", "timezone": "America/New_York",
+                        "address": "1 Test St, Test, OH"},
+            "probe": {"lat": 41.5, "lon": -82.5, "location_type": "great_lakes",
+                      "confirmed": [{"key": "astronomy", "candidates": [
+                          {"key": "astronomy", "adapter": "astro",
+                           "label": "Computed", "config": {"lat": 41.5, "lon": -82.5,
+                                                            "timezone": "America/New_York"}}]}],
+                      "decide": [], "absent": []},
+            "picked": {"astronomy": True},
+        }
+        # Stub the refresh so the network is never asked.
+        with patch("modules.camhub.store.refresh_page",
+                   return_value={"ok": True, "sources_refreshed": 0, "errors": []}):
+            resp = client.post("/builder/provision", json=payload)
+        self.assertEqual(resp.status_code, 200, resp.data)
+        body = resp.get_json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["slug"], "test-wizard-lake")
+        # The page exists with one source.
+        page = store.get_page("test-wizard-lake")
+        self.assertIsNotNone(page)
+        sources = store.list_sources(page["id"])
+        self.assertEqual([s["key"] for s in sources], ["astronomy"])
+        self.assertEqual(page["location_type"], "great_lakes")
+
+    def test_builder_provision_refuses_no_picked_sources(self):
+        from modules.camhub import app as mod_app
+        client = mod_app.app.test_client()
+        payload = {
+            "answers": {"slug": "test-empty"},
+            "probe": {"lat": 41.5, "lon": -82.5, "location_type": "great_lakes",
+                      "confirmed": [{"key": "astronomy", "candidates": [
+                          {"key": "astronomy", "adapter": "astro",
+                           "label": "Computed", "config": {}}]}],
+                      "decide": [], "absent": []},
+            "picked": {"astronomy": False},
+        }
+        resp = client.post("/builder/provision", json=payload)
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("no sources", resp.get_json()["error"])
+
+    def test_reprobe_reports_new_and_missing_sources(self):
+        """A page with one existing source, and the fresh probe finds two --
+        one already there, one new. The delta names the new one and does not
+        claim the existing one changed."""
+        from modules.camhub import app as mod_app, seeds, store
+        from modules.camhub.models import CamPage, CamSource, session
+        # Seed a page with lat/lon and one existing astronomy source.
+        seeds.provision_from_spec({
+            "slug": "test-reprobe", "title": "T", "location_type": "great_lakes",
+            "lat": 41.5, "lon": -82.5, "timezone": "America/New_York",
+            "status": "live", "sources": [
+                {"key": "astronomy", "adapter": "astro", "label": "Computed",
+                 "config": {"lat": 41.5, "lon": -82.5, "timezone": "America/New_York"},
+                 "cadence_minutes": 360, "tolerance_minutes": 2880},
+            ],
+        }, fetch=False)
+        fresh_rows = [
+            {"key": "astronomy", "adapter": "astro", "label": "Computed",
+             "config": {"lat": 41.5, "lon": -82.5, "timezone": "America/New_York"},
+             "found": True},
+            {"key": "weather_now", "adapter": "nws", "label": "NWS gridpoint",
+             "config": {"kind": "gridpoint", "office": "CLE"},
+             "found": True, "distance_mi": 0},
+        ]
+        with patch("modules.camhub.builder.adapters.probe_all", return_value=fresh_rows):
+            resp = mod_app.app.test_client().post("/pages/test-reprobe/reprobe")
+        self.assertEqual(resp.status_code, 200, resp.data)
+        body = resp.get_json()
+        self.assertTrue(body["ok"])
+        kinds = {d["kind"] for d in body["delta"]}
+        self.assertIn("new", kinds)
+        # The astronomy source did not change -- no "changed" row for it.
+        for d in body["delta"]:
+            self.assertNotEqual(d["key"], "astronomy")
+
+    def test_vermilion_seed_is_second_location_type_and_wizard_only(self):
+        """The spec asks for a second cam page at a different location type
+        (river or coastal) to prove the adapter boundary. Vermilion is a
+        great_lakes seed and its sources are picked by the wizard on first
+        provision, not baked into the file."""
+        from modules.camhub import seeds
+        self.assertIn("vermilion-harbor", seeds.SEEDS)
+        spec = seeds.SEEDS["vermilion-harbor"]
+        self.assertEqual(spec["location_type"], "great_lakes")
+        self.assertNotEqual(spec["location_type"],
+                            seeds.SEEDS["buckeye-lake"]["location_type"])
+        # Wizard-only: no baked sources, marked wizard_seed.
+        self.assertTrue(spec.get("wizard_seed"))
+        self.assertEqual(spec["sources"], [])
+
+    def test_provisioning_a_wizard_seed_redirects_to_the_builder(self):
+        from modules.camhub import app as mod_app
+        client = mod_app.app.test_client()
+        resp = client.post("/provision/vermilion-harbor")
+        # Follow-redirect off; assert the redirect goes to /builder.
+        self.assertIn(resp.status_code, (301, 302, 303))
+        self.assertIn("/builder", resp.headers.get("Location", ""))
+
+    def test_wizard_page_renders_with_types_and_timezones(self):
+        from modules.camhub import app as mod_app
+        client = mod_app.app.test_client()
+        resp = client.get("/builder")
+        self.assertEqual(resp.status_code, 200)
+        html = resp.data.decode()
+        self.assertIn("Cam Builder", html)
+        # Every location type is exposed.
+        for kind in ("inland_lake", "river", "coastal", "great_lakes", "ski", "golf", "town"):
+            self.assertIn(kind, html)
+        self.assertIn("America/New_York", html)
+
+
 class WiringTests(unittest.TestCase):
     def test_scheduler_job_is_registered(self):
         from hub import scheduler

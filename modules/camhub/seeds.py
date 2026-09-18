@@ -178,3 +178,105 @@ def provision(slug: str = "buckeye-lake", *, fetch: bool = True) -> dict:
     if fetch:
         result["refresh"] = store.refresh_page(slug, force=True)
     return result
+
+
+def provision_from_spec(spec: dict, *, fetch: bool = True, seed_cache: dict | None = None) -> dict:
+    """Write an operator-supplied spec through the same path as `provision()`.
+    `spec` must carry a slug and sources; anything else is optional. Reserved
+    for the Cam Builder wizard, which owns the JSON schema in `builder.py`.
+
+    A second seed shipped later has two paths in: a file entry here, or an
+    operator running the wizard. Both call this."""
+    from . import store
+    if not spec.get("slug"):
+        raise ValueError("a slug is required")
+    page = store.upsert_page(spec)
+    for key, payload in (seed_cache or {}).items():
+        existing = store.cache_for(page["id"]).get(key)
+        if not existing or not existing.get("payload"):
+            store.seed_cache(page["id"], key, payload, SEED_DATE)
+    from . import sponsors
+    result = {"page": page, "sources": len(spec.get("sources") or []),
+              "house_placements": sponsors.ensure_house_placements(page)}
+    if fetch:
+        result["refresh"] = store.refresh_page(spec["slug"], force=True)
+    return result
+
+
+# ---- second seed: a great_lakes location, so the buoy/co-ops adapters are
+#      exercised in production and the tile-collapse rule is proved on
+#      a page whose water-temp and waves tiles actually light up. Coordinates
+#      are the Vermilion, Ohio lighthouse, on Lake Erie's Ohio shoreline;
+#      the adapters' own probes fill the sources when the wizard runs
+#      probe_all() here for real. This is the ONE second seed the module
+#      ships with; every other client comes through the wizard.
+VERMILION_HARBOR = {
+    "slug": "vermilion-harbor",
+    "title": "Vermilion Harbor Live Cam — Lake Erie Conditions",
+    "client_name": "Vermilion Harbor",
+    "business_name": "Vermilion Harbor",
+    "location_name": "Vermilion Harbor, Lake Erie",
+    "address": "5741 Liberty Ave, Vermilion, OH 44089",
+    "lat": 41.421100, "lon": -82.364100,
+    "timezone": "America/New_York",
+    "location_type": "great_lakes",
+    "cam_embed_url": "",
+    "cam_embed_type": "youtube",
+    "cam_caption": "Looking north across the harbor toward Lake Erie's south shore.",
+    "seo_html": ("<p><strong>Vermilion Harbor</strong> is on Lake Erie's Ohio shoreline, "
+                 "halfway between Cleveland and Sandusky. The lighthouse at the end of the pier is "
+                 "one of the oldest working navigation lights on the lake; the harbor itself is "
+                 "a working port, a fishing dock and, on a summer weekend, one of the busiest sailing "
+                 "hubs on the south shore.</p>"),
+    "status": "live",
+    "config": {
+        "h1": "Vermilion Harbor Live Cam",
+        "place": "Vermilion, OH",
+        "path": "/harbor-cam",
+        "canonical_url": "",
+        "cam_label": "Vermilion pier cam",
+        "night_speed_note": "",
+        "pool_datum_confirmed": True,        # tides adapter reads its own datum
+        "business": {"name": "Vermilion Harbor", "street": "5741 Liberty Ave",
+                     "city": "Vermilion", "state": "OH", "zip": "44089",
+                     "url": "", "phone": ""},
+        "lake": {"name": "Lake Erie", "description":
+                 "The southernmost and shallowest of the Great Lakes, with the "
+                 "warmest summer water on the chain and the fastest wave setup "
+                 "when the wind turns north."},
+        "links": {"reservations": "", "tastings": "", "events": ""},
+        "convert": {"heading": "Sponsor the harbor cam.",
+                    "body": "Reach every visitor watching the lake before they get in a car -- "
+                            "presenting or supporting slots, monthly reporting included."},
+        "house_ads": {
+            "presenting": {"name": "Vermilion Harbor", "badge": "V",
+                           "sub": "Present the Vermilion Cam",
+                           "eyebrow": "Sponsorship available",
+                           "headline": "One presenting slot on the Lake Erie live cam.",
+                           "body": "Exclusive presenting sponsorship of the Vermilion Harbor cam -- "
+                                   "your logo above the stream on every view, a feature block below, "
+                                   "and a monthly performance report.",
+                           "cta": "Sponsor the cam", "url": ""},
+            "supporting": [
+                {"name": "Sponsor this tile", "body": "Reach visitors while they watch the lake.",
+                 "cta": "Get the rate card", "url": ""},
+                {"name": "Sponsor this tile", "body": "Reach visitors while they watch the lake.",
+                 "cta": "Get the rate card", "url": ""},
+                {"name": "Sponsor this tile", "body": "Reach visitors while they watch the lake.",
+                 "cta": "Get the rate card", "url": ""},
+                {"name": "Sponsor this tile", "body": "Reach visitors while they watch the lake.",
+                 "cta": "Get the rate card", "url": ""},
+            ],
+        },
+        "theme": {"wine_deep": "#0b2547", "wine": "#0f3b73", "wine_lift": "#1746a2",
+                  "gold": "#f7c948", "gold_bright": "#ffd664", "ink": "#f5f9ff"},
+    },
+    # sources are left empty on the seed and filled by the wizard's probe on
+    # first provision: this is the point of the second seed. `wizard_seed=True`
+    # tells the staff /provision route to run the builder rather than expect
+    # a static source list. See modules/camhub/app.py provision_from_seed.
+    "sources": [],
+    "wizard_seed": True,
+}
+
+SEEDS["vermilion-harbor"] = VERMILION_HARBOR

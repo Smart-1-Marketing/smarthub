@@ -9,6 +9,11 @@
   <h1>CamHub {{ help_dot('camhub.index') if help_dot is defined else '' }}</h1>
   <p class="lede">A live-cam conditions page per client, served from cache and refreshed on a schedule.
     Every feed is listed with its last successful read, so a dead source shows here before a sponsor says the page looks empty.</p>
+  <div class="row" style="margin-bottom:14px">
+    <a class="btn" href="{{ mount }}/builder">+ New page — Cam Builder</a>
+    <a class="btn sec" href="{{ mount }}/sponsors">Sponsors</a>
+    <a class="btn sec" href="{{ mount }}/reports">Reports</a>
+  </div>
 
   {% if not pages %}
   <div class="card">

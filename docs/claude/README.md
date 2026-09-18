@@ -90,3 +90,4 @@ say "above" or "below" mean earlier or later files in this list.
 | [`82-camhub-a-conditions-page-with-a-sponsor-system-behind-it.md`](82-camhub-a-conditions-page-with-a-sponsor-system-behind-it.md) | CamHub: a conditions page with a sponsor system behind it | 193 |
 | [`83-display-ad-builder-handoff-the-next-rounds.md`](83-display-ad-builder-handoff-the-next-rounds.md) | Display Ad Builder: handoff for the next rounds | 256 |
 | [`84-camhub-sprint-5-reporting-portal-the-hub-card-and-the-mcp-tool.md`](84-camhub-sprint-5-reporting-portal-the-hub-card-and-the-mcp-tool.md) | CamHub Sprint 5: reporting, the portal, the Client 360 card and the MCP tool | 105 |
+| [`85-camhub-sprint-6-the-cam-builder-and-the-second-page.md`](85-camhub-sprint-6-the-cam-builder-and-the-second-page.md) | CamHub Sprint 6: the Cam Builder wizard, re-probe, and a second location type | 80 |
