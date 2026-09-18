@@ -118,6 +118,7 @@ check("the module serves the staff screens, the picker's search and the client's
               "/markup", "/budgets", "/budgets/1", "/provider-check", "/provider-check/x", "/provider-check/confirm",
               "/provider-check/withdraw", "/audiogo-check", "/groundtruth-check", "/amazon-check",
               "/callrail-check",
+              "/bing-check", "/bing-check/pull",
               "/quarantine", "/quarantine/decide",
               "/reconcile", "/reconcile/run", "/refresh/x", "/backfill/x", "/backfill/x/nightly",
               "/backup", "/backup/restore",
@@ -288,6 +289,8 @@ r = staff.post("/reports/unmapped", data={
     "platform": "ttd", "account_id": "t-1", "campaign_id": "t-acme",
     "campaign_name": "Acme Co | CTV | Q4", "client_name": "Acme Co", "client_key": "d:acme.com",
     "product": "Streaming TV", "back": "client", "client": "n:zeta-dental"})
+check("moving a proposal off a client forgets what its name taught for them",
+      [a["client"] for a in store.campaign_aliases() if a["client"] == "n:zeta-dental"], [])
 check("moving from the client's page goes back to that page",
       r.status_code == 302 and r.headers["Location"].endswith("/reports/client/n:zeta-dental?saved=moved"))
 check("...and the campaign is off it", store.campaign_map("ttd", "t-1", "t-acme")["client"], "d:acme.com")

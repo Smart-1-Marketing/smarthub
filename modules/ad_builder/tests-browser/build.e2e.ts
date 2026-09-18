@@ -378,6 +378,28 @@ test('the build screen can be worked from start to the next size', { skip: execu
       const origin = new URL(base).origin;
       await page.goto(`${origin}/tools/display-ads/_hub/start?client=Bella%20Vista%20Catering`, { waitUntil: 'networkidle0', timeout: 90_000 });
       assert.ok(await page.$('#campaign'), 'the Hub start form loads');
+
+      // The Send page, step four: its context comes from the Hub reading the
+      // renderer's project record and the client's email link. With no GHL
+      // configured the honest answer is "link the contact", said on the page.
+      const reviewId = await page.evaluate(async (p) => {
+        const r = await fetch(`/tools/display-ads/api/project/${encodeURIComponent(p)}/review-set`);
+        const b = await r.json();
+        return b.review && b.review.id;
+      }, pid);
+      assert.ok(reviewId, 'the contact sheet just built has an id');
+      await page.goto(`${origin}/display-ad-send?project=${encodeURIComponent(pid)}&review=${encodeURIComponent(reviewId)}`, { waitUntil: 'networkidle0', timeout: 90_000 });
+      await page.waitForFunction(() => /\S/.test(document.getElementById('client')?.textContent || '') || /\S/.test(document.getElementById('result')?.textContent || ''), { timeout: 60_000 });
+      const sendPage = await page.evaluate(() => ({
+        client: document.getElementById('client')?.textContent || '',
+        recipient: document.getElementById('recipient')?.textContent || '',
+        result: document.getElementById('result')?.textContent || '',
+        back: (document.getElementById('back') as HTMLAnchorElement | null)?.getAttribute('href') || '',
+      }));
+      assert.equal(sendPage.result, '', `the Send page loaded its context without an error: ${sendPage.result}`);
+      assert.match(sendPage.client, /Bella Vista/, 'the Send page names the client');
+      assert.match(sendPage.recipient, /To: |Link the client/, 'the recipient line says who, or what is missing');
+      assert.match(sendPage.back, /\/tools\/display-ads\/review\?project=/, 'the way back is the review page');
     }
     assert.deepEqual(problems.filter((p) => !/^503 .*\/api\/preview$/.test(p)), [], 'no errors on the longer walk');
   }

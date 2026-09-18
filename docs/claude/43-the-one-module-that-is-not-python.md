@@ -933,3 +933,30 @@ redirect on a save -- and assert the notice, the quiet retry and the
 clearing. With `E2E_FULL` set (the nightly jobs), it then builds the contact
 sheet on `/review` and waits for every size, reads the health line on
 `/projects`, and behind a Hub loads the start form.
+
+**The fifth round: the review sheet, the Send page and the restore drill.**
+The review page (`public/review.html`) reported every failure as one status
+line and stopped: a poll that missed once during a deploy left "Unexpected
+token <" on screen while the renderer went on building the sheet. Its `api()`
+reads every answer the way the build screen's wrapper does -- a login
+redirect is a sign-out, an HTML 5xx is the renderer restarting and is marked
+transient -- and a transient miss keeps polling at a widening interval (2s
+doubling to 10s, six misses before giving up). Every failure carries a "Try
+again" button that repeats the last action rather than a reload that loses
+the place.
+
+The nightly walk now ends on the Send page (`/display-ad-send`, step four,
+a Hub blueprint reading the renderer's project record and the client's email
+link): it reads the id of the sheet it just built, opens the page, and
+asserts the client is named and the recipient line says who or what is
+missing. With no GHL configured the honest answer is "link the contact", and
+that is what it checks for.
+
+`tests/restart-drill.test.ts` is the restore drill nothing had run: boot the
+renderer, queue a render for three sizes, wait until it is running, SIGKILL
+the process, boot a fresh one on the same output directory, and wait for the
+job to end with every size rendered. `recoverJobs()` had unit tests; this is
+the first time a real process was killed with a render in flight and a
+second process was asked to finish it. One thing it taught on the way: the
+render route refuses a job whose platforms differ from the saved campaign's,
+so a drill has to render what was saved.

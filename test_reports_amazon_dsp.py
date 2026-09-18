@@ -529,6 +529,56 @@ check("...and files it", (res["ok"], res["rows"]), (True, 2))
 check("...clearing what it was waiting on", amazon_dsp.pending_reports(), {})
 
 
+# --------------------------------------------------- a history window
+section("A history window keeps its report ids on a lane of its own")
+
+# The stand-in report carries September days, so the window is September:
+# a row dated after the window's own "today" is one the screen holds.
+W0, W1 = date(2026, 9, 1), date(2026, 9, 15)
+# The nightly is waiting on nothing right now; a window must not change that.
+CALLS.clear()
+ANSWERS.extend([
+    _Resp(200, [{"profileId": 77, "accountInfo": {"id": "ENTITY1"}}]),
+    _Resp(200, {"response": [{"advertiserId": "A1", "name": "Acme Plumbing", "currency": "USD"}]}),
+    _Resp(200, {"reportId": "rep-h1"}),
+    _Resp(200, {"status": "IN_PROGRESS"}),
+])
+wm_before = dict(store.sync_status()["amazon_dsp"])
+res = amazon_dsp.pull_window(W0, W1, budget=0)
+submit = [c for c in CALLS if c["method"] == "POST" and "reports" in c["url"] and c["body"]]
+check("the window's report asks for exactly the window, in Amazon's compact dates",
+      any(c["body"].get("startDate") == "20260901" and c["body"].get("endDate") == "20260915" for c in submit),
+      note=[c["body"] for c in submit])
+check("...is pending while Amazon prepares it, with a note",
+      (res["ok"], res["rows"], list(res["pending"]), "still preparing" in res.get("note", "")), (True, 0, ["A1"], True))
+check("...kept on the window's own lane in the note",
+      amazon_dsp._lane_pending("2026-09-01..2026-09-15"), {"A1": "rep-h1"})
+check("...and the nightly's pending is untouched", amazon_dsp.pending_reports(), {})
+check("...and the nightly watermark is untouched", store.sync_status()["amazon_dsp"], wm_before)
+CALLS.clear()
+ANSWERS.extend([
+    _Resp(200, [{"profileId": 77, "accountInfo": {"id": "ENTITY1"}}]),
+    _Resp(200, {"response": [{"advertiserId": "A1", "name": "Acme Plumbing", "currency": "USD"}]}),
+    _Resp(200, {"status": "SUCCESS", "location": SIGNED_URL}),
+])
+res = amazon_dsp.pull_window(W0, W1)
+check("the next call asks for the same report rather than paying for a second one",
+      [c["url"].rsplit("/", 1)[-1] for c in CALLS if "dsp/reports" in c["url"]], ["rep-h1"])
+check("...lands it", (res["ok"], res["rows"], res["pending"]), (True, 2, {}))
+check("...clears the lane", amazon_dsp._lane_pending("2026-09-01..2026-09-15"), {})
+check("...and still stamps no watermark for the night", store.sync_status()["amazon_dsp"], wm_before)
+# The nightly's own note survives a lane write, and a lane survives the nightly's.
+amazon_dsp._remember_lane("2026-07-02..2026-07-31", {"A1": {"report_id": "rep-h2", "since": "2026-09-16T00:00:00+00:00"}})
+amazon_dsp._remember({"ok": True, "pending": {"A1": {"report_id": "rep-n9", "since": "2026-09-16T00:00:00+00:00"}}})
+check("a nightly note written afterwards carries the lane along",
+      (amazon_dsp._lane_pending("2026-07-02..2026-07-31"), amazon_dsp.pending_reports()),
+      ({"A1": "rep-h2"}, {"A1": "rep-n9"}))
+amazon_dsp._remember_lane("2026-07-02..2026-07-31", {})
+check("...and clearing the lane leaves the nightly's alone",
+      ("2026-07-02..2026-07-31" in (amazon_dsp._remembered().get("history") or {}), amazon_dsp.pending_reports()),
+      (False, {"A1": "rep-n9"}))
+amazon_dsp._remember({"ok": True, "pending": {}})
+
 # ------------------------------------------------ a report that never lands
 section("A report that never lands is named, not carried for ever")
 

@@ -368,3 +368,27 @@ confirmations is filing wrong more than it should, and that reading --
 not the size of the queue -- is what a bar (`FUZZY_FILE_SCORE`,
 `ALIAS_FILE_COUNT`, `ACCOUNT_MIN_CONFIRMED`) is raised on. An unreadable
 store is *not measured*, never a scorecard of noughts.
+
+
+**Hardening the queue (September 18, 2026).** Five things an adversarial
+read of the mapping work found, each with a test. **The queue reader
+walked the whole fact table**: `unmapped_campaigns()` ordered every
+campaign-day newest-first and read it in Python until each campaign had
+been seen, on every queue load, board load and hourly run; it reads the
+newest day per campaign through a grouped subquery now. **A second
+refusal overwrote the first**: `MapRefusal` is one row per campaign, so
+a campaign refused under Acme and then, re-filed, under Beta forgot Acme
+and the next run filed it there again; `others_json` (a LATE column)
+keeps the earlier refusals, the queue row carries `refused_clients` for
+its present name, and the suggestions offer none of them. **A common
+word led**: "home" in a book of twelve Home-somethings was a 75% lead on
+each; a word carried by more than `COMMON_WORD_CLIENTS` clients leads
+nobody on its own. **A descriptive alias could file wrong**: "heating
+cooling" taught twice for Riverside HVAC would have filed Summit Heating
+& Cooling's first campaign under Riverside; an alias whose every word is
+in another client's registry name is capped at a suggestion however often
+it is taught, and says so. **A Move left the old client's lesson
+standing**: moving a proposal off a client now forgets what its name
+taught for them, as Not theirs does. And the run reads each distinct
+campaign name once across all its accounts, and drops the board's held
+"look like theirs" count when it finishes.

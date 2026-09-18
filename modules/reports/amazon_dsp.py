@@ -259,14 +259,44 @@ def _remember(state: dict, *, keep_pending: bool = False) -> None:
     at them -- a night that stopped at "not configured", or at an entity that
     would not answer. Overwriting those with this run's empty dict is how one
     throttled night makes the next one pay for every report again."""
+    previous = _remembered()
     if keep_pending:
-        held = _remembered().get("pending")
+        held = previous.get("pending")
         state = {**state, "pending": held if isinstance(held, dict) else {}}
+    # The history lanes ride along untouched: they are pull_window()'s and
+    # the nightly's note is not where they are decided.
+    if "history" not in state:
+        history = previous.get("history")
+        state = {**state, "history": history if isinstance(history, dict) else {}}
     try:
         from hub import jsonstore
         jsonstore.write_json(_state_path(), state, durable=False)
     except Exception:                       # noqa: BLE001 - a note is not the pull
         pass
+
+
+def _lane_pending(lane: str) -> dict:
+    """``{advertiser_id: report_id}`` a history lane is waiting on."""
+    held = ((_remembered().get("history") or {}).get(lane) or {})
+    return {str(a): str(h.get("report_id")) for a, h in held.items()
+            if isinstance(h, dict) and h.get("report_id")}
+
+
+def _lane_since(lane: str) -> dict:
+    held = ((_remembered().get("history") or {}).get(lane) or {})
+    return {str(a): str(h["since"]) for a, h in held.items() if isinstance(h, dict) and h.get("since")}
+
+
+def _remember_lane(lane: str, pending: dict) -> None:
+    """Write one history lane's pending reports, and nothing else: the
+    nightly's ``pending`` and its last result stay as they were."""
+    state = _remembered()
+    history = dict(state.get("history") or {})
+    if pending:
+        history[lane] = dict(pending)
+    else:
+        history.pop(lane, None)
+    _remember({**state, "history": history})
 
 
 def _remembered() -> dict:
@@ -344,10 +374,12 @@ def _hours_since(stamp: str) -> float:
     return max(0.0, (datetime.now(timezone.utc) - when).total_seconds() / 3600.0)
 
 
-def stuck_reports() -> dict:
-    """``{advertiser_id: hours}`` for every pending report past the ceiling."""
-    return {adv: round(_hours_since(since), 1) for adv, since in pending_since().items()
-            if _hours_since(since) >= STUCK_AFTER_HOURS}
+def stuck_reports(since: dict | None = None) -> dict:
+    """``{advertiser_id: hours}`` for every pending report past the ceiling
+    -- the nightly's, or a lane's when its stamps are passed in."""
+    since = pending_since() if since is None else since
+    return {adv: round(_hours_since(stamp), 1) for adv, stamp in since.items()
+            if _hours_since(stamp) >= STUCK_AFTER_HOURS}
 
 
 # ---------------------------------------------------------------------------
@@ -355,8 +387,16 @@ def stuck_reports() -> dict:
 # ---------------------------------------------------------------------------
 
 def pull(today: date | None = None, pending: dict | None = None, days: int = LOOKBACK_DAYS,
-         sleep=None, clock=None, budget: float | None = None) -> dict:
+         sleep=None, clock=None, budget: float | None = None, *,
+         window: tuple | None = None, lane: str = "") -> dict:
     """One tick: every advertiser under the entity, the trailing fortnight.
+
+    ``window`` and ``lane`` are ``pull_window()``'s: a fixed ``(start, end)``
+    instead of the trailing days, and the pending report ids kept under
+    ``lane`` in the note's ``history`` rather than beside the nightly's, so
+    neither run collects the other's reports. A lane stamps no watermark
+    and leaves the nightly's note alone: history landing is not the night's
+    pull happening.
 
     ``pending`` is ``{advertiser_id: report_id}`` carried from the last tick
     -- the reports Amazon was still preparing. The caller may pass one; left
@@ -378,22 +418,27 @@ def pull(today: date | None = None, pending: dict | None = None, days: int = LOO
     st = amazon_status()
     if not st["configured"]:
         out["error"] = not_configured_line()
-        _remember({**out, "at": store.iso(store.now()), "reached": False},
-                  keep_pending=True)
+        if not lane:
+            _remember({**out, "at": store.iso(store.now()), "reached": False},
+                      keep_pending=True)
         return out
     if not st["connected"]:
         out["error"] = NOT_CONNECTED
-        _remember({**out, "at": store.iso(store.now()), "reached": False},
-                  keep_pending=True)
+        if not lane:
+            _remember({**out, "at": store.iso(store.now()), "reached": False},
+                      keep_pending=True)
         return out
     if not CONFIRMED:
         out["notes"].append("the field map is a transcription nobody has confirmed -- "
                             f"reading it as a claim; confirm on {CHECK_PAGE}")
 
     today = today or date.today()
-    carried = pending_reports() if pending is None else _carried(pending)
-    since = pending_since()
-    stale = {adv: h for adv, h in stuck_reports().items() if adv in carried}
+    if pending is not None:
+        carried = _carried(pending)
+    else:
+        carried = _lane_pending(lane) if lane else pending_reports()
+    since = _lane_since(lane) if lane else pending_since()
+    stale = {adv: h for adv, h in stuck_reports(since).items() if adv in carried}
     for adv in stale:
         # Past the ceiling: stop asking for that report and ask for a new one.
         # Named in the result and on the index, because a pull that quietly
@@ -410,23 +455,28 @@ def pull(today: date | None = None, pending: dict | None = None, days: int = LOO
             + ", ".join(f"{adv} (preparing {stale[adv]:g}h)" for adv in sorted(stale))
             + f", each past {STUCK_AFTER_HOURS}h with nothing landed for it")
     pending = carried
-    start = today - timedelta(days=max(1, int(days)))
-    end = today - timedelta(days=1)          # complete days only
+    if window:
+        start, end = window
+    else:
+        start = today - timedelta(days=max(1, int(days)))
+        end = today - timedelta(days=1)      # complete days only
 
     cfg = amz.load_config()
     try:
         adv = amz.list_advertisers(cfg)
     except (amz.AmazonAuthError, amz.AmazonApiError) as exc:
         out["error"] = _entity_error(exc)
-        store.record_sync(PLATFORM, rows=0, error=out["error"], source="native")
-        _remember({**out, "at": store.iso(store.now()), "reached": True},
-                  keep_pending=True)
+        if not lane:
+            store.record_sync(PLATFORM, rows=0, error=out["error"], source="native")
+            _remember({**out, "at": store.iso(store.now()), "reached": True},
+                      keep_pending=True)
         return out
     if not adv.get("ok"):
         out["error"] = amz._redact(adv.get("error") or "the entity's profile is not visible")
-        store.record_sync(PLATFORM, rows=0, error=out["error"], source="native")
-        _remember({**out, "at": store.iso(store.now()), "reached": True},
-                  keep_pending=True)
+        if not lane:
+            store.record_sync(PLATFORM, rows=0, error=out["error"], source="native")
+            _remember({**out, "at": store.iso(store.now()), "reached": True},
+                      keep_pending=True)
         return out
 
     profile = adv["profile_id"]
@@ -472,6 +522,11 @@ def pull(today: date | None = None, pending: dict | None = None, days: int = LOO
 
     out["error"] = "; ".join(out["failures"])[:300]
     out["ok"] = not out["failures"]
+    if lane:
+        # History: the lane's pending ids are what is remembered, and the
+        # night's watermark and note are not touched.
+        _remember_lane(lane, out["pending"])
+        return out
     if out["pending"] and not rows and not out["failures"]:
         # Nothing landed and nothing is wrong: Amazon is still preparing. No
         # watermark, so /status reads this as a feed whose age is growing
@@ -480,6 +535,20 @@ def pull(today: date | None = None, pending: dict | None = None, days: int = LOO
     else:
         store.record_sync(PLATFORM, rows=out["rows"], error=out["error"], source="native")
     _remember({**out, "at": store.iso(store.now()), "reached": True})
+    return out
+
+
+def pull_window(start: date, end: date, **kw) -> dict:
+    """One fixed window of history, for ``modules/reports/backfill.py``:
+    ``pull()`` over ``(start, end)`` on the lane named for the window, so
+    the report ids it waits on are kept apart from the nightly's. Answers
+    ``pending`` (a truthy dict) while Amazon is still preparing any of the
+    advertisers' reports, and the ledger asks for the same window again."""
+    lane = f"{start.isoformat()}..{end.isoformat()}"
+    out = pull(today=end + timedelta(days=1), window=(start, end), lane=lane, **kw)
+    if out.get("pending"):
+        out["note"] = (f"{len(out['pending'])} report(s) still preparing at Amazon for "
+                       f"{start} to {end}; the next run collects them")
     return out
 
 

@@ -583,6 +583,86 @@ try:
 finally:
     store.SessionLocal = _real_session
 
+# ------------------------------------------------------ the hardening
+section("Hardening: refusal memory, common words, generic aliases, one reading per name")
+
+# A campaign refused under one client and then, re-filed, under another
+# remembers both, and the queue offers neither.
+clients_registry.all_clients = lambda refresh=False: FUZZ
+store.upsert_rows([{"platform": "meta", "account_id": "act_h", "campaign_id": "h-1",
+                    "campaign_name": "Acme - Promo", "date": TODAY - timedelta(days=1),
+                    "spend": 5, "impressions": 50, "clicks": 1, "source": "csv"}])
+store.map_campaign("meta", "act_h", "h-1", client="d:acme.com", client_name="Acme Plumbing",
+                   product="Paid Social", mapped_by="auto", auto_rule="fuzzy_v1", campaign_name="Acme - Promo")
+store.refuse_mapping("meta", "act_h", "h-1", by="Todd")
+store.map_campaign("meta", "act_h", "h-1", client="d:acmeroofing.com", client_name="Acme Roofing",
+                   product="Paid Social", mapped_by="auto", auto_rule="fuzzy_v1", campaign_name="Acme - Promo")
+store.refuse_mapping("meta", "act_h", "h-1", by="Todd")
+ref = store.refusals()[("meta", "act_h", "h-1")]
+check("the newest refusal is the row", ref["client"], "d:acmeroofing.com")
+check("...and the one before it is kept beside it", [o["client"] for o in ref["others"]], ["d:acme.com"])
+hq = {r["campaign_id"]: r for r in store.unmapped_campaigns(days=30, limit=200)}
+check("the queue row names every client refused under this name",
+      hq["h-1"]["refused_clients"], ["d:acme.com", "d:acmeroofing.com"])
+automap.annotate([hq["h-1"]])
+check("...and suggests neither", [c["name"] for c in hq["h-1"]["suggestions"]], [])
+store.refuse_mapping("meta", "act_h", "h-1", by="Todd") if store.campaign_map("meta", "act_h", "h-1") else None
+# Renamed, the memory applies to the old name only.
+store.upsert_rows([{"platform": "meta", "account_id": "act_h", "campaign_id": "h-1",
+                    "campaign_name": "Acme Roofing - Promo", "date": TODAY,
+                    "spend": 5, "impressions": 50, "clicks": 1, "source": "csv"}])
+hq = {r["campaign_id"]: r for r in store.unmapped_campaigns(days=30, limit=200)}
+check("renamed, the refusals under the old name no longer bind", hq["h-1"]["refused_clients"], [])
+check("...and the newest row's name is the one the queue shows", hq["h-1"]["campaign_name"], "Acme Roofing - Promo")
+
+# A word most of the book carries leads nobody on its own.
+MANY = FUZZ + [{"name": f"Home {w}", "url": "", "key": f"n:home-{w.lower()}"}
+               for w in ("Plumbing", "Roofing", "Electric", "Dental", "Auto", "Vet")]
+idx = automap.build_index(MANY)
+check("a word carried by more clients than COMMON_WORD_CLIENTS is common",
+      all("home" not in c["partial_words"] for c in idx if c.get("key", "").startswith("n:home-")))
+check("...so it leads nobody", automap.suggest_clients("Home - Search - 2026", index=idx), [])
+check("...while the whole name still matches", automap.suggest_clients("Home Dental - Search", index=idx)[0]["name"], "Home Dental")
+check("a word few clients carry still leads",
+      [h["name"] for h in automap.suggest_clients("Buckeye - Search", index=idx)], ["Buckeye Lake Winery"])
+
+# An alias made of another client's words suggests and never files.
+GEN = FUZZ + [{"name": "Summit Heating & Cooling", "url": "", "key": "n:summit-heating-cooling"}]
+idx = automap.build_index(GEN, [{"alias": "heating cooling", "client": "d:riverside.com",
+                                 "client_name": "Riverside HVAC", "count": 5}])
+hits = automap.suggest_clients("Riverside Heating & Cooling - Search", index=idx)
+riv = next((h for h in hits if h["key"] == "d:riverside.com"), None)
+check("an alias that is part of another client's name is capped at a suggestion however often taught",
+      riv and (riv["pct"], "suggests and never files" in riv["why"]), (85, True))
+check("...and files nothing", automap.decide(hits), None)
+idx = automap.build_index(GEN, [{"alias": "blw", "client": "n:buckeye-lake-winery",
+                                 "client_name": "Buckeye Lake Winery", "count": 2}])
+check("a nickname in nobody else's name still files",
+      (automap.decide(automap.suggest_clients("BLW - Search", index=idx)) or {}).get("name"), "Buckeye Lake Winery")
+
+# One reading per distinct campaign name across a run.
+_reads = {"n": 0}
+_real_suggest = automap.suggest_clients
+def _counting_suggest(*a, **k):
+    _reads["n"] += 1
+    return _real_suggest(*a, **k)
+automap.suggest_clients = _counting_suggest
+idx = automap.build_index(FUZZ)
+memo = {}
+for acct in ("a1", "a2", "a3"):
+    automap.suggest_for_row({"platform": "meta", "account_id": acct, "campaign_name": "Acme Plumbing - Leads"},
+                            index=idx, evidence={}, name_cache=memo)
+automap.suggest_clients = _real_suggest
+check("the same name on three accounts is read once", _reads["n"], 1)
+
+# The board's held reading is dropped when the run changes the queue.
+automap.likely_by_client()
+check("...held before the run", automap._LIKELY_CACHE["value"] is not None)
+automap.run(actor="test")
+check("...and forgotten by it", automap._LIKELY_CACHE["value"], None)
+# The sections below read the wider registry the account section set.
+clients_registry.all_clients = lambda refresh=False: FUZZ
+
 # ------------------------------------------------- the product box hint
 section("What the name says the product is")
 
