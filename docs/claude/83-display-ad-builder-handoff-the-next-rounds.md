@@ -16,11 +16,14 @@ disk instead of inlining base64; bulk approval can accept a size's
 warnings; the style panel's number boxes track state; nightly failures
 reach the team channel; the decision has its own alert line). Items 1, 2
 and 3 landed in PR #752; items 6, 11 and 12 in PR #750. A seventh pass
-closed **items 8 and 10**: the font registry loads from a committed
-manifest (~3ms) instead of probing every file at boot (~350ms), and the
-rate-limit buckets flush to `OUTPUT_DIR/limits.json` every 10s so the
-public proof budget actually is per hour, not "per deploy interval or
-per hour, whichever is shorter". Four items remain (4, 5, 7, 9).
+closed **items 8, 9 and 10**: the font registry loads from a committed
+manifest (~3ms) instead of probing every file at boot (~350ms), the
+`/api/preview` route serves a 24-entry LRU keyed on the campaign JSON
+plus concept/size/platform so a size switch never re-renders inputs
+that have not changed, and the rate-limit buckets flush to
+`OUTPUT_DIR/limits.json` every 10s so the public proof budget actually
+is per hour, not "per deploy interval or per hour, whichever is
+shorter". Three items remain (4, 5, 7).
 
 ### Where it stands
 
@@ -215,13 +218,16 @@ same `NM` lookup at boot, so the manifest is portable across
 `node_modules` layouts. `tests/fonts-google.test.ts` asserts the
 manifest and probe list the same families in the same order.
 
-**9. Preview cache per size and revision. (M)** Switching size re-renders a
-preview that has not changed since the last visit. Key a small in-memory
-LRU in `server.ts` on `sha256(campaign JSON + conceptId + size + platform)`,
-24 entries, 60-second expiry, and serve hits without touching sharp. The
-build screen already sends the whole campaign, so the key is exact. Prove
-with the http test: two identical previews, the second answers in under
-20ms and carries `cached: true`.
+**9. Preview cache per size and revision. ~~(M)~~ DONE.** `src/preview-cache.ts`
+is a small LRU keyed on `sha256(campaign JSON | conceptId | size |
+platform)`, 24 entries, 60-second TTL; the /api/preview handler serves
+hits without touching sharp and adds `cached: true` to the response.
+The build screen sends the whole campaign, so any edit invalidates the
+key exactly. A manual override bypasses the cache since overrides are
+stored on the project and can change without the campaign JSON
+changing. `tests/preview-cache.test.ts` proves LRU eviction, TTL
+expiry, read-freshness, and that campaign/size/platform each change
+the key.
 
 **10. The rate-limit buckets survive a deploy. ~~(S, decide rather than
 build)~~ DONE.** `auth.ts` now flushes buckets to

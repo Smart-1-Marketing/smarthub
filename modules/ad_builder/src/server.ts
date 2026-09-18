@@ -38,6 +38,7 @@ import { readBatch, campaignFromBatch, BATCH_MAX_ROWS } from './batch';
 import { analyzeLandingPage } from './landing';
 import { landingImages } from './landing-images';
 import { checkAuth, denied, rateLimit, sessionCookie, configuredToken, sweepBuckets, intakeCodeOk, intakeAllowed, loadBuckets, flushBuckets } from './auth';
+import { previewCache, previewCacheKey } from './preview-cache';
 import { runDiagnostics } from './diagnostics';
 import { renderDiagnostics } from './diagnostics-page';
 import { scheduleSweep, sweep } from './retention';
@@ -2984,16 +2985,27 @@ const server = http.createServer(async (req, res) => {
           return json(res, 200, { image: `data:image/${meta.format};base64,${bytes.toString('base64')}`, width: meta.width, height: meta.height,
             status: 'warn', replacement: true, qa: [{ check: 'manual-artwork-review', status: 'warn', detail: `Previewing the actual replacement: ${override.originalName}. Review this file before approving; generated design edits will not change the replacement.` }] });
         }
+        // Switching size used to re-render a preview that had not changed
+        // since the last visit -- the build screen fires one on every edit
+        // and one on every size switch, and a size the person already
+        // rendered replays exactly the same input. The cache key is the
+        // campaign JSON plus concept/size/platform; an override skips the
+        // cache above, since overrides are stored on the project and can
+        // change without the campaign JSON changing.
+        const size = (body.size ?? '300x250') as SizeKey;
+        const platform = body.platform ?? 'google';
+        const cacheKey = previewCacheKey(campaign, concept.conceptId, size, platform);
+        const cached = previewCache.get(cacheKey);
+        if (cached) return json(res, 200, { ...cached, cached: true });
         const out = await renderPreview({
           brand: campaign.brand,
           concept,
-          platform: body.platform ?? 'google',
-          size: (body.size ?? '300x250') as any,
+          platform,
+          size,
           assetRoot: ROOT,
         });
-        const size = (body.size ?? '300x250') as SizeKey;
         const copy = { ...(concept.copy?.default ?? {}), ...(concept.copy?.[size] ?? {}) };
-        return json(res, 200, {
+        const responseBody = {
           image: `data:image/png;base64,${out.png.toString('base64')}`,
           width: out.width,
           height: out.height,
@@ -3021,7 +3033,9 @@ const server = http.createServer(async (req, res) => {
           // the cost of twice, and it would drift the day either half moved.
           carry: carryFor(concept, size),
           style: styleFor(concept, size) ?? {},
-        });
+        };
+        previewCache.set(cacheKey, responseBody);
+        return json(res, 200, { ...responseBody, cached: false });
       } catch (e: any) {
         return json(res, 422, { error: e?.message ?? 'Preview failed' });
       }

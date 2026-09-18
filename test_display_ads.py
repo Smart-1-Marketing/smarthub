@@ -2613,6 +2613,20 @@ def test_the_seventh_round_font_manifest_and_bucket_persistence():
     check("SIGTERM at deploy time flushes what has not yet been persisted",
           "'SIGTERM'" in server_ts and "flushBuckets(OUT)" in server_ts)
 
+    # 9. Preview cache
+    cache_ts = (MODULE / "src" / "preview-cache.ts").read_text()
+    check("the preview cache is a small LRU keyed on the campaign JSON",
+          "PREVIEW_CACHE_MAX = 24" in cache_ts and "PREVIEW_CACHE_TTL_MS = 60_000" in cache_ts
+          and "createHash('sha256')" in cache_ts
+          and "JSON.stringify(campaign)" in cache_ts)
+    check("the LRU moves a read row to the newest slot",
+          "// LRU: move to the newest slot on read." in cache_ts)
+    check("the preview handler serves hits without touching sharp",
+          "previewCache.get(cacheKey)" in server_ts and "cached: true }" in server_ts
+          and "previewCache.set(cacheKey" in server_ts)
+    check("and an override bypasses the cache above (its file changes without the campaign changing)",
+          server_ts.index("if (override)") < server_ts.index("previewCache.get(cacheKey)"))
+
 
 def main():
     print(__doc__.strip().splitlines()[0])
