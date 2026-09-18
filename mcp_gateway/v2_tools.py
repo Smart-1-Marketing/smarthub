@@ -820,6 +820,45 @@ def _perf_unavailable(identity: dict, exc: Exception) -> dict:
             "message": "The reports store could not be read."}
 
 
+def cam_performance(client_name: str, period: str = "last_30",
+                    compare: str = "previous_period",
+                    start_date: str = "", end_date: str = "",
+                    limit: int = 50) -> dict:
+    """CamHub page numbers for one client, per the same period vocabulary
+    the ad-performance tool uses. Reads the rollup only; a client with no
+    CamHub page returns available=True and an empty pages list rather
+    than not_found, so Ask SmartHub can say "no CamHub page" and stop."""
+    identity = resolve_identity(client_name)
+    if not identity.get("known"):
+        _audit("get_cam_performance", identity, status="not_found")
+        return _not_found(client_name, identity)
+    try:
+        from modules.camhub import mcp as cam_mcp
+    except Exception as exc:                                # noqa: BLE001
+        _audit("get_cam_performance", identity, status="unavailable")
+        return {"found": True, "available": False, "identity": identity,
+                "error": _clean(f"{type(exc).__name__}: {exc}", 500),
+                "reason": "unavailable"}
+    try:
+        result = cam_mcp.get_cam_performance(identity["client"], period,
+                                             compare, start_date, end_date,
+                                             limit)
+    except Exception as exc:                                # noqa: BLE001
+        _audit("get_cam_performance", identity, status="unavailable")
+        return {"found": True, "available": False, "identity": identity,
+                "error": _clean(f"{type(exc).__name__}: {exc}", 500),
+                "reason": "unavailable"}
+    if not result.get("found"):
+        _audit("get_cam_performance", identity, status="not_found")
+        return {**result, "identity": identity}
+    if not result.get("available"):
+        _audit("get_cam_performance", identity, status=result.get("reason", "invalid"))
+        return {**result, "identity": identity}
+    pages = result.get("pages") or []
+    _audit("get_cam_performance", identity, result_count=len(pages))
+    return {**result, "identity": identity}
+
+
 def client_performance(client_name: str, period: str = "last_30",
                        compare: str = "previous_period",
                        platform: str = "", product: str = "",
@@ -1430,5 +1469,17 @@ def register(mcp) -> None:
     def get_client_insertion_orders(client_name: str, limit: int = 20) -> dict:
         """Get submitted insertion-order summaries for a client."""
         return client_insertion_orders(client_name, limit)
+
+    @mcp.tool(title="Get CamHub page performance",
+              annotations=READ_ONLY_TOOL_ANNOTATIONS)
+    def get_cam_performance(client_name: str, period: str = "last_30",
+                            compare: str = "previous_period",
+                            start_date: str = "", end_date: str = "",
+                            limit: int = 50) -> dict:
+        """Get a client's CamHub page numbers -- pageviews, viewable
+        impressions, clicks and per-placement rows -- for a named
+        period, with the prior period beside them."""
+        return cam_performance(client_name, period, compare,
+                               start_date, end_date, limit)
 
     setattr(mcp, "_smarthub_v2_registered", True)

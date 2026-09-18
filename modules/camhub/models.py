@@ -191,6 +191,44 @@ class DailyStat(Base):
     updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
 
 
+class SponsorReport(Base):
+    """One row per sponsor per month for Sprint 5's outbox.
+
+    The scheduled job on the 1st creates a row per sponsor for the
+    prior month, renders the PDF and files its URL. `status` is the
+    lifecycle -- pending, rendered, sent, failed -- and `attempts`
+    lets a re-run stop after the third try rather than mail the
+    same PDF every hour. `pdf_public_id` is what Cloudinary handed
+    back so the file can be replaced without moving its URL.
+
+    A row is unique on (sponsor_id, period) so an operator who
+    clicks "regenerate" cannot end up with two rows for the same
+    month, and the automated run is idempotent."""
+    __tablename__ = "camhub_sponsor_reports"
+    __table_args__ = (UniqueConstraint("sponsor_id", "period",
+                                       name="uq_camhub_sponsor_report_period"),)
+    id = Column(Integer, primary_key=True)
+    sponsor_id = Column(Integer, ForeignKey("camhub_sponsors.id"),
+                        nullable=False, index=True)
+    # ISO YYYY-MM. String rather than a date column so the composite
+    # unique key stays flat and a portal URL for a month is unambiguous.
+    period = Column(String(7), nullable=False, index=True)
+    status = Column(String(16), default="pending")   # pending | rendered | sent | failed
+    pdf_url = Column(String(600))
+    pdf_public_id = Column(String(300))
+    csv_url = Column(String(600))
+    impressions = Column(Integer, default=0)
+    clicks = Column(Integer, default=0)
+    attempts = Column(Integer, default=0)
+    last_error = Column(Text)
+    rendered_at = Column(DateTime(timezone=True))
+    sent_at = Column(DateTime(timezone=True))
+    recipient = Column(String(200))
+    actor = Column(String(120))
+    created_at = Column(DateTime(timezone=True), default=_now)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
 def _create_tables() -> str:
     return create_all_metadata(Base.metadata)
 

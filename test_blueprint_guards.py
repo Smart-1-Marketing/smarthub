@@ -428,6 +428,20 @@ PUBLIC_DYNAMIC: dict[str, str] = {
                                           "sets Access-Control-Allow-Origin "
                                           "because it is fetched from their "
                                           "domain rather than ours",
+    "/tools/camhub/portal/<token>": "a sponsor's read-only portal. The token "
+                                    "is signed with the Hub secret and "
+                                    "resolves to exactly one sponsor, so "
+                                    "there is no Hub login on the URL; a "
+                                    "bad or expired token renders "
+                                    "cam_missing.html",
+    "/tools/camhub/portal/<token>/chart.png": "the same portal's daily "
+                                              "impressions chart, rendered "
+                                              "as PNG so the page keeps no "
+                                              "state and no data endpoint",
+    "/tools/camhub/portal/<token>/csv": "the same portal's downloadable CSV: "
+                                        "one row per placement per day plus a "
+                                        "totals footer, over the sponsor's "
+                                        "own placements only",
     "/wx/<token>*": "the weather trigger setup wizard a prospect or client "
                     "opens with a lead's unguessable token and no Hub "
                     "account at all -- the page itself and its own read "

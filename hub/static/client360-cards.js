@@ -1226,3 +1226,79 @@ function suiteMatch(name){
         '<a class="gbtn" href="/suite/?'+p.toString()+'">Open Suite</a>';
     });
 }
+
+/* ---- CamHub live cam (data behind hub/api/client/camhub -> modules/camhub/hub_card.for_client) ----
+   One row per CamHub page the client owns, with this month's pageviews,
+   the top placements with impressions and clicks, source health, and a
+   link into the module. A client with no page renders an empty state
+   rather than being absent so nobody wonders whether the pipeline was
+   checked. */
+function renderCamhubCard(d){
+  d = d || {};
+  if(d.measured === false){
+    return '<div class="empty">CamHub could not be read'+(d.reason?': '+esc(d.reason):'')+'.</div>';
+  }
+  const pages = d.pages || [];
+  if(!pages.length){
+    return '<div class="empty">No CamHub page for this client. '
+      +'<a class="open-link" href="/tools/camhub/">Open CamHub</a> to build one.</div>';
+  }
+  const dot = st => '<span class="hdot" style="background:'
+    + ({green:'#059669',amber:'#d97706',red:'#dc2626'}[st]||'#94a3b8') + '"></span>';
+  return pages.map(p => {
+    const placements = (p.placements||[]).slice(0,5);
+    const rows = placements.length
+      ? '<table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:6px">'
+        +'<thead><tr><th style="text-align:left;padding:4px 6px;color:var(--muted);font-size:11.5px;text-transform:uppercase">Placement</th>'
+        +'<th style="text-align:right;padding:4px 6px;color:var(--muted);font-size:11.5px;text-transform:uppercase">Imp</th>'
+        +'<th style="text-align:right;padding:4px 6px;color:var(--muted);font-size:11.5px;text-transform:uppercase">Clicks</th>'
+        +'<th style="text-align:right;padding:4px 6px;color:var(--muted);font-size:11.5px;text-transform:uppercase">CTR</th></tr></thead>'
+        +'<tbody>'
+        +placements.map(r => '<tr>'
+          +'<td style="padding:4px 6px">'+esc(r.name)
+          +(r.position==='presenting'?' <span class="pill" style="background:#dbeafe;color:#1d4ed8;font-size:10.5px">Presenting</span>':'')
+          +(r.is_house?' <span class="pill" style="background:#f1f5f9;color:#475569;font-size:10.5px">House</span>':'')
+          +'</td>'
+          +'<td style="padding:4px 6px;text-align:right">'+(r.impressions||0).toLocaleString()+'</td>'
+          +'<td style="padding:4px 6px;text-align:right">'+(r.clicks||0).toLocaleString()+'</td>'
+          +'<td style="padding:4px 6px;text-align:right">'+(r.ctr!=null?Number(r.ctr).toFixed(2)+'%':'—')+'</td>'
+          +'</tr>').join('')
+        +'</tbody></table>'
+      : '<div class="muted" style="font-size:12.5px;margin-top:6px">No placements sold yet.</div>';
+    const src = p.sources || {green:0,amber:0,red:0};
+    return '<div style="padding:8px 0;border-bottom:1px solid var(--line,#e2e8f0)">'
+      +'<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
+      +'<b>'+esc(p.title)+'</b>'
+      +'<a class="gbtn" href="'+esc(p.live_url)+'" target="_blank" rel="noopener">Open live page</a>'
+      +'<a class="gbtn" href="'+esc(p.staff_url)+'">Open in CamHub</a>'
+      +'<span class="muted" style="font-size:12.5px">'
+      +(p.pageviews_month||0).toLocaleString()+' pageviews this month · '
+      +(p.unique_sessions_month||0).toLocaleString()+' unique sessions</span>'
+      +'</div>'
+      +'<div style="margin-top:6px;font-size:12.5px">Sources: '
+      +dot('green')+src.green+' green &nbsp;'
+      +dot('amber')+src.amber+' amber &nbsp;'
+      +dot('red')+src.red+' red</div>'
+      +rows
+      +'</div>';
+  }).join('');
+}
+
+function loadCamhubCard(name){
+  const el = document.getElementById('c-camhub');
+  if(!el) return;
+  const gen = c360Generation;
+  fetch('/api/client/camhub?name='+encodeURIComponent(name),{credentials:'same-origin'})
+    .then(r => r.ok ? r.json() : {measured:false, reason:'unreachable'})
+    .then(d => {
+      if(gen !== c360Generation) return;
+      el.innerHTML = renderCamhubCard(d);
+      const open = document.getElementById('c-camhub-open');
+      if(open && (d.pages||[]).length) open.style.display='';
+    })
+    .catch(() => {
+      if(gen !== c360Generation) return;
+      el.innerHTML = renderCamhubCard({measured:false, reason:'network error'});
+    });
+}
+/* ---- end CamHub live cam ---- */

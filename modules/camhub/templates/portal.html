@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>{{ view.sponsor.name }} — CamHub sponsor portal</title>
+  <style>
+    :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--soft:#f8fafc;--muted:#64748b;--ok:#16a34a}
+    *{box-sizing:border-box}
+    body{margin:0;background:#f4f6fa;color:#1e293b;font:14.5px/1.5 'Segoe UI',system-ui,sans-serif}
+    .wrap{max-width:960px;margin:0 auto;padding:26px 20px 60px}
+    .brand{color:var(--muted);font-size:12.5px;letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px}
+    h1{color:var(--navy);font-size:24px;margin:0 0 4px}
+    .cat{color:var(--muted);font-size:13px;margin-bottom:18px}
+    .card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px 20px;margin-bottom:14px}
+    h2{color:var(--navy);font-size:15px;margin:0 0 10px}
+    .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px}
+    .tile{background:var(--soft);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+    .tile b{display:block;font-size:22px;color:var(--navy);line-height:1.15}
+    .tile small{color:var(--muted);display:block;font-size:11.5px;margin-top:2px}
+    table{width:100%;border-collapse:collapse;font-size:13.5px}
+    th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+    th{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+    .num{text-align:right;font-variant-numeric:tabular-nums}
+    .picker{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end}
+    .picker label{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+    .picker input{padding:7px 8px;border:1px solid var(--line);border-radius:6px;font:inherit}
+    .btn{border:0;background:var(--blue);color:#fff;font:600 13px inherit;padding:8px 14px;border-radius:8px;cursor:pointer;text-decoration:none;display:inline-block}
+    .btn.sec{background:#fff;color:#1e293b;border:1px solid var(--line)}
+    .chart{border:1px solid var(--line);border-radius:8px;padding:6px;background:var(--soft)}
+    .chart img{display:block;width:100%;height:auto}
+    .foot{color:var(--muted);font-size:12px;margin-top:24px;max-width:70ch}
+    .creative{display:flex;gap:14px;padding:12px 0;border-bottom:1px solid var(--line)}
+    .creative:last-child{border-bottom:0}
+    .creative img{max-width:220px;max-height:130px;object-fit:cover;border-radius:6px;border:1px solid var(--line)}
+    .creative h3{margin:0 0 4px;font-size:15px;color:var(--navy)}
+    .creative .body{color:#334155;font-size:13.5px;margin:0 0 6px}
+    .creative .cta{color:var(--blue);font-size:12.5px}
+    .pill{display:inline-block;padding:2px 9px;border-radius:12px;font-size:11.5px;font-weight:600;background:#f1f5f9;color:#475569;margin-left:6px}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">CamHub Sponsor Portal</div>
+  <h1>{{ view.sponsor.name }}</h1>
+  {% if view.sponsor.category %}<div class="cat">{{ view.sponsor.category }}</div>{% endif %}
+
+  {% if view.current_month and view.current_period %}
+  <div class="card">
+    <h2>{{ view.current_period.label }} to date</h2>
+    <div class="tiles">
+      <div class="tile"><b>{{ '{:,}'.format(view.current_month.now.impressions) }}</b><small>Viewable impressions</small></div>
+      <div class="tile"><b>{{ '{:,}'.format(view.current_month.now.clicks) }}</b><small>Clicks</small></div>
+      <div class="tile"><b>{{ '%.2f'|format(view.current_month.now.ctr) }}%</b><small>Click-through rate</small></div>
+      {% if view.current_month.now.viewable_share is not none %}
+      <div class="tile"><b>{{ '%.1f'|format(view.current_month.now.viewable_share) }}%</b><small>Viewable on pageviews</small></div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h2>Custom range</h2>
+    <form class="picker" method="get">
+      <div><label>From</label><br><input type="date" name="start" value="{{ view.window.start }}" min="{{ view.min_date }}" max="{{ view.max_date }}"></div>
+      <div><label>To</label><br><input type="date" name="end" value="{{ view.window.end }}" min="{{ view.min_date }}" max="{{ view.max_date }}"></div>
+      <button class="btn" type="submit">Update</button>
+      <a class="btn sec" href="{{ csv_url }}">Download CSV</a>
+    </form>
+    <div class="tiles" style="margin-top:14px">
+      <div class="tile"><b>{{ '{:,}'.format(view.totals.impressions) }}</b><small>Viewable impressions</small></div>
+      <div class="tile"><b>{{ '{:,}'.format(view.totals.clicks) }}</b><small>Clicks</small></div>
+      <div class="tile"><b>{{ '%.2f'|format(view.totals.ctr) }}%</b><small>Click-through rate</small></div>
+      {% if view.totals.viewable_share is not none %}
+      <div class="tile"><b>{{ '%.1f'|format(view.totals.viewable_share) }}%</b><small>Viewable on pageviews</small></div>
+      {% endif %}
+    </div>
+    <div class="chart" style="margin-top:14px"><img src="{{ chart_url }}" alt="Daily viewable impressions across the selected window"></div>
+    {% if view.placements %}
+    <table style="margin-top:14px">
+      <thead><tr><th>Placement</th><th>Position</th><th class="num">Impressions</th><th class="num">Clicks</th><th class="num">CTR</th><th class="num">Viewable on</th></tr></thead>
+      <tbody>
+        {% for p in view.placements %}
+        <tr>
+          <td>{{ p.name }}</td>
+          <td>{{ p.position|title }}</td>
+          <td class="num">{{ '{:,}'.format(p.impressions) }}</td>
+          <td class="num">{{ '{:,}'.format(p.clicks) }}</td>
+          <td class="num">{{ '%.2f'|format(p.ctr) }}%</td>
+          <td class="num">{% if p.viewable_share is not none %}{{ p.viewable_share }}%{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+
+  {% if view.creative %}
+  <div class="card">
+    <h2>Your creative</h2>
+    {% for row in view.creative %}
+    <div class="creative">
+      {% if row.creative.image_url %}<img src="{{ row.creative.image_url }}" alt="{{ row.creative.alt_text or row.name }}">{% endif %}
+      <div style="flex:1;min-width:0">
+        <h3>{{ row.name }}<span class="pill">{{ row.position|title }}</span></h3>
+        {% if row.creative.headline %}<div class="body"><b>{{ row.creative.headline }}</b></div>{% endif %}
+        {% if row.creative.body %}<div class="body">{{ row.creative.body }}</div>{% endif %}
+        {% if row.creative.cta_label and row.creative.url %}<div class="cta">{{ row.creative.cta_label }} → {{ row.creative.url }}</div>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+    <p class="foot">Copy or images to refresh? Reply to your monthly report and Smart 1 will roll them in.</p>
+  </div>
+  {% endif %}
+
+  {% if view.flights %}
+  <div class="card">
+    <h2>Flight status</h2>
+    <table>
+      <thead><tr><th>Placement</th><th>Start</th><th>End</th><th class="num">Days elapsed</th><th class="num">Days remaining</th><th>State</th></tr></thead>
+      <tbody>
+        {% for f in view.flights %}
+        <tr>
+          <td>{{ f.name }}</td>
+          <td>{{ f.start or '—' }}</td>
+          <td>{{ f.end or '—' }}</td>
+          <td class="num">{{ f.elapsed if f.elapsed is not none else '—' }}</td>
+          <td class="num">{{ f.remaining if f.remaining is not none else '—' }}</td>
+          <td>{{ {'live':'Running','renewing':'Renewing soon','ended':'Ended','scheduled':'Scheduled','open':'Open-ended'}[f.state] }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <div class="foot">{{ view.footnote_text }}</div>
+</div>
+</body></html>

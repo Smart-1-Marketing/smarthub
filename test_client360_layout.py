@@ -90,6 +90,7 @@ WANT = {
     "Coming up": "overview",
 
     "Ad performance": "overview",
+    "CamHub live cam": "overview",
     # Overview is the one-screen summary now; the presence cards, the landing
     # pages and the audience live with their kin.
     "Landing pages": "website",
@@ -411,7 +412,7 @@ check("the email contact line lives in the Client Info strip, not above the heal
 # ------------------------------------------------------------------------
 section("7. The bigger improvements: a slim Overview, rail badges, Ends, score, latest note")
 ov = [t for t, k in WANT.items() if k == "overview"]
-check("Overview holds eight cards, not thirteen", len(ov), 8)
+check("Overview holds nine cards, not thirteen", len(ov), 9)
 counts_driver = """
 const esc=s=>String(s??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
 const c360RefreshButton=()=>'';

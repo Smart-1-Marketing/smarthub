@@ -17,7 +17,8 @@ from flask import Flask, Response, abort, jsonify, redirect, render_template, re
 
 from hub.leads import client_ip
 
-from . import builder, render as page_render, seeds, sponsors, store, tracking
+from . import (builder, outbox, portal as portal_lib, render as page_render,
+               reports, seeds, sponsors, store, tracking)
 from .models import boot_error, init_db
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -25,7 +26,7 @@ app = Flask(__name__, template_folder=str(BASE_DIR / "templates"),
             static_folder=str(BASE_DIR / "static"))
 log = logging.getLogger("hub")
 
-PUBLIC_PREFIXES = ("/cam/", "/go/")
+PUBLIC_PREFIXES = ("/cam/", "/go/", "/portal/")
 MOUNT = "/tools/camhub"
 
 init_db()
@@ -290,6 +291,185 @@ def placement_edit(placement_id: int):
     return _placement_form(page, placement, warnings=warnings)
 
 
+# ----------------------------------------------------------------- reports
+
+_PERIOD_OPTIONS = 8
+
+
+def _period_list(today=None):
+    from datetime import date, timedelta
+    today = today or date.today()
+    # The last N monthly periods, most recent first. Prior month leads
+    # because that is what the scheduler will pick up on the 1st.
+    out = []
+    d = today.replace(day=1)
+    for _ in range(_PERIOD_OPTIONS):
+        d = (d - timedelta(days=1)).replace(day=1)
+        out.append({"value": f"{d.year:04d}-{d.month:02d}",
+                    "label": f"{reports.MONTHS[d.month - 1]} {d.year}"})
+    # Current month (to date) at the end -- rarely the one being sent
+    # from here, but the person may want to preview it.
+    now = today.replace(day=1)
+    out.insert(0, {"value": f"{now.year:04d}-{now.month:02d}",
+                   "label": f"{reports.MONTHS[now.month - 1]} {now.year} (to date)"})
+    return out
+
+
+def _reports_context(period: str, flash: str = ""):
+    if not period:
+        # Prior month is the default: the scheduler's own target.
+        from datetime import date
+        d = date.today().replace(day=1)
+        prev = (d - _one_day()).replace(day=1)
+        period = f"{prev.year:04d}-{prev.month:02d}"
+    rows = outbox.list_rows(period=period)
+    sponsors_list = _portal_directory()
+    return {"rows": rows, "sponsors_list": sponsors_list,
+            "periods": _period_list(), "active_period": period,
+            "flash": flash, "mount": request.script_root or MOUNT}
+
+
+def _one_day():
+    from datetime import timedelta
+    return timedelta(days=1)
+
+
+def _portal_directory():
+    from .models import Placement, session as db_session
+    from sqlalchemy import func as _f, select as _s
+    with db_session() as s:
+        rows = s.execute(
+            _s(Placement.sponsor_id, _f.count(Placement.id))
+            .where(Placement.sponsor_id.isnot(None))
+            .group_by(Placement.sponsor_id)
+        ).all()
+    counts = {sid: n for sid, n in rows}
+    out = []
+    for sp in sponsors.list_sponsors():
+        n = counts.get(sp["id"], 0)
+        if not n:
+            continue
+        token = portal_lib.mint(sp["id"])
+        base = (request.host_url.rstrip("/") + (request.script_root or MOUNT)) \
+            if request else (request.script_root or MOUNT)
+        out.append({"id": sp["id"], "name": sp["name"], "email": sp.get("email") or "",
+                    "placement_count": n,
+                    "portal_url": f"{base}/portal/{token}"})
+    return out
+
+
+@app.route("/reports")
+def reports_index():
+    down = _db_or_503()
+    if down:
+        return down
+    period = (request.args.get("period") or "").strip()[:7]
+    return render_template("reports.html", **_reports_context(period))
+
+
+@app.route("/reports/run", methods=["POST"])
+def reports_run():
+    down = _db_or_503()
+    if down:
+        return down
+    period = (request.form.get("period") or "").strip()[:7]
+    action = (request.form.get("action") or "").strip()
+    try:
+        year, month = outbox.parse_period(period)
+    except ValueError as exc:
+        return render_template("reports.html", **_reports_context(period, flash=str(exc))), 400
+    flash = ""
+    if action == "enqueue":
+        result = outbox.enqueue_month(year, month, actor=_user())
+        _activity("reports_enqueued", period=period,
+                  created=len(result["created"]), skipped=len(result["skipped"]))
+        flash = (f"Enqueued {len(result['created'])} row(s) for {period}; "
+                 f"{len(result['skipped'])} already on file.")
+    elif action == "render":
+        rendered = failed = 0
+        for row in outbox.list_rows(period=period):
+            if row["status"] != "pending":
+                continue
+            try:
+                outbox.render_row(row["id"])
+                rendered += 1
+            except Exception as exc:  # noqa: BLE001
+                failed += 1
+                log.exception("camhub_report_render_failed id=%s error=%s", row["id"], exc)
+        _activity("reports_rendered", period=period, rendered=rendered, failed=failed)
+        flash = f"Rendered {rendered} pending row(s). {failed} failed."
+    else:
+        flash = "Choose Enqueue or Render."
+    return redirect(url_for("reports_index", period=period, flashed=flash))
+
+
+@app.route("/reports/<int:row_id>", methods=["POST"])
+def reports_row(row_id: int):
+    down = _db_or_503()
+    if down:
+        return down
+    row = outbox.get_row(row_id)
+    if row is None:
+        abort(404)
+    action = (request.form.get("action") or "").strip()
+    period = row["period"]
+    flash = ""
+    try:
+        if action == "render":
+            outbox.render_row(row_id)
+            _activity("report_rendered", period=period, sponsor=row["sponsor_name"])
+            flash = f"Rendered {row['sponsor_name']} for {period}."
+        elif action == "send":
+            result = outbox.send_row(row_id)
+            _activity("report_sent", period=period, sponsor=row["sponsor_name"],
+                      sent=bool(result.get("sent")), reason=result.get("reason") or "")
+            flash = (f"Sent {row['sponsor_name']} for {period}." if result.get("sent")
+                     else (f"{row['sponsor_name']} for {period}: "
+                           f"{result.get('detail') or result.get('reason') or 'not sent'}"))
+    except Exception as exc:  # noqa: BLE001
+        flash = f"{type(exc).__name__}: {exc}"
+    return redirect(url_for("reports_index", period=period, flashed=flash))
+
+
+@app.route("/reports/<int:sponsor_id>/<period>.pdf")
+def reports_pdf(sponsor_id: int, period: str):
+    """Regenerate the PDF for a sponsor and month, on demand. Reads
+    the current rollup, so the download is always the up-to-date PDF
+    -- the outbox row is only the delivery record."""
+    down = _db_or_503()
+    if down:
+        return down
+    try:
+        year, month = outbox.parse_period(period)
+    except ValueError:
+        abort(400)
+    try:
+        report = reports.sponsor_monthly(int(sponsor_id), year, month)
+    except LookupError:
+        abort(404)
+    pdf = reports.render_monthly_pdf(report)
+    _activity("report_pdf", sponsor_id=int(sponsor_id), period=period,
+              sponsor=report["sponsor"]["name"])
+    resp = Response(pdf, mimetype="application/pdf")
+    resp.headers["Content-Disposition"] = (
+        f'inline; filename="camhub-{report["sponsor"]["name"].replace(" ", "-")}-{period}.pdf"')
+    return resp
+
+
+# ------------------------------------------------------------- Client 360
+
+@app.route("/api/client-card")
+def api_client_card():
+    """Client 360 pulls this to render its CamHub card. Answer even
+    when the database is offline, so the card can say why rather
+    than blank the record."""
+    name = (request.args.get("name") or "").strip()
+    if not name:
+        return jsonify({"measured": False, "reason": "name-required"}), 400
+    from . import hub_card
+    return jsonify(hub_card.for_client(name))
+
+
 @app.route("/api/geocode")
 def api_geocode():
     address = (request.args.get("address") or "").strip()
@@ -410,6 +590,85 @@ def go(placement_id: int):
     resp = redirect(hit["url"], code=302)
     resp.headers["Cache-Control"] = "no-store"
     resp.headers["X-Robots-Tag"] = "noindex, nofollow"
+    return resp
+
+
+# ----------------------------------------------------- sponsor portal
+
+def _portal_sponsor_id(token: str) -> int | None:
+    sid = portal_lib.read(token or "")
+    if not sid:
+        return None
+    from .models import Sponsor, session as db_session
+    with db_session() as s:
+        return sid if s.get(Sponsor, int(sid)) is not None else None
+
+
+def _portal_common(sid: int, token: str) -> dict:
+    start = (request.args.get("start") or "").strip()[:10]
+    end = (request.args.get("end") or "").strip()[:10]
+    view = portal_lib.sponsor_view(sid, start=start, end=end)
+    prefix = (request.script_root or "")
+    return {"view": view,
+            "csv_url": f"{prefix}/portal/{token}/csv?start={view['window']['start']}&end={view['window']['end']}",
+            "chart_url": f"{prefix}/portal/{token}/chart.png?start={view['window']['start']}&end={view['window']['end']}"}
+
+
+@app.route("/portal/<token>")
+def portal_index(token: str):
+    if boot_error():
+        return render_template("cam_missing.html", reason="temporarily unavailable"), 503
+    sid = _portal_sponsor_id(token)
+    if sid is None:
+        return render_template("cam_missing.html", reason="portal link expired"), 404
+    ctx = _portal_common(sid, token)
+    resp = Response(render_template("portal.html", **ctx))
+    resp.headers["X-Robots-Tag"] = "noindex, nofollow"
+    resp.headers["Cache-Control"] = "private, no-store"
+    return resp
+
+
+@app.route("/portal/<token>/chart.png")
+def portal_chart(token: str):
+    """The daily-impressions chart as a PNG. Rendered on request so the
+    portal never has to write files, and the same helper the PDF
+    uses draws it."""
+    if boot_error():
+        abort(503)
+    sid = _portal_sponsor_id(token)
+    if sid is None:
+        abort(404)
+    start = (request.args.get("start") or "").strip()[:10]
+    end = (request.args.get("end") or "").strip()[:10]
+    view = portal_lib.sponsor_view(sid, start=start, end=end)
+    png = reports.daily_chart_png(view["daily"])
+    resp = Response(png, mimetype="image/png")
+    resp.headers["X-Robots-Tag"] = "noindex"
+    resp.headers["Cache-Control"] = "private, max-age=300"
+    return resp
+
+
+@app.route("/portal/<token>/csv")
+def portal_csv(token: str):
+    if boot_error():
+        abort(503)
+    sid = _portal_sponsor_id(token)
+    if sid is None:
+        abort(404)
+    start = (request.args.get("start") or "").strip()[:10]
+    end = (request.args.get("end") or "").strip()[:10]
+    view = portal_lib.sponsor_view(sid, start=start, end=end)
+    try:
+        text = reports.csv_for_sponsor(sid,
+                                       view["window"]["start"], view["window"]["end"])
+    except (LookupError, ValueError):
+        abort(404)
+    filename = (f"camhub-{view['sponsor']['name'].replace(' ', '-')}"
+                f"-{view['window']['start']}-{view['window']['end']}.csv")
+    resp = Response(text, mimetype="text/csv")
+    resp.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    resp.headers["X-Robots-Tag"] = "noindex"
+    resp.headers["Cache-Control"] = "private, no-store"
     return resp
 
 

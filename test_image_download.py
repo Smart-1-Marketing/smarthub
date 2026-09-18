@@ -502,6 +502,12 @@ FULL_ASSET_ON_PURPOSE = {
         "one provider screenshot per breakpoint in the scan's dedicated "
         "appearance panel; InSites supplies only the remote original and the "
         "Hub does not own or preprocess it into a thumbnail",
+    ("modules/camhub/templates/portal.html", "row.creative.image_url"):
+        "the sponsor's own creative on the sponsor's own portal; the same "
+        "asset the cam page renders inside the tile it was uploaded for, "
+        "already sized for the slot by sponsors.store_creative -- capping "
+        "it a second time would draw a smaller image than the sponsor is "
+        "shown on their live page",
 
 }
 
