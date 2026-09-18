@@ -10,7 +10,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as net from 'node:net';
 import { spawn } from 'node:child_process';
-import { budgetKey, BUDGETS, rateLimit, resetBuckets } from '../src/auth';
+import { budgetKey, BUDGETS, rateLimit, resetBuckets, loadBuckets, flushBuckets, bucketCount, bucketsDirtyForTest } from '../src/auth';
 import { seedCampaign } from '../tests-browser/seed';
 import { ProjectStore } from '../src/projects';
 
@@ -40,6 +40,73 @@ test('a script replaying a proof link is refused after the budget, per address, 
   assert.equal(allowed, limit, 'the two tokens share one allowance');
   assert.equal(rateLimit(`POST /client-proof/${tokens[0]}/comment`, req('203.0.113.10')).allowed, true, 'another address has its own');
   resetBuckets();
+});
+
+test('the ceiling survives a restart: buckets flush to disk and rehydrate at boot', (t) => {
+  // The buckets used to reset on every deploy, which handed a fresh allowance
+  // to whoever was climbing them in the ninety minutes before -- the whole
+  // point of a per-hour budget. A flushed file rehydrates on the next boot,
+  // and expired rows are dropped.
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), 'adb-limits-'));
+  t.after(() => fs.rmSync(out, { recursive: true, force: true }));
+  resetBuckets();
+
+  const limit = BUDGETS['POST /client-proof/:token/decision'].limit;
+  for (let i = 0; i < limit; i++) rateLimit('POST /client-proof/33333333-2222-4333-8444-555555555555/decision', req('198.51.100.20'));
+  assert.equal(bucketsDirtyForTest(), true, 'ratelimit writes mark the map dirty');
+
+  const wrote = flushBuckets(out);
+  assert.equal(wrote, true, 'the flush wrote a file');
+  const file = path.join(out, 'limits.json');
+  assert.ok(fs.existsSync(file), 'and it is where the process would look for it');
+  assert.equal(bucketsDirtyForTest(), false, 'and the dirty flag is cleared');
+  assert.equal(flushBuckets(out), false, 'a second flush with no changes is a no-op');
+
+  // Simulate a restart: clear the in-memory map, then rehydrate from disk.
+  resetBuckets();
+  assert.equal(bucketCount(), 0);
+  const { loaded } = loadBuckets(out);
+  assert.equal(loaded, 1, 'one bucket, one client key, one route');
+  assert.equal(bucketsDirtyForTest(), false, 'the load itself does not mark dirty');
+
+  // The ceiling still stands: one more request refuses, from the same address.
+  const next = rateLimit('POST /client-proof/33333333-2222-4333-8444-555555555555/decision', req('198.51.100.20'));
+  assert.equal(next.allowed, false, 'the client keeps its position on the ladder across the restart');
+  assert.ok(next.retryAfterSec > 0);
+
+  resetBuckets();
+});
+
+test('an expired bucket is dropped at load time so the file cannot rehydrate stale ceilings', (t) => {
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), 'adb-limits-expired-'));
+  t.after(() => fs.rmSync(out, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(out, 'limits.json'), JSON.stringify({
+    'POST /client-proof/:token/decision|198.51.100.30': { count: 99, resetAt: Date.now() - 60_000 },
+    'POST /client-proof/:token/decision|198.51.100.31': { count: 1, resetAt: Date.now() + 60_000 },
+  }));
+  resetBuckets();
+  const { loaded, dropped } = loadBuckets(out);
+  assert.equal(loaded, 1, 'only the live bucket survives');
+  assert.equal(dropped, 1, 'and the expired one is dropped');
+
+  // A fresh caller on the expired row still gets an allowance.
+  const fresh = rateLimit('POST /client-proof/33333333-2222-4333-8444-555555555555/decision', req('198.51.100.30'));
+  assert.equal(fresh.allowed, true);
+  resetBuckets();
+});
+
+test('a corrupt limits.json is logged and treated as an empty map, never a boot failure', (t) => {
+  const out = fs.mkdtempSync(path.join(os.tmpdir(), 'adb-limits-torn-'));
+  t.after(() => fs.rmSync(out, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(out, 'limits.json'), '{not json');
+  resetBuckets();
+  const errs: any[] = []; const orig = console.error; console.error = (...a: any[]) => errs.push(a);
+  try {
+    const r = loadBuckets(out);
+    assert.equal(r.loaded, 0);
+    assert.equal(bucketCount(), 0);
+    assert.ok(errs.some((a) => String(a).includes('unreadable')), 'and it is logged');
+  } finally { console.error = orig; resetBuckets(); }
 });
 
 test('the seeded campaign has a project record, once', (t) => {

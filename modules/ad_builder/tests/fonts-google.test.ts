@@ -11,7 +11,9 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fontIsAvailable, knownGoogleFamilies, listFamilies, resolveFont, textPath } from '../src/fonts';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { fontIsAvailable, knownGoogleFamilies, listFamilies, resolveFont, textPath, probeFamilies, _resetRegistryForTest } from '../src/fonts';
 
 test('the list is the Google families the renderer can actually draw', () => {
   const have = listFamilies();
@@ -36,4 +38,35 @@ test('every offered family draws every weight without throwing', () => {
       assert.ok(d.length > 50, `${family} ${weight} draws glyphs`);
     }
   }
+});
+
+test('the committed manifest names exactly the families the probe would find', () => {
+  // The manifest is loaded at boot in ~3ms; the probe is ~350ms because
+  // opentype.js parses every file. So the two must agree, or the manifest
+  // is a wrong answer served fast. A drift (a new @fontsource added without
+  // re-running prebuild, a family opentype.js can now draw) is exactly what
+  // this catches.
+  const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'src', 'fonts.manifest.json'), 'utf8'));
+  const probed = probeFamilies();
+  assert.deepEqual(manifest.map((r: any) => r.family), probed.map((r) => r.family),
+    'manifest and probe list the same families in the same order; run `npm run prebuild` to refresh');
+  for (const family of ['Montserrat', 'Poppins']) {
+    assert.ok(manifest.find((r: any) => r.family === family), `${family} is in the manifest`);
+  }
+  for (const family of ['Roboto', 'Inter']) {
+    assert.ok(!manifest.find((r: any) => r.family === family), `${family} opentype.js cannot draw and must not be in the manifest`);
+  }
+});
+
+test('a missing manifest falls back to the probe and still draws Poppins', (t) => {
+  // The probe is the fallback -- so a manifest that has not been generated in
+  // a dev checkout is at worst the old startup cost, never a wrong answer.
+  const file = path.join(__dirname, '..', 'src', 'fonts.manifest.json');
+  const raw = fs.readFileSync(file);
+  t.after(() => { fs.writeFileSync(file, raw); _resetRegistryForTest(); });
+  fs.unlinkSync(file);
+  _resetRegistryForTest();
+  const font = resolveFont('Poppins', 'regular');
+  assert.ok(textPath(font, 'Ag', 0, 20, 18).length > 20, 'the fallback path still draws');
+  assert.ok(listFamilies().includes('Montserrat'));
 });

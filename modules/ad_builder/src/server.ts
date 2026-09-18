@@ -37,7 +37,7 @@ import { PresetStore, presetFromConcept, conceptFromPreset, FIELD_ROLES } from '
 import { readBatch, campaignFromBatch, BATCH_MAX_ROWS } from './batch';
 import { analyzeLandingPage } from './landing';
 import { landingImages } from './landing-images';
-import { checkAuth, denied, rateLimit, sessionCookie, configuredToken, sweepBuckets, intakeCodeOk, intakeAllowed } from './auth';
+import { checkAuth, denied, rateLimit, sessionCookie, configuredToken, sweepBuckets, intakeCodeOk, intakeAllowed, loadBuckets, flushBuckets } from './auth';
 import { runDiagnostics } from './diagnostics';
 import { renderDiagnostics } from './diagnostics-page';
 import { scheduleSweep, sweep } from './retention';
@@ -3376,6 +3376,15 @@ startWatchdog((job) => {
 
 // Expired rate-limit buckets would otherwise accumulate for every client seen.
 setInterval(() => sweepBuckets(), 10 * 60 * 1000).unref();
+
+// The rate-limit ceiling used to reset on every deploy, which handed the
+// public proof routes a fresh allowance to anyone climbing them in the
+// ninety minutes before. Rehydrate from OUT/limits.json at boot and flush
+// every 10s when the map has changed; the write is atomic (tmp+rename)
+// so a torn file is impossible even on a hard kill.
+try { const r = loadBuckets(OUT); if (r.loaded || r.dropped) console.log(`[boot] rate-limit buckets: ${r.loaded} loaded, ${r.dropped} expired at boot`); } catch (e) { console.error('rate-limit rehydrate failed:', e); }
+setInterval(() => flushBuckets(OUT), 10_000).unref();
+process.on('SIGTERM', () => { try { flushBuckets(OUT); } catch { /* best effort at shutdown */ } });
 
 // Watch our own health. The diagnostics page is thorough but passive — someone
 // has to remember to look. This runs the same checks on a timer and pushes ONE
