@@ -305,8 +305,26 @@
     here is not built.
   </p>
 
+  {# The one refusal a correctly configured connection still hits. Amazon
+     renders it as its own page and never redirects back, so nothing here
+     logs it and the only place it can be explained in advance is the screen
+     with the button on it. #}
+  <div class="note n-warn">
+    <b>If Amazon answers &ldquo;An unknown scope was requested&rdquo;</b>
+    That is the Amazon Ads API <b>application</b> not being approved for this Login with
+    Amazon security profile &mdash; the <span class="mono">advertising::</span> scopes do not
+    exist for a profile until it is. It is not a wrong client id, a wrong secret or a wrong
+    redirect URI, and no setting on this page changes it. Apply for Amazon Ads API access
+    against this exact security profile at
+    <a href="https://advertising.amazon.com/API/docs" target="_blank" rel="noopener">advertising.amazon.com/API</a>,
+    from the account that administers the DSP entity, and press Connect again once Amazon
+    approves it.
+  </div>
+
   <div class="hint">
     Redirect URI in use: <span class="mono brk">{{ amazon.redirect_uri or 'not set &mdash; PUBLIC_BASE_URL is empty' }}</span><br>
+    Consent asks for <span class="mono">{{ amazon.scope }}</span> at
+    <span class="mono">{{ amazon.authorize_host }}</span> ({{ amazon.region }}).<br>
     Register it, character for character, under the Login with Amazon security profile&rsquo;s
     <b>Web Settings → Allowed Return URLs</b> at developer.amazon.com. Reading the DSP API also
     needs the Amazon Ads API application approved for this entity, which is a separate

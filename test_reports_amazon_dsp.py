@@ -197,6 +197,46 @@ check("...carrying the state, and the client id but never the secret",
       (q["state"], q["client_id"] == os.environ["AMAZON_ADS_CLIENT_ID"], SECRET in url),
       ("state-abc", True, False))
 
+# The refusal that never reaches the callback: Amazon renders its own page,
+# so the only thing this code can do about it is say what it is, in the words
+# somebody will be reading off that page. It is the API application waiting on
+# approval -- not a credential to rotate, which is what it looks like.
+check("an unknown scope is read as the unapproved Ads API application",
+      ("Ads API application" in amz.consent_refusal("invalid_scope")
+       and "rotate" not in amz.consent_refusal("invalid_scope")), True)
+check("...matched from Amazon's own errorMsg as well as from the code",
+      amz.consent_refusal("", "errorCode=400 errorMsg=lwa-invalid-parameter-bad-scope"),
+      amz.consent_refusal("invalid_scope"))
+check("...and from the sentence the page prints",
+      amz.consent_refusal("", "An unknown scope was requested"),
+      amz.consent_refusal("invalid_scope"))
+check("a refusal this module has no diagnosis for invents none",
+      amz.consent_refusal("something_new", "who knows"), "")
+check("...and the token endpoint uses the same words rather than a status line",
+      "Ads API application" in amz._lwa_error(
+          type("R", (), {"status_code": 400})(), {"error": "invalid_scope"}))
+check("...while invalid_client keeps the credential-pair wording it had",
+      amz._lwa_error(type("R", (), {"status_code": 400})(),
+                     {"error": "invalid_client"}).startswith("invalid_client --"))
+
+# The consent is per region, and both halves of it are: an entity in EU sent
+# to the North American host is refused on a page that never redirects back,
+# which is the same silence the scope refusal arrives in.
+check("the consent hosts are keyed by the same region the API host is",
+      (amz.authorize_endpoint("EU"), amz.token_endpoint("FE")),
+      ("https://eu.account.amazon.com/ap/oa", "https://api.amazon.co.jp/auth/o2/token"))
+check("...NA is the default, and an unreadable region falls back to it rather than raising",
+      (amz.authorize_endpoint(""), amz.authorize_endpoint("MARS"), amz.token_endpoint("mars")),
+      (amz.LWA_AUTHORIZE_URL, amz.LWA_AUTHORIZE_URL, amz.LWA_TOKEN_URL))
+os.environ["AMAZON_ADS_REGION"] = "EU"
+check("...so a EU deployment consents at the EU host",
+      urlsplit(amz.build_auth_url("s")).netloc, "eu.account.amazon.com")
+os.environ["AMAZON_ADS_REGION"] = "NA"
+check("the card prints the scope and host the consent will actually use",
+      (amz.connection_status(ads_store)["scope"],
+       amz.connection_status(ads_store)["authorize_host"]),
+      (amz.LWA_SCOPE, "www.amazon.com"))
+
 from hub import oauth_redirects as orx                               # noqa: E402
 row = next(r for r in orx.rows("https://smart1.agency/") if r["key"] == "amazon_ads")
 check("hub/oauth_redirects.py lists the flow as a ninth, built from PUBLIC_BASE_URL",
@@ -952,6 +992,8 @@ check("the settings card offers Disconnect while a consent is held",
       "disconnectAmazon()" in html and "Connect Amazon Ads" not in html)
 check("...saying who has to press Connect", "admin on the DSP entity" in html)
 check("...and printing the callback to register", "/tools/ads/oauth/amazon/callback" in html)
+check("...and answering the unknown-scope page before somebody rotates a key",
+      "An unknown scope was requested" in html and "advertising.amazon.com/API" in html)
 check("...and no credential", _secrets_in(html), [])
 
 r = client.get("/connect/amazon", environ_base=ENV)
@@ -991,6 +1033,10 @@ try:
     r = client.get("/oauth/amazon/callback?error=access_denied", environ_base=ENV)
     check("a cancelled consent is refused in words",
           (r.status_code, "cancelled" in r.get_data(as_text=True)), (400, True))
+    r = client.get("/oauth/amazon/callback?error=invalid_scope", environ_base=ENV)
+    check("...and a scope refusal is not filed as a cancellation",
+          (r.status_code, "Ads API application" in r.get_data(as_text=True),
+           "cancelled" in r.get_data(as_text=True)), (400, True, False))
 finally:
     amz.exchange_code = _real_exchange
 
