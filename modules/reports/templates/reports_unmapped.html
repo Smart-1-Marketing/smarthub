@@ -137,7 +137,7 @@
         <td><b>{{ r.campaign_name or '(unnamed)' }}</b><br>
             <span class="s1d-muted mono">{{ r.campaign_id }}</span>
             {% if r.last_seen %}<br><span class="s1d-muted">last seen {{ r.last_seen }}</span>{% endif %}
-            {% if r.refused %}<span class="refused-note">{{ r.refused.refused_by }} refused the auto-mapper's filing under {{ r.refused.client_name or r.refused.client }} from this name; file it by hand.</span>{% endif %}</td>
+            {% if r.refused %}<span class="refused-note">{{ r.refused.refused_by }} refused the auto-mapper's filing under {{ r.refused.client_name or r.refused.client }} from this name{% set earlier = r.refused.others|selectattr('campaign_name', 'equalto', r.campaign_name)|list %}{% if earlier %}, and earlier under {{ earlier|map(attribute='client_name')|join(', ') }}{% endif %}; file it by hand.</span>{% endif %}</td>
         <td class="num">${{ '{:,.2f}'.format(r.spend_30d) }}</td>
         <td>
           <form class="map" method="post" action="/reports/unmapped">
