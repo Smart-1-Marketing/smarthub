@@ -68,11 +68,14 @@ def _parse_range(start: str, end: str, today: date | None = None) -> tuple[str, 
         try:
             d0 = date.fromisoformat(start).isoformat()
         except ValueError:
+            # A garbage `?start=` from a bookmark or a typo falls back to
+            # the default -- the picker is a convenience, not a validator.
             pass
     if end:
         try:
             d1 = date.fromisoformat(end).isoformat()
         except ValueError:
+            # Same as above -- an unparseable end date keeps the default.
             pass
     # Clamp: end must be on or after start, and neither may be in the
     # future -- the rollup does not write today until the next hour.

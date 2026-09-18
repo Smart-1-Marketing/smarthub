@@ -14,7 +14,6 @@ from __future__ import annotations
 import logging
 from datetime import date
 
-from . import reports as _reports
 from . import store as _store
 from . import tracking as _tracking
 from .models import Placement, boot_error, session
