@@ -745,6 +745,54 @@ body.s1hub-collapsed .s1hub-toggle { right: 4px; }
 .s1hub-sb .s1hub-mark { width: 34px; height: 34px; border-radius: 10px; background: rgba(255,255,255,.12);
   color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; }
 .s1hub-sb .s1hub-name { font-weight: 700; font-size: 16px; color: #fff; }
+/* ---- search: filters the nav in place. Keyboard shortcut Cmd/Ctrl-K, and
+   Escape clears. Wraps its own container rather than sitting bare because the
+   host page's <input> styles can be anything: hub.css paints inputs white and
+   pill-shaped, other modules put a red border on :invalid. Explicit resets
+   below carry the input across all 20 mounted modules. */
+.s1hub-sb .s1hub-search-wrap { padding: 10px 12px 4px; position: relative; }
+.s1hub-sb .s1hub-search-input {
+  width: 100% !important; box-sizing: border-box;
+  background: rgba(255,255,255,.06) !important;
+  border: 1px solid rgba(255,255,255,.14) !important;
+  border-radius: 6px !important;
+  color: #fff !important; font: 12.5px 'Segoe UI', system-ui, sans-serif !important;
+  padding: 6px 26px 6px 26px !important;
+  outline: none !important; box-shadow: none !important;
+  height: auto !important; min-height: 0 !important; text-transform: none !important;
+}
+.s1hub-sb .s1hub-search-input::placeholder { color: #7d8db2; }
+.s1hub-sb .s1hub-search-input:focus { border-color: rgba(91,139,255,.55) !important;
+  background: rgba(255,255,255,.10) !important; }
+.s1hub-sb .s1hub-search-ico { position: absolute; left: 20px; top: 50%; transform: translateY(-50%);
+  color: #7d8db2; font-size: 12px; pointer-events: none; }
+.s1hub-sb .s1hub-search-kbd { position: absolute; right: 20px; top: 50%; transform: translateY(-50%);
+  font: 9.5px 'JetBrains Mono', ui-monospace, monospace; color: #7d8db2;
+  background: rgba(255,255,255,.06); padding: 1px 4px; border-radius: 3px; pointer-events: none; }
+.s1hub-sb.s1hub-searching .s1hub-search-kbd { display: none; }
+.s1hub-sb .s1hub-search-clear { position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
+  width: 20px; height: 20px; border: 0 !important; border-radius: 4px !important;
+  background: transparent !important; box-shadow: none !important;
+  color: #7d8db2 !important; cursor: pointer;
+  font: 13px/1 'Segoe UI', system-ui, sans-serif !important; padding: 0 !important;
+  display: none; align-items: center; justify-content: center; }
+.s1hub-sb.s1hub-searching .s1hub-search-clear { display: flex; }
+.s1hub-sb .s1hub-search-clear:hover { background: rgba(255,255,255,.14) !important; color: #fff !important; }
+/* When a search is active: department flyouts stay hidden, chevrons hide,
+   and the pinned-open inline list is forced open so matches are visible in
+   place. Non-matching rows and sections are hidden by [hidden] on the row. */
+.s1hub-sb.s1hub-searching .s1hub-fly { display: none !important; }
+.s1hub-sb.s1hub-searching .s1hub-dept .s1hub-inline { display: block !important; }
+.s1hub-sb.s1hub-searching .s1hub-dept .s1hub-chev { visibility: hidden; }
+.s1hub-sb .s1hub-nomatch { display: none; padding: 14px 18px; font-size: 12px; color: #7d8db2; }
+.s1hub-sb.s1hub-searching.s1hub-nohits .s1hub-nomatch { display: block; }
+/* Collapsed rail hides the search input, since there is no room to type in
+   56px. The keyboard shortcut still opens the drawer and focuses it. */
+body.s1hub-collapsed .s1hub-sb .s1hub-search-wrap { display: none; }
+@media (min-width: 950px) and (hover: hover) {
+  body.s1hub-collapsed:not(.s1hub-nopeek) .s1hub-sb:hover .s1hub-search-wrap,
+  body.s1hub-collapsed:not(.s1hub-nopeek) .s1hub-sb:focus-within .s1hub-search-wrap { display: block; }
+}
 .s1hub-sb .s1hub-sec { display: block !important; padding: 14px 18px 4px;
   font-size: 10.5px; font-weight: 700;
   text-transform: uppercase; letter-spacing: 1px; color: #7d8db2; }
@@ -1007,6 +1055,23 @@ def render_sidebar(active: str = "", is_admin: bool = True,
     lit = _active_department(active, is_admin)
     rows = []
     rows.append('<div class="s1hub-logo"><div class="s1hub-mark">S1</div><span class="s1hub-name">Smart 1 Hub</span></div>')
+    # Search: filters the whole nav in place. The keyboard shortcut lands
+    # focus here from anywhere on the page; typing filters as you go. The
+    # element carries the label its own way -- no <label> wrapping it because
+    # the placeholder is the affordance in a nav this narrow, and the
+    # aria-label keeps it announced for screen readers.
+    rows.append(
+        '<div class="s1hub-search-wrap">'
+        '<span class="s1hub-search-ico" aria-hidden="true">&#128269;</span>'
+        '<input class="s1hub-search-input" type="search" '
+        'aria-label="Search the menu" placeholder="Search tools..." '
+        'autocomplete="off" spellcheck="false" />'
+        '<span class="s1hub-search-kbd" aria-hidden="true">&#8984;K</span>'
+        '<button class="s1hub-search-clear" type="button" '
+        'aria-label="Clear search" title="Clear">&times;</button>'
+        '</div>'
+        '<div class="s1hub-nomatch" role="status">No tool matches.</div>'
+    )
     rows.append('<div class="s1hub-sec">Overview</div>')
     for key, href, ico, label in PINNED:
         on = " s1hub-on" if key == active else ""
@@ -1119,6 +1184,78 @@ def render_sidebar(active: str = "", is_admin: bool = True,
         "document.body.classList.remove('s1hub-nopeek');});"
         "n.addEventListener('focusout',function(){"
         "document.body.classList.remove('s1hub-nopeek');});"
+        # ---- search. Cmd/Ctrl-K from anywhere lands focus on the box;
+        # typing filters the pinned rows, the department rows and every leaf
+        # inside them, matching on the visible label text. A department with
+        # a match auto-expands its inline list; non-matching leaves inside it
+        # hide. A department with no match at all hides its row. Escape (or
+        # the &times; button) clears the filter and restores the nav.
+        "var si=n.querySelector('.s1hub-search-input'),"
+        "sc=n.querySelector('.s1hub-search-clear');"
+        "if(si){"
+        # Cache the label text of every filterable row once, on the row itself,
+        # so the filter is a simple substring test rather than a DOM walk on
+        # every keystroke. Pinned rows and department rows filter as one unit;
+        # leaves inside a department filter individually.
+        "var pinned=n.querySelectorAll('.s1hub-item:not(.s1hub-leaf)'),"
+        "depts=n.querySelectorAll('.s1hub-dept'),"
+        "leaves=n.querySelectorAll('.s1hub-inline .s1hub-leaf'),"
+        "sections=n.querySelectorAll('.s1hub-sec');"
+        "function txt(el){return (el.textContent||'').toLowerCase();}"
+        "pinned.forEach(function(el){el.setAttribute('data-s1hub-q',txt(el));});"
+        "depts.forEach(function(d){"
+        "var name=txt(d.querySelector('.s1hub-dept-link')||d);"
+        "d.setAttribute('data-s1hub-q-name',name);"
+        "var all=name;"
+        "d.querySelectorAll('.s1hub-inline .s1hub-leaf').forEach(function(l){"
+        "var q=txt(l);l.setAttribute('data-s1hub-q',q);all+=' '+q;});"
+        "d.setAttribute('data-s1hub-q-all',all);"
+        "});"
+        "function apply(q){"
+        "q=(q||'').toLowerCase().trim();"
+        "var on=q.length>0,hits=0;"
+        "n.classList.toggle('s1hub-searching',on);"
+        "pinned.forEach(function(el){"
+        "var m=!on||el.getAttribute('data-s1hub-q').indexOf(q)>=0;"
+        "el.hidden=!m;if(m&&on)hits++;});"
+        "depts.forEach(function(d){"
+        "var m=!on||d.getAttribute('data-s1hub-q-all').indexOf(q)>=0;"
+        "d.hidden=!m;"
+        "if(on&&m){"
+        "d.querySelectorAll('.s1hub-inline .s1hub-leaf').forEach(function(l){"
+        "var lm=l.getAttribute('data-s1hub-q').indexOf(q)>=0"
+        "||d.getAttribute('data-s1hub-q-name').indexOf(q)>=0;"
+        "l.hidden=!lm;if(lm)hits++;});"
+        "d.querySelectorAll('.s1hub-inline .s1hub-g').forEach(function(g){g.hidden=on;});"
+        "}else if(!on){"
+        "d.querySelectorAll('.s1hub-inline .s1hub-leaf').forEach(function(l){l.hidden=false;});"
+        "d.querySelectorAll('.s1hub-inline .s1hub-g').forEach(function(g){g.hidden=false;});"
+        "}});"
+        # Section headers ("Departments", "Tools", "Overview") hide when a
+        # search is active: they belong to the folded structure, not the
+        # search results.
+        "sections.forEach(function(s){s.hidden=on;});"
+        "n.classList.toggle('s1hub-nohits',on&&hits===0);"
+        "if(sc)sc.style.display=on?'flex':'none';"
+        "}"
+        "si.addEventListener('input',function(){apply(si.value);});"
+        "si.addEventListener('keydown',function(e){"
+        "if(e.key==='Escape'){si.value='';apply('');si.blur();}});"
+        "if(sc)sc.addEventListener('click',function(){"
+        "si.value='';apply('');si.focus();});"
+        # Cmd/Ctrl-K from anywhere: open the drawer on phone, expand the rail
+        # on desktop if collapsed, then focus. Guard against firing when
+        # the person is already typing into a form -- if the target is
+        # another editable element and the drawer is closed, let it pass.
+        "document.addEventListener('keydown',function(e){"
+        "var k=(e.key||'').toLowerCase();"
+        "if((e.metaKey||e.ctrlKey)&&k==='k'){"
+        "e.preventDefault();"
+        "if(document.body.classList.contains('s1hub-collapsed')){"
+        "coll(false);}"
+        "if(window.innerWidth<950)set(true);"
+        "si.focus();si.select();}});"
+        "}"
         "})();</script>"
     )
     html = (

@@ -122,6 +122,17 @@ check("General still sees the other eleven", general.count('class="s1hub-dept" '
 check("no GoHighLevel wording in the nav", "GoHighLevel" in html, False)
 check("the flyout is placed by script, not clipped by the scroll", "getBoundingClientRect" in html)
 
+# The search input at the top of the nav filters every row in place -- pinned,
+# departments, and every leaf inside them -- and Cmd/Ctrl-K from anywhere
+# focuses it. Without the box, finding a tool by name means guessing which of
+# 12 folded departments it lives in.
+check("the search input is at the top of the nav", 'class="s1hub-search-input"' in html)
+check("it has a keyboard shortcut hint", "s1hub-search-kbd" in html)
+check("Cmd/Ctrl-K focuses it", "metaKey" in html and "ctrlKey" in html)
+check("Escape and the clear button restore the nav",
+      "si.value=''" in html and "s1hub-search-clear" in html)
+check("a no-match state is announced", 's1hub-nomatch' in html and "No tool matches." in html)
+
 print("\n-- the index pages --")
 from hub import create_hub_app                                   # noqa: E402
 from hub.extensions import create_all                            # noqa: E402
