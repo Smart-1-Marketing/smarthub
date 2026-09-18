@@ -70,6 +70,38 @@
     .cam.rolling .bug { animation: bugIn 12s ease forwards; }
     @keyframes bugIn { 0%, 90% { opacity: 0; } 97%, 100% { opacity: 1; } }
 
+    /* Credit-bar treatments, per placement: wipe (one gold sweep on load),
+       crossfade (title / sponsor on an eight-second cycle), shimmer (a
+       highlight every 24 s), tagline (the line beside the logo steps through
+       up to three messages). Pure CSS; reduced motion turns every one off. */
+    .presents { position: relative; overflow: hidden; }
+    .presents.wipe .plogo { opacity: 0; animation: wipeShow 1.5s ease forwards; }
+    .presents.wipe::before { content: ""; position: absolute; inset: 0; z-index: 2; pointer-events: none;
+      background: linear-gradient(100deg, transparent 38%, var(--gold-bright) 50%, transparent 62%);
+      transform: translateX(-110%); animation: wipeSweep 1.5s cubic-bezier(.4,0,.2,1) forwards; }
+    @keyframes wipeSweep { to { transform: translateX(110%); } }
+    @keyframes wipeShow { 0%, 38% { opacity: 0; } 62%, 100% { opacity: 1; } }
+    .presents.crossfade .xf { display: grid; align-items: center; }
+    .presents.crossfade .xf > * { grid-area: 1 / 1; display: flex; align-items: center; gap: 9px; }
+    .presents.crossfade .slot-a { animation: xfA 8s ease-in-out infinite; }
+    .presents.crossfade .slot-b { opacity: 0; animation: xfB 8s ease-in-out infinite; }
+    @keyframes xfA { 0%, 40% { opacity: 1; } 48%, 90% { opacity: 0; } 98%, 100% { opacity: 1; } }
+    @keyframes xfB { 0%, 40% { opacity: 0; } 48%, 90% { opacity: 1; } 98%, 100% { opacity: 0; } }
+    .xf-title { font-family: var(--f-display); font-size: 15px; }
+    .presents.shimmer .plogo { position: relative; overflow: hidden; }
+    .presents.shimmer .plogo::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+      background: linear-gradient(105deg, transparent 40%, rgba(255,245,220,.7) 50%, transparent 60%);
+      transform: translateX(-130%); animation: shimSweep 24s ease-in-out infinite; }
+    @keyframes shimSweep { 0% { transform: translateX(-130%); } 6%, 100% { transform: translateX(130%); } }
+    .presents.tagline .lines { position: relative; height: 18px; overflow: hidden; flex: 1; min-width: 0; }
+    .presents.tagline .lines p { margin: 0; height: 18px; line-height: 18px; font-size: 12px; color: var(--ink-soft);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .presents.tagline .reel { position: absolute; inset: 0; animation: reel 12s steps(1, end) infinite; }
+    @keyframes reel { 0%, 28% { transform: translateY(0); } 33%, 61% { transform: translateY(-18px); } 66%, 94% { transform: translateY(-36px); } 100% { transform: translateY(0); } }
+    .plogo-badge img, .lower-badge img { width: 100%; height: 100%; object-fit: contain; display: block; border-radius: 2px; background: #fff; }
+    .feature-img.drift img { animation: amb 16s ease-in-out infinite alternate; }
+    @keyframes amb { from { transform: scale(1) translate(0, 0); } to { transform: scale(1.1) translate(-2%, -1.5%); } }
+    .stile-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .strip { margin-top: 26px; min-height: 96px; display: grid; gap: 1px; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); background: var(--line-soft); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
     .tile { background: var(--wine); padding: 15px 14px 13px; display: flex; flex-direction: column; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
     .tile-lab { font-family: var(--f-data); font-size: 9.5px; letter-spacing: .13em; text-transform: uppercase; color: var(--ink-faint); }
@@ -146,8 +178,11 @@
     @media (max-width: 900px) { .strip { grid-template-columns: repeat(3, 1fr); } .feature { grid-template-columns: 1fr; } .tiles { grid-template-columns: repeat(2, 1fr); } }
     @media (max-width: 560px) { .strip { grid-template-columns: repeat(2, 1fr); } .tiles { grid-template-columns: 1fr; } .convert-btns { margin-left: 0; } .lower { display: none; } .presents { gap: 10px; } .plogo-name { font-size: 15px; } }
     @media (prefers-reduced-motion: reduce) {
-      .cam.rolling .lower, .cam.rolling .bug { animation: none; }
+      .cam.rolling .lower, .cam.rolling .bug, .presents.wipe .plogo, .presents.wipe::before,
+      .presents.crossfade .slot-a, .presents.crossfade .slot-b, .presents.shimmer .plogo::after,
+      .presents.tagline .reel, .feature-img.drift img { animation: none; }
       .lower { transform: none; opacity: 1; } .bug { opacity: 0; }
+      .presents.wipe .plogo { opacity: 1; } .presents.crossfade .slot-a { opacity: 0; } .presents.crossfade .slot-b { opacity: 1; }
     }
   </style>
 </head>
@@ -160,14 +195,27 @@
     {% if updated_text %}<span class="upd{% if stale %} stale{% endif %}">Updated {{ updated_text }}{% if stale %} ({{ updated_age }}){% endif %}</span>{% endif %}
   </div>
 
-  {# Presenting sponsor: the house ad until a placement is sold. Every paid link carries rel="nofollow sponsored". #}
+  {# Presenting sponsor: the placement sponsors.py picked, or the house ad. Every paid link carries rel="nofollow sponsored". #}
   {% set pres = sponsors.presenting %}
-  <div class="presents">
-    <span class="presents-lab">{{ pres.eyebrow if not sponsors.sold else 'Presented by' }}</span>
+  {% set anim = pres.animation if sponsors.sold else 'static' %}
+  {% macro badge(slot, cls) %}<span class="{{ cls }}">{% if slot.logo %}<img src="{{ slot.logo }}" alt="" width="30" height="30">{% else %}{{ slot.badge }}{% endif %}</span>{% endmacro %}
+  <div class="presents {{ anim }}" data-placement="{{ pres.placement_id or '' }}" data-position="0">
+    {% if anim == 'crossfade' %}
+    <div class="xf">
+      <span class="slot-a"><span class="xf-title">{{ h1 }}</span><span class="presents-lab">{{ cfg.cam_label or 'live' }}</span></span>
+      <span class="slot-b"><span class="presents-lab">Presented by</span>
+        <a class="plogo" href="{{ pres.url or '#' }}" rel="nofollow sponsored">{{ badge(pres, 'plogo-badge') }}<span class="plogo-name">{{ pres.name }}</span></a></span>
+    </div>
+    {% else %}
+    <span class="presents-lab">{{ 'Presented by' if sponsors.sold else pres.eyebrow }}</span>
     {% if pres.url %}<a class="plogo" href="{{ pres.url }}"{% if sponsors.sold %} rel="nofollow sponsored"{% endif %}>{% else %}<span class="plogo">{% endif %}
-      <span class="plogo-badge">{{ pres.badge }}</span>
+      {{ badge(pres, 'plogo-badge') }}
       <span class="plogo-name">{{ pres.name }}</span>
     {% if pres.url %}</a>{% else %}</span>{% endif %}
+    {% if anim == 'tagline' and pres.taglines %}
+    <span class="lines"><span class="reel">{% for line in pres.taglines[:3] %}<p>{{ line }}</p>{% endfor %}{% for _ in range(3 - pres.taglines[:3]|length) %}<p>{{ pres.taglines[0] }}</p>{% endfor %}</span></span>
+    {% endif %}
+    {% endif %}
   </div>
 
   <div class="cam{% if embed.ok %} rolling{% endif %}">
@@ -179,12 +227,12 @@
       <div class="cam-badge"><span class="dot off"></span> Offline</div>
     {% endif %}
     {% if cfg.cam_label %}<div class="cam-stamp">{{ cfg.cam_label }}</div>{% endif %}
-    {% if embed.ok %}
+    {% if embed.ok and (anim == 'lower_third' or not sponsors.sold) %}
     {% if pres.url %}<a class="lower" href="{{ pres.url }}"{% if sponsors.sold %} rel="nofollow sponsored"{% endif %}>{% else %}<span class="lower">{% endif %}
-      <span class="lower-badge">{{ pres.badge }}</span>
+      {{ badge(pres, 'lower-badge') }}
       <span><span class="lower-name">{{ pres.name }}</span><span class="lower-sub">{{ pres.sub }}</span></span>
     {% if pres.url %}</a>{% else %}</span>{% endif %}
-    <span class="bug"><span class="lower-badge">{{ pres.badge }}</span><span>{{ pres.name }}</span></span>
+    <span class="bug">{{ badge(pres, 'lower-badge') }}<span>{{ pres.name }}</span></span>
     {% endif %}
   </div>
   {% if page.cam_caption %}<p class="cam-cap">{{ page.cam_caption }}</p>{% endif %}
@@ -216,10 +264,10 @@
   {% endfor %}
 
   <div class="sec">
-    <div class="feature">
-      <div class="feature-img">{% if pres.image %}<img src="{{ pres.image }}" alt="{{ pres.alt or pres.name }}" width="640" height="360" loading="lazy">{% endif %}</div>
+    <div class="feature" data-placement="{{ pres.placement_id or '' }}" data-position="0">
+      <div class="feature-img{% if pres.image and sponsors.sold %} drift{% endif %}">{% if pres.image %}<img src="{{ pres.image }}" alt="{{ pres.alt or pres.name }}" width="640" height="360" loading="lazy">{% endif %}</div>
       <div class="feature-body">
-        <div class="feature-eyebrow">{{ 'Presenting sponsor' if sponsors.sold else 'House ad' }}</div>
+        <div class="feature-eyebrow">{{ 'Presenting sponsor' if sponsors.sold else pres.eyebrow }}</div>
         <h3>{{ pres.headline }}</h3>
         <p>{{ pres.body }}</p>
         {% if pres.url and pres.cta %}<a class="btn" href="{{ pres.url }}"{% if sponsors.sold %} rel="nofollow sponsored"{% endif %}>{{ pres.cta }}</a>{% endif %}
@@ -248,12 +296,12 @@
     <div class="sec-head"><h2>Around the lake</h2><span class="meta">Supporting sponsors</span></div>
     <div class="tiles">
       {% for t in sponsors.supporting %}
-      <div class="stile">
-        <div class="stile-img"></div>
+      <div class="stile" data-placement="{{ t.placement_id or '' }}" data-position="{{ t.position }}">
+        <div class="stile-img">{% if t.image %}<img src="{{ t.image }}" alt="{{ t.alt or t.name }}" width="320" height="92" loading="lazy">{% endif %}</div>
         <div class="stile-body">
           <h4>{{ t.name }}</h4>
-          <p>{{ t.body }}</p>
-          {% if t.url and t.cta %}<a class="btn btn-ghost" href="{{ t.url }}"{% if t.sponsored %} rel="nofollow sponsored"{% endif %}>{{ t.cta }}</a>{% endif %}
+          <p>{{ t.headline or t.body }}</p>
+          {% if t.url and t.cta %}<a class="btn btn-ghost" href="{{ t.url }}"{% if t.sold %} rel="nofollow sponsored"{% endif %}>{{ t.cta }}</a>{% endif %}
         </div>
       </div>
       {% endfor %}

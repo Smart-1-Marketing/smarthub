@@ -172,7 +172,9 @@ def provision(slug: str = "buckeye-lake", *, fetch: bool = True) -> dict:
         existing = store.cache_for(page["id"]).get(key)
         if not existing or not existing.get("payload"):
             store.seed_cache(page["id"], key, payload, SEED_DATE)
-    result = {"page": page, "sources": len(spec["sources"])}
+    from . import sponsors
+    result = {"page": page, "sources": len(spec["sources"]),
+              "house_placements": sponsors.ensure_house_placements(page)}
     if fetch:
         result["refresh"] = store.refresh_page(slug, force=True)
     return result

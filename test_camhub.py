@@ -18,6 +18,9 @@ What each part guards, and why it is a test rather than a note:
   the source, so the page serves stale with a timestamp rather than blank.
 * **The cam page is public and indexable; the staff screens are neither.**
 * **The job is registered** in hub/scheduler.py, not merely written.
+* **Sprint 3, the sponsor system:** one presenting sponsor at a time, four
+  supporting tiles shuffled by weight, house ads in every unsold slot, a
+  flight that ends itself, copy capped at the tile, a signed preview.
 """
 from __future__ import annotations
 
@@ -505,6 +508,226 @@ class PageTests(unittest.TestCase):
         self.assertIn(r.status_code, (302, 401, 403))  # staff screen behind the login
         r = c.get("/tools/camhub/pages/buckeye-lake/refresh", method="POST")
         self.assertIn(r.status_code, (302, 401, 403, 405))
+
+
+def _png_bytes() -> bytes:
+    from io import BytesIO
+    from PIL import Image
+    buf = BytesIO()
+    Image.new("RGBA", (40, 40), (201, 150, 63, 255)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
+class SponsorTests(unittest.TestCase):
+    """Sprint 3: the sponsor system. One presenting sponsor at a time, four
+    supporting tiles that shuffle by weight, house ads in every unsold slot,
+    a flight that ends itself, copy that cannot overflow the tile, and a
+    preview that is a signed token on the real page."""
+
+    @classmethod
+    def setUpClass(cls):
+        from modules.camhub import models, seeds, sponsors
+        from modules.camhub.models import Placement, Sponsor, session
+        from sqlalchemy import delete
+        assert not models.init_db()
+        cls.page = seeds.provision("buckeye-lake", fetch=False)["page"]
+        with session() as s:
+            s.execute(delete(Placement))
+            s.execute(delete(Sponsor))
+            s.commit()
+        cls.house = sponsors.ensure_house_placements(cls.page)
+        cls.marina = sponsors.save_sponsor({"name": "Rosewood Marine & Dock", "category": "Marina"})
+        cls.realtor = sponsors.save_sponsor({"name": "North Shore Realty", "category": "realtor"})
+        cls.bait = sponsors.save_sponsor({"name": "Millersport Bait", "category": "bait"})
+
+    def tearDown(self):
+        from modules.camhub import sponsors
+        for row in sponsors.list_placements(self.page["id"]):
+            if not row["is_house"]:
+                sponsors.delete_placement(row["id"], self.page["id"])
+
+    def _placement(self, **over):
+        from modules.camhub import sponsors
+        data = {"position": "supporting", "status": "active", "sponsor_id": self.bait["id"],
+                "headline": "Live bait and lake maps", "body": "Open 5 AM on weekends.",
+                "cta_label": "Hours", "url": "https://bait.example/", "animation": "static"}
+        data.update(over)
+        return sponsors.save_placement(data, self.page["id"], actor="Todd")
+
+    def test_house_placements_come_from_the_config_once(self):
+        from modules.camhub import sponsors
+        self.assertEqual(self.house, 5)
+        self.assertEqual(sponsors.ensure_house_placements(self.page), 0)
+        rows = sponsors.list_placements(self.page["id"])
+        self.assertEqual(sum(1 for r in rows if r["is_house"] and r["position"] == "presenting"), 1)
+        self.assertEqual(sum(1 for r in rows if r["is_house"] and r["position"] == "supporting"), 4)
+        self.assertTrue(all(r["effective"] == "live" for r in rows if r["is_house"]))
+
+    def test_the_flight_decides_what_the_page_does(self):
+        from datetime import date
+        from modules.camhub.sponsors import effective_status
+        today = date(2026, 9, 18)
+        self.assertEqual(effective_status({"status": "active", "start_date": "2026-10-01", "end_date": ""}, today), "scheduled")
+        self.assertEqual(effective_status({"status": "active", "start_date": "2026-09-01", "end_date": "2026-09-17"}, today), "ended")
+        self.assertEqual(effective_status({"status": "active", "start_date": "2026-09-01", "end_date": "2026-09-18"}, today), "live")
+        self.assertEqual(effective_status({"status": "paused", "start_date": "", "end_date": ""}, today), "paused")
+        self.assertEqual(effective_status({"status": "draft"}, today), "draft")
+
+    def test_presenting_is_one_sponsor_at_a_time(self):
+        from modules.camhub import sponsors
+        first, warnings = self._placement(position="presenting", sponsor_id=self.marina["id"],
+                                          start_date="2026-09-01", end_date="2026-12-31", animation="lower_third")
+        self.assertEqual(warnings, [])
+        with self.assertRaises(ValueError) as ctx:
+            self._placement(position="presenting", sponsor_id=self.realtor["id"], start_date="2026-12-01")
+        self.assertIn("one sponsor at a time", str(ctx.exception))
+        # A flight that starts after the first ends is fine; so is a draft.
+        later, _ = self._placement(position="presenting", sponsor_id=self.realtor["id"], start_date="2027-01-01")
+        self.assertEqual(later["effective"], "scheduled")
+        draft, _ = self._placement(position="presenting", sponsor_id=self.realtor["id"], status="draft")
+        self.assertEqual(draft["effective"], "draft")
+        self.assertEqual(first["effective"], "live")
+
+    def test_category_clash_is_a_warning_not_a_refusal(self):
+        from modules.camhub import sponsors
+        marina2 = sponsors.save_sponsor({"name": "Fairfield Dock & Lift", "category": "marina"})
+        pres, _ = self._placement(position="presenting", sponsor_id=self.marina["id"],
+                                  start_date="2026-09-01", end_date="2026-12-31")
+        row, warnings = self._placement(sponsor_id=marina2["id"], start_date="2026-09-01", end_date="2026-10-31")
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("Category clash", warnings[0])
+        self.assertIn("Rosewood Marine", warnings[0])
+        self.assertEqual(row["effective"], "live")
+        self.assertTrue(pres["id"] and row["id"])
+
+    def test_copy_that_overflows_the_tile_is_refused(self):
+        with self.assertRaises(ValueError) as ctx:
+            self._placement(body="x" * 111)
+        self.assertIn("110", str(ctx.exception))
+        with self.assertRaises(ValueError):
+            self._placement(url="rosewood.example")
+        with self.assertRaises(ValueError):
+            self._placement(start_date="2026-10-01", end_date="2026-09-01")
+        with self.assertRaises(ValueError):
+            self._placement(sponsor_id="", is_house=False)
+        with self.assertRaises(ValueError):
+            self._placement(animation="marquee")
+
+    def test_supporting_slots_shuffle_by_weight_and_house_fills_the_rest(self):
+        import random
+        from collections import Counter
+        from modules.camhub import sponsors
+        heavy, _ = self._placement(sponsor_id=self.bait["id"], weight=5, headline="Heavy")
+        light, _ = self._placement(sponsor_id=self.realtor["id"], weight=1, headline="Light")
+        firsts = Counter()
+        for seed in range(300):
+            slots = sponsors.select_slots(self.page, rng=random.Random(seed))
+            self.assertEqual(len(slots["supporting"]), 4)
+            self.assertEqual([t["position"] for t in slots["supporting"]], [1, 2, 3, 4])
+            self.assertEqual(slots["sold_supporting"], 2)
+            self.assertTrue(slots["supporting"][0]["sold"] and slots["supporting"][1]["sold"])
+            self.assertFalse(slots["supporting"][2]["sold"] or slots["supporting"][3]["sold"])
+            firsts[slots["supporting"][0]["headline"]] += 1
+        self.assertGreater(firsts["Heavy"], firsts["Light"] * 2, firsts)
+        self.assertGreater(firsts["Light"], 0, "a weight-1 sponsor is still first sometimes")
+        self.assertEqual(slots["supporting"][2]["name"], "Reserve a table")   # house, in sort order
+        # An ended flight reverts to house on the next read, nobody swapping it.
+        sponsors.save_placement({**{k: heavy[k] for k in ("position", "status", "sponsor_id", "headline",
+                                                           "body", "cta_label", "url", "animation")},
+                                 "end_date": "2026-01-31"}, self.page["id"], heavy["id"])
+        slots = sponsors.select_slots(self.page, rng=random.Random(1))
+        self.assertEqual(slots["sold_supporting"], 1)
+
+    def test_the_page_renders_a_sold_presenting_sponsor(self):
+        from modules.camhub import sponsors
+        from modules.camhub.app import app
+        pres, _ = self._placement(position="presenting", sponsor_id=self.marina["id"],
+                                  headline="Slips, service and storage since 1974.",
+                                  url="https://rosewood.example/", animation="crossfade")
+        html = app.test_client().get("/cam/buckeye-lake").data.decode()
+        self.assertIn('class="presents crossfade"', html)
+        self.assertIn('href="https://rosewood.example/" rel="nofollow sponsored"', html)
+        self.assertIn("Presenting sponsor", html)
+        self.assertIn(f'data-placement="{pres["id"]}" data-position="0"', html)
+        sponsors.delete_placement(pres["id"], self.page["id"])
+        html = app.test_client().get("/cam/buckeye-lake").data.decode()
+        self.assertIn('class="presents static"', html)
+        self.assertNotIn('rel="nofollow sponsored"', html)
+
+    def test_preview_is_a_signed_token_on_the_real_page(self):
+        import base64
+        from modules.camhub import sponsors
+        from modules.camhub.app import app
+        c = app.test_client()
+        token = sponsors.preview_token(self.page["id"], "supporting", None)
+        draft = base64.urlsafe_b64encode(json.dumps({"name": "DRAFT TILE", "body": "unsaved copy",
+                                                     "position": "presenting"}).encode()).decode().rstrip("=")
+        r = c.get(f"/cam/buckeye-lake?preview={token}&draft={draft}")
+        self.assertEqual(r.status_code, 200)
+        html = r.data.decode()
+        self.assertIn("DRAFT TILE", html)
+        self.assertEqual(r.headers["X-Robots-Tag"], "noindex, nofollow")
+        self.assertEqual(r.headers["Cache-Control"], "no-store")
+        self.assertIn('data-position="1"', html.split("DRAFT TILE")[0][-400:])   # a draft cannot move its slot
+        self.assertEqual(c.get("/cam/buckeye-lake?preview=not-a-token").status_code, 404)
+        self.assertIsNone(sponsors.read_preview(token, self.page["id"] + 1))
+        self.assertEqual(sponsors.decode_draft("not base64!!"), {})
+        self.assertNotIn("DRAFT TILE", c.get("/cam/buckeye-lake").data.decode())
+
+    def test_staff_screens_and_the_editor_round_trip(self):
+        from modules.camhub import sponsors
+        from modules.camhub.app import app
+        c = app.test_client()
+        self.assertEqual(c.get("/sponsors").status_code, 200)
+        r = c.post("/sponsors", data={"name": "Canal Street Storage", "category": "storage"})
+        self.assertEqual(r.status_code, 302)
+        storage = next(s for s in sponsors.list_sponsors() if s["name"] == "Canal Street Storage")
+        self.assertEqual(c.get(f"/sponsors/{storage['id']}").status_code, 200)
+        r = c.get("/pages/buckeye-lake/placements")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn(b"Reserve a table", r.data)
+        r = c.get("/pages/buckeye-lake/placements/new?position=supporting")
+        self.assertIn(b"data-preview-base=", r.data)
+        self.assertIn(b"0 / 110", r.data)                       # the supporting body cap on the counter
+        r = c.post("/pages/buckeye-lake/placements/new", data={
+            "position": "supporting", "status": "active", "sponsor_id": storage["id"],
+            "headline": "Indoor and covered boat storage", "body": "Five minutes from the ramp.",
+            "cta_label": "Check availability", "url": "https://storage.example/", "animation": "static",
+            "weight": "2", "sort_order": "0"})
+        self.assertEqual(r.status_code, 302, r.data[:300])
+        pid = int(r.headers["Location"].split("/placements/")[1].split("?")[0])
+        self.assertEqual(c.get(f"/placements/{pid}").status_code, 200)
+        r = c.post("/pages/buckeye-lake/placements/new", data={"position": "supporting", "status": "active",
+                                                               "sponsor_id": storage["id"], "body": "y" * 200})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn(b"the tile fits 110", r.data)
+        html = c.get("/cam/buckeye-lake").data.decode()
+        self.assertIn("Indoor and covered boat storage", html)
+        r = c.post(f"/placements/{pid}", data={"delete": "1"})
+        self.assertEqual(r.status_code, 302)
+        self.assertIsNone(sponsors.get_placement(pid))
+
+    def test_creative_goes_through_the_shared_pipeline(self):
+        from io import BytesIO
+        from types import SimpleNamespace
+        from modules.camhub import sponsors
+        calls = []
+
+        def fake_put(kind, filename, data, **kw):
+            calls.append((kind, filename, len(data), kw.get("client"), kw.get("subpath")))
+            return SimpleNamespace(url=f"https://cdn.example/{filename}")
+
+        upload = SimpleNamespace(filename="logo.png", read=_png_bytes)
+        with patch("hub.storage.put", fake_put):
+            url = sponsors.store_creative(upload, kind="logo", page=self.page)
+        self.assertTrue(url.startswith("https://cdn.example/buckeye-lake-logo-logo."))
+        self.assertEqual(calls[0][0], "camhub")
+        self.assertEqual((calls[0][3], calls[0][4]), ("Buckeye Lake Winery", "buckeye-lake"))
+        with self.assertRaises(ValueError):
+            sponsors.store_creative(SimpleNamespace(filename="notes.txt", read=lambda: b"hello"),
+                                    kind="image", page=self.page)
+        self.assertEqual(sponsors.store_creative(SimpleNamespace(filename="", read=lambda: b""),
+                                                 kind="image", page=self.page), "")
 
 
 class WiringTests(unittest.TestCase):

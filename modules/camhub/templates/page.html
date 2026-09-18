@@ -12,6 +12,7 @@
   <div class="row">
     <a class="btn" href="{{ mount }}/cam/{{ page.slug }}" target="_blank" rel="noopener">Open the live page</a>
     <a class="btn sec" href="{{ mount }}/cam/{{ page.slug }}/data.json" target="_blank" rel="noopener">data.json</a>
+    <a class="btn sec" href="{{ mount }}/pages/{{ page.slug }}/placements">Sponsors and placements</a>
     <form method="post" action="{{ mount }}/pages/{{ page.slug }}/refresh"><button class="btn sec" type="submit">Refresh every source now</button></form>
     <span class="muted">Page updated {{ ctx.updated_text or 'never' }}{% if ctx.updated_age %} ({{ ctx.updated_age }}){% endif %}</span>
   </div>
