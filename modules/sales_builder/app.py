@@ -55,7 +55,8 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request, send_file
 from flask_cors import CORS
 from sqlalchemy import (Column, DateTime, Integer, LargeBinary, String, Text,
-                        func, or_)
+                        UniqueConstraint, func, or_)
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import object_session as _sa_object_session
 
@@ -233,7 +234,28 @@ class QuoteView(Base):
 
 
 class QuoteAcceptance(Base):
+    """One client saying yes to one revision of one quote. At most one.
+
+    The uniqueness is declared rather than assumed. Accepting is a public
+    POST on a share link, and the route read "has this revision been accepted"
+    and then inserted -- two requests inside that gap (a double-click, a retry,
+    two tabs on the same link) both read nothing and both insert. Nothing
+    downstream would have said so: the acceptance panel then reads back with
+    `.first()`, so the name and timestamp shown for "already accepted" would be
+    whichever of the two rows the database happened to return, and could differ
+    between two loads of the same page. Who agreed to a price, and when, is not
+    a figure that gets to be arbitrary.
+
+    `create_all()` creates missing TABLES and never alters an existing one --
+    the rule `_add_missing_columns()` below exists for -- so this constraint
+    reaches a fresh database from here and a live one from
+    `_add_missing_indexes()`.
+    """
+
     __tablename__ = "quote_acceptances"
+    __table_args__ = (UniqueConstraint("quote_id", "revision",
+                                       name="uq_quote_acceptance_revision"),)
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     quote_id = Column(Integer, index=True, nullable=False)
     token = Column(String(64), index=True, default="")
@@ -308,8 +330,51 @@ def _add_missing_columns() -> None:
             pass                                        # raced by the other worker
 
 
+def _add_missing_indexes() -> None:
+    """Put `uq_quote_acceptance_revision` on a table that already exists.
+
+    Same rule as `_add_missing_columns()` above, one object over:
+    `create_all()` creates missing tables and alters nothing, so a constraint
+    added to a model that already has a live table never reaches it. Without
+    this, the uniqueness would hold on a fresh database and on every test, and
+    be absent on the one deployment it matters on -- which is the failure mode
+    `RenderApproval`'s docstring describes for columns, with every test green.
+
+    `CREATE UNIQUE INDEX IF NOT EXISTS` rather than the inspector dance
+    `_add_missing_columns()` needs: unlike `ADD COLUMN IF NOT EXISTS`, this
+    spelling is understood by both SQLite and Postgres, so the shared engine
+    takes it either way.
+
+    **A failure here is reported, not swallowed.** The one way this legitimately
+    fails is a table that already holds two acceptances for one revision -- in
+    which case the index is refused and the duplicates need settling by hand
+    first, earliest-accepted being the one that counts. That is exactly the
+    situation somebody has to be told about, and a silent `pass` is how it
+    would instead be discovered by the constraint quietly never existing.
+    """
+    from sqlalchemy import inspect as _inspect, text as _text
+    try:
+        if not _inspect(engine).has_table("quote_acceptances"):
+            return
+    except Exception:                                   # noqa: BLE001
+        return
+    try:
+        with engine.begin() as conn:
+            conn.execute(_text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_quote_acceptance_revision"
+                " ON quote_acceptances (quote_id, revision)"))
+    except Exception as exc:                            # noqa: BLE001
+        logger.error(
+            "sales_builder: could not put a unique index on "
+            "quote_acceptances(quote_id, revision): %s. Two acceptances for "
+            "one revision are already on file; settle them (the earliest is "
+            "the one that counts) and redeploy, or acceptance stays "
+            "first-come-arbitrary.", exc)
+
+
 if not DB_BOOT_ERROR:
     _add_missing_columns()
+    _add_missing_indexes()
 
 _COUNTER_LOCK = threading.Lock()
 
@@ -4899,7 +4964,13 @@ def _share_state(db, q) -> dict:
                .filter(QuoteAcceptance.quote_id == q.id)
                .order_by(QuoteAcceptance.id.desc()).all())
     current = q.revision or 1
-    live = next((a for a in accepts if (a.revision or 1) == current), None)
+    # Through the same helper the accept endpoint answers from, not a second
+    # reading of the same list: with the unique index there is one row either
+    # way, and on a database that carried a duplicate before the index could be
+    # made, two readings would name two different people as having accepted the
+    # same quote -- on this panel and on the client's own page. `superseded`
+    # keeps the id-descending pick, where "the most recent one" is the question.
+    live = _acceptance_of(db, q.id, current)
     superseded = next((a for a in accepts if (a.revision or 1) != current), None)
     # A local lookup only -- no network -- so this GET (read on every open of
     # the share panel) never itself costs a Short.io call. The mask is made
@@ -5190,6 +5261,23 @@ def api_client_opened(token):
         db.close()
 
 
+def _acceptance_of(db, quote_id: int, revision: int):
+    """The acceptance on file for one revision -- the FIRST one, if somehow two.
+
+    Ordered rather than `.first()` on an unordered query. With the unique index
+    in place there is at most one row and the ordering costs nothing; on a
+    database that carried a duplicate pair before the index could be made, it
+    is the difference between "who accepted this" answering the same way twice
+    and answering whichever row came back. Earliest wins because that is the
+    acceptance that actually happened: the second was a double-click.
+    """
+    return (db.query(QuoteAcceptance)
+            .filter(QuoteAcceptance.quote_id == quote_id,
+                    QuoteAcceptance.revision == revision)
+            .order_by(QuoteAcceptance.at.asc(), QuoteAcceptance.id.asc())
+            .first())
+
+
 @app.post("/api/p/<token>/accept")
 def api_client_accept(token):
     """The client says yes, to one specific revision.
@@ -5233,9 +5321,7 @@ def api_client_accept(token):
                    client=q.client, expired_on=win.get("expires_on", ""))
             return jsonify({"ok": False, **out}), 409
         revision = q.revision or 1
-        existing = (db.query(QuoteAcceptance)
-                    .filter(QuoteAcceptance.quote_id == q.id,
-                            QuoteAcceptance.revision == revision).first())
+        existing = _acceptance_of(db, q.id, revision)
         if existing:
             return jsonify({"ok": True, "already": True,
                             "accepted": {"name": existing.name,
@@ -5248,7 +5334,23 @@ def api_client_accept(token):
         state["_approvedScope"] = proposal_flow.scope(state)
         q.data = json.dumps(state, ensure_ascii=False)
         log_activity(db, q.id, "✅", f"Accepted by {name} — revision {revision}")
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            # The read above and this insert are not one atomic step, so a
+            # second request inside that gap gets here. The unique index is
+            # what makes that a refusal rather than a second acceptance, and
+            # losing the race is not an error to show a client: the quote IS
+            # accepted, by whoever won it. Re-read and answer as though we had
+            # seen them, which is the same answer a request one second later
+            # would have got.
+            db.rollback()
+            won = _acceptance_of(db, q.id, revision)
+            if won is None:
+                raise
+            return jsonify({"ok": True, "already": True,
+                            "accepted": {"name": won.name,
+                                         "at": won.at.isoformat() if won.at else ""}})
         _audit("quote_accepted", client=q.client, quote=q.quote_number,
                accepted_by=f"{name} <{email}>", revision=revision)
         return jsonify({"ok": True, "accepted": {"name": name, "revision": revision}})

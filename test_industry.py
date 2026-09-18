@@ -368,6 +368,85 @@ check('industry("builder") -> real_estate',
       (industry.industry("builder") or {}).get("key") == "real_estate")
 
 
+
+# ---------------------------------------------------------------------------
+section("The picker mirror writes every row with that name, not one of them")
+# ---------------------------------------------------------------------------
+# `image_picker_clients.name` carries no unique constraint -- only `slug` does,
+# and a second gallery for the same name is given `-2` rather than refused, so
+# two rows sharing a name is the designed behaviour. This mirror read them with
+# `.first()` on an unordered query and wrote the industry onto whichever came
+# back, leaving the other as it was.
+#
+# Production carried exactly that: `marco-island-rental` on "general" and
+# `marco-island-rental-2` on "tourism", one client answering two ways depending
+# on which row a reader landed on. Nothing reported it, and it does not settle
+# itself -- the next write picks arbitrarily again.
+#
+# Asserted against the picker's real tables, because the defect is in which
+# rows the query returns and a stub would have agreed with either behaviour.
+from modules.image_picker import models as picker_models            # noqa: E402
+
+picker_models.init_db()
+_db = picker_models.session()
+try:
+    for _slug in ("marco-island-rental", "marco-island-rental-2"):
+        _db.add(picker_models.PickerClient(
+            name="Marco Island Rental", slug=_slug, kind="prospect",
+            industry_key="general"))
+    # ...and one that must not be touched: the mirror matches on the exact
+    # name, which is the rule CLAUDE.md states for client matching.
+    _db.add(picker_models.PickerClient(name="Marco Island Rentals",
+                                       slug="marco-island-rentals",
+                                       kind="prospect", industry_key="general"))
+    _db.commit()
+finally:
+    _db.close()
+
+
+def _keys(name):
+    db = picker_models.session()
+    try:
+        return [r.industry_key for r in
+                db.query(picker_models.PickerClient)
+                  .filter(picker_models.PickerClient.name == name)
+                  .order_by(picker_models.PickerClient.id).all()]
+    finally:
+        db.close()
+
+
+check("two rows can share a name — the slug is what is unique",
+      len(_keys("Marco Island Rental")), 2)
+
+_changed = industry._mirror_picker("Marco Island Rental", "tourism")  # noqa: SLF001
+check("both rows are written, so the client's industry reads the same "
+      "whichever row a reader lands on",
+      _keys("Marco Island Rental"), ["tourism", "tourism"])
+check("and it says how many it changed, so an ambiguity can be recorded",
+      _changed, 2)
+check("a different client whose name merely starts the same is untouched",
+      _keys("Marco Island Rentals"), ["general"])
+
+# Running it again is not a second write: the rows already say tourism.
+check("a second run changes nothing — the rows already say tourism",
+      industry._mirror_picker("Marco Island Rental", "tourism") == 0)  # noqa: SLF001
+
+# And the half-written state production was actually in converges, rather than
+# moving the disagreement to the other row.
+_db = picker_models.session()
+try:
+    _row = (_db.query(picker_models.PickerClient)
+            .filter(picker_models.PickerClient.slug == "marco-island-rental").one())
+    _row.industry_key = "general"
+    _db.commit()
+finally:
+    _db.close()
+check("the exact state production carried is the starting point",
+      _keys("Marco Island Rental"), ["general", "tourism"])
+check("...and one run settles it instead of picking a side",
+      (industry._mirror_picker("Marco Island Rental", "tourism"),  # noqa: SLF001
+       _keys("Marco Island Rental"))[1], ["tourism", "tourism"])
+
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

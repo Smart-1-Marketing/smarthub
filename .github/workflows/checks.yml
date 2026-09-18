@@ -2930,6 +2930,14 @@ jobs:
       - name: A capped read counted, or searched by key
         if: matrix.group == 6
         run: python3 test_capped_reads.py
+      # A .first() on a filter that matches two rows answers with whichever
+      # one the planner returns -- and SQLite, where all of this runs locally,
+      # hides it by usually returning the lowest rowid. Holds the shapes AND
+      # the check's own coverage, because three drafts of it reported a clean
+      # repository while reading almost none of one.
+      - name: A .first() that cannot name one row
+        if: matrix.group == 6
+        run: python3 test_unordered_first.py
       # The column that turns one client's work log from a window into a
       # question. Holds the migration on a live table and, above all, the
       # boundary a half-finished backfill leaves.

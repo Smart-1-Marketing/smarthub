@@ -35,6 +35,9 @@ import sys
 import tempfile
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import text as _sa_text
+from sqlalchemy.exc import IntegrityError
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, ROOT)
 
@@ -306,6 +309,125 @@ check("a quote the client accepted stops having a window at all — expiring "
       "an acceptance would take back an agreement",
       staff.get(f"/sales/builder/api/quotes/{qid}").get_json()["quote"]
       ["validity"]["applies"] is False)
+
+
+# ---------------------------------------------------------------------------
+section("one acceptance per revision, and it answers the same way twice")
+# ---------------------------------------------------------------------------
+# Accepting is a public POST on a share link, and the route reads "has this
+# revision been accepted" and then inserts. Two requests inside that gap -- a
+# double-click, a retry, two tabs -- both read nothing and both insert. Then
+# the panel and the client's own page read the acceptance back, so "who agreed
+# to this price, and when" answers with whichever row came back, and can differ
+# between two loads. Driven against the database rather than argued: a second
+# insert is refused, and the refusal is not shown to a client as an error.
+
+db = builder.SessionLocal()
+try:
+    rev = (db.get(builder.Quote, qid).revision or 1)
+    filed = (db.query(builder.QuoteAcceptance)
+             .filter(builder.QuoteAcceptance.quote_id == qid).all())
+    check("the acceptance above filed exactly one row", len(filed) == 1, len(filed))
+
+    # The second request, as the race delivers it: the read already happened
+    # and found nothing, so this is the insert that follows.
+    db.add(builder.QuoteAcceptance(quote_id=qid, revision=rev,
+                                   name="Someone Else", email="else@rd.com"))
+    try:
+        db.commit()
+        raced = False
+    except IntegrityError:
+        db.rollback()
+        raced = True
+    check("a second acceptance of the same revision is refused by the database, "
+          "not by a check that a concurrent request can slip past", raced)
+finally:
+    db.close()
+
+# ...and the refusal is not what the client sees. Losing the race means the
+# quote IS accepted, by whoever won it, which is the same answer a request one
+# second later would have got.
+second = visitor.post(f"/sales/builder/api/p/{token}/accept",
+                      json={"name": "Jane Whitfield", "email": "jane@rd.com"},
+                      headers={"User-Agent": BROWSER})
+body = second.get_json()
+check("accepting twice answers 'already accepted' rather than an error",
+      second.status_code == 200 and body.get("ok") and body.get("already"), body)
+check("and names the acceptance on file", body.get("accepted", {}).get("name"),
+      "Jane Whitfield")
+
+# ...and on a table that predates the constraint. `_add_missing_indexes()` is
+# what puts it on a live table, and the situation it cannot fix is the one it
+# has to report: two acceptances already on file for one revision. Simulated by
+# rebuilding the table without the constraint, because with it in place the
+# duplicate cannot be created -- which is the point of it.
+from sqlalchemy import inspect as _sa_inspect                       # noqa: E402
+
+_COLS = ("id INTEGER PRIMARY KEY AUTOINCREMENT, quote_id INTEGER NOT NULL,"
+         " token VARCHAR(64), revision INTEGER, at TIMESTAMP,"
+         " name VARCHAR(200), email VARCHAR(200), visitor VARCHAR(64)")
+
+
+def _unique_index_on(table="quote_acceptances"):
+    return [i for i in _sa_inspect(builder.engine).get_indexes(table)
+            if i.get("unique")
+            and set(i.get("column_names") or []) == {"quote_id", "revision"}]
+
+
+check("a unique index on (quote_id, revision) is really on the table — "
+      "declaring it on the model reaches a fresh database and never an "
+      "existing one", len(_unique_index_on()) == 1, _sa_inspect(builder.engine)
+      .get_indexes("quote_acceptances"))
+
+_saved = None
+with builder.engine.begin() as _cx:
+    _saved = _cx.execute(_sa_text(
+        "SELECT quote_id, token, revision, at, name, email, visitor"
+        " FROM quote_acceptances")).fetchall()
+    _cx.execute(_sa_text("DROP TABLE quote_acceptances"))
+    _cx.execute(_sa_text(f"CREATE TABLE quote_acceptances ({_COLS})"))
+    # Newest first by id, so an unordered read returns the later one.
+    for _n, _d in (("Second", "2026-09-02 12:00:00"), ("First", "2026-09-01 12:00:00")):
+        _cx.execute(_sa_text("INSERT INTO quote_acceptances"
+                             " (quote_id, revision, name, at)"
+                             " VALUES (:q, 1, :n, :a)"),
+                    {"q": qid, "n": _n, "a": _d})
+
+check("the table can be made to carry a duplicate pair once the constraint "
+      "is not there — which is what a live table looked like", True)
+
+_db = builder.SessionLocal()
+try:
+    _got = builder._acceptance_of(_db, qid, 1)
+    check("with two on file the earliest is the one reported, not whichever "
+          "row came back — the later one was the double-click",
+          _got.name if _got else None, "First")
+finally:
+    _db.close()
+
+builder._add_missing_indexes()
+check("...and the index is refused rather than half-made while they are there",
+      _unique_index_on() == [], _unique_index_on())
+
+with builder.engine.begin() as _cx:
+    _cx.execute(_sa_text("DELETE FROM quote_acceptances WHERE name = 'Second'"))
+builder._add_missing_indexes()
+check("once the duplicate is settled the same call puts the index on",
+      len(_unique_index_on()) == 1)
+check("and it is idempotent — every boot runs it",
+      (builder._add_missing_indexes() or True) and len(_unique_index_on()) == 1)
+
+# Put the real acceptance back, so what follows reads the table this file built.
+with builder.engine.begin() as _cx:
+    _cx.execute(_sa_text("DELETE FROM quote_acceptances"))
+    for _r in _saved:
+        _cx.execute(_sa_text(
+            "INSERT INTO quote_acceptances"
+            " (quote_id, token, revision, at, name, email, visitor)"
+            " VALUES (:q, :t, :r, :a, :n, :e, :v)"),
+            {"q": _r[0], "t": _r[1], "r": _r[2], "a": _r[3],
+             "n": _r[4], "e": _r[5], "v": _r[6]})
+
 
 # ---------------------------------------------------------------------------
 section("what Smart 1 Suite is allowed to decide")

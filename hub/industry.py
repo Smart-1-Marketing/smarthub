@@ -378,30 +378,57 @@ def resolve_industry(client: str, domain: str = "", hint: str = "", **_kw) -> di
             "confidence": 0.0, "evidence": ""}
 
 
-def _mirror_picker(client: str, canonical_key: str) -> None:
-    """Mirror the resolved key onto the Image Picker's own row, when one
-    exists and the picker actually carries content for that key."""
+def _mirror_picker(client: str, canonical_key: str) -> int:
+    """Mirror the resolved key onto the Image Picker's rows for this client.
+
+    **Rows, plural, and that is the fix.** `image_picker_clients.name` is not
+    unique -- only `slug` is, and a second gallery for the same name is given
+    `-2` rather than refused, so two rows sharing a name is the designed
+    behaviour and not a data fault. This read was `.first()` with no ordering,
+    so it wrote the industry onto whichever row the database happened to hand
+    back and left the other one as it was.
+
+    That is not hypothetical. Production carried exactly that: two rows named
+    the same, `marco-island-rental` on `general` and `marco-island-rental-2`
+    on `tourism`. The industry for one client answered two different ways
+    depending on which row a reader landed on, and nothing anywhere said so.
+    It does not heal on its own either -- the next write picks arbitrarily
+    again, so it can just as easily move the disagreement as settle it.
+
+    The caller's own comment two lines above says what this is for: "Every
+    write here -- a person's pick or the scan's answer -- lands on both",
+    written after Client 360 showed the same fact disagreeing with itself in
+    two fields. One row out of two is that same defect one table over. So
+    every exact-name match is written, in id order so a run is reproducible.
+
+    Returns how many rows it changed, so a caller that wants to record the
+    ambiguity can.
+    """
     try:
         from modules.image_picker import models as picker_models
         from modules.image_picker import taxonomy as picker_taxonomy
     except Exception:                                      # noqa: BLE001
-        return
+        return 0
     picker_key = picker_taxonomy.picker_key_for(canonical_key)
     if not picker_key:
-        return
+        return 0
     try:
         db = picker_models.session()
     except Exception:                                       # noqa: BLE001
-        return
+        return 0
     try:
-        row = (db.query(picker_models.PickerClient)
-                 .filter(picker_models.PickerClient.name == client)
-                 .first())
-        if row and row.industry_key != picker_key:
+        rows = (db.query(picker_models.PickerClient)
+                  .filter(picker_models.PickerClient.name == client)
+                  .order_by(picker_models.PickerClient.id)
+                  .all())
+        changed = [r for r in rows if r.industry_key != picker_key]
+        for row in changed:
             row.industry_key = picker_key
+        if changed:
             db.commit()
+        return len(changed)
     except Exception:                                        # noqa: BLE001
-        pass
+        return 0
     finally:
         try:
             db.close()

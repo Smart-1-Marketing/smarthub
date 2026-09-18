@@ -1524,3 +1524,66 @@ put thirteen false findings in the first version. `WRITES_EXEMPT` is empty on
 purpose, and the check carries eight fixtures — four shapes it must catch, four
 look-alikes it must not — because an empty finding list is worth nothing unless
 the reading behind it can be shown to find the thing.
+
+**`.first()` on a filter that matches two rows answers with whichever one the
+planner returns — and SQLite hides it.** SQL has no default order. Every local
+run and every test here is SQLite, which obliges by usually handing back the
+lowest rowid, so the read looks stable right up until Postgres, a bigger table
+or a different plan. This is the family `docs/claude/56` already records twice
+— a forward foreign key SQLite resolves lazily and a SELECT alias in HAVING —
+both invisible in development by construction.
+
+Three were live when the check went in:
+
+- **`hub/industry.py` wrote a client's industry onto one of two galleries.**
+  `image_picker_clients.name` carries no unique constraint — only `slug` does,
+  and a second gallery for one name is given `-2` rather than refused, so two
+  rows sharing a name is the *designed* behaviour. Production carried exactly
+  that: `marco-island-rental` on `general` beside `marco-island-rental-2` on
+  `tourism`. One client, two industries, and which one a screen showed depended
+  on which row it happened to read. It does not settle itself either — the next
+  write picks arbitrarily again, so it can move the disagreement as easily as
+  end it. The caller's own comment one line above says every write here "lands
+  on both", written after Client 360 showed the same fact disagreeing with
+  itself in two fields. `_mirror_picker()` now writes every exact-name match,
+  in id order, and returns how many it changed.
+- **A quote could be accepted twice.** `modules/sales_builder` read "has this
+  revision been accepted" and then inserted, with nothing unique on
+  `(quote_id, revision)`, on a public POST behind a share link. Two requests
+  inside that gap — a double-click, a retry, two tabs — both read nothing and
+  both insert. Reproduced against real Postgres: two threads, two acceptance
+  rows, and the unordered read afterwards returned the *loser's*. Who agreed to
+  a price and when is not a figure that gets to be arbitrary. Fixed with a
+  unique constraint (declared on the model for a fresh database and applied by
+  `_add_missing_indexes()` to a live one, since `create_all()` alters nothing),
+  an `IntegrityError` path that answers "already accepted" rather than 500, and
+  one reading of the acceptance shared by the client's page and the staff panel.
+- **`binder.py` picked a seed template out of four non-unique fields**, three
+  times over, so two assets built from one brief could start from different
+  templates with nothing saying why.
+
+**The check's own coverage is a finding it emits, and that is the part worth
+copying.** Three drafts of `check_unordered_first()` each reported a clean
+repository while reading almost none of one:
+
+| draft | what it missed | what it printed |
+|---|---|---|
+| 1 | only understood `db.Column(...)`, not the bare `Column(...)` `hub/users.py` uses | `User.email` as unconstrained — would have sent somebody to "fix" the sign-in lookup |
+| 2 | only followed `filter_by`, skipping every `.filter(Model.col == v)` in `modules/scans` | 4 findings out of 136 call sites, 29 of them resolved |
+| 3 | counted a row as used only if a field was read off it, so `return exact` looked like an existence check | three of `binder.py`'s picks as safe |
+
+Every one of those produced a short list, which is exactly what a clean
+repository produces. So the check reports how many call sites it resolved, how
+many are Core queries with no model to carry a key, and names every one it
+could not read — as its own entry, marked as the check reporting its reach
+rather than a defect in the file it names. `test_unordered_first.py` asserts
+the repository is clean **and** that nothing was unresolved, because the first
+claim is worth only as much as the second.
+
+Two false-positive traps are worth knowing, since both make a check people stop
+reading. An existence check is not a finding even when it is spelled over two
+lines through a name (`existing = …` then `if existing:`) — reading only the
+expression around the call reported three of `modules/commercial_builder`'s
+that way. And an `order_by` may sit on the variable the query was built into
+three lines earlier, which is how the check reported `binder.py`'s picks as
+unordered on the very commit that ordered them.

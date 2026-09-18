@@ -496,6 +496,19 @@ python3 test_capped_reads.py       # the integrity check that finds a capped rea
                                    #   four times before the repo looked for it.
                                    #   Holds the four shapes that have shipped
                                    #   and the things that look like them
+python3 test_unordered_first.py    # the integrity check that finds a .first() which
+                                   #   cannot name one row. SQL has no default order,
+                                   #   so past the first match it answers with
+                                   #   whichever row the planner returns -- and the
+                                   #   local SQLite hides it by usually returning the
+                                   #   lowest rowid. Went in with three live ones,
+                                   #   one of them visible in production as one
+                                   #   client carrying two industries. Holds every
+                                   #   shape, every look-alike, and the check's OWN
+                                   #   COVERAGE: three drafts each reported a clean
+                                   #   repository while resolving almost none of it,
+                                   #   and an empty list is worth only as much as
+                                   #   the fraction of call sites behind it
 python3 test_client_work_log.py    # the client work log's horizon: narrowed to
                                    #   the 47 work modules in the query, a count
                                    #   that describes the client rather than the
