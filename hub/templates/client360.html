@@ -1219,9 +1219,17 @@ function render(g,q){
         var incomplete=(d.complete===false)
           ? '<div class="muted" style="font-size:11.5px;margin-top:8px">Some sources could not be read, so a count here may be low rather than complete.</div>'
           : '';
+        /* Upload notices go to the people attached to the account. With
+           nobody attached they go to no one, and the card has to say so or
+           the silence reads as "nothing has arrived". A null answer means
+           the list could not be read, which is not the same as nobody. */
+        var nobody=(Array.isArray(d.attached) && !d.attached.length)
+          ? '<div style="font-size:11.5px;margin-top:8px;color:#b45309">Nobody is attached to this account, so upload notices go to no one. '
+            +'<a href="#c-owner">Assign an owner or a follower →</a></div>'
+          : '';
         host.innerHTML =
           '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px" id="c-img-sections">'+tiles+'</div>'
-          + chips + incomplete
+          + chips + incomplete + nobody
           + '<details style="margin-top:12px"><summary class="muted" style="cursor:pointer;font-size:12px">Latest optimized images from the SEO Image Pipeline</summary>'
           + '<div id="c-images-seo" style="margin-top:10px"><div class="empty">Looking… <span class="spin"></span></div></div></details>';
         if(keep) host.insertBefore(keep, host.firstChild);

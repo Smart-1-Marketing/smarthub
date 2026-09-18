@@ -80,14 +80,24 @@ def _gallery_url(client: str) -> str:
     return "/tools/image-picker/gallery/for-client?name=" + quote(client)
 
 
-def tell(client: str, *, label: str, suffix: str, return_url: str = "") -> int:
-    """Register one finished pointer per attached person. Returns how many."""
+def tell(client: str, *, label: str, suffix: str, return_url: str = "",
+         also=()) -> int:
+    """Register one finished pointer per attached person. Returns how many.
+
+    `also` adds recipients for this one notice -- the staff member who did
+    the uploading -- without making them attached to the account.
+    """
     try:
         from hub import job_notify
     except Exception:                                     # noqa: BLE001
         return 0
+    recipients = attached(client)
+    for extra in also or ():
+        extra = str(extra or "").strip().lower()
+        if extra and extra not in recipients:
+            recipients.append(extra)
     n = 0
-    for email in attached(client):
+    for email in recipients:
         try:
             job_notify.register(owner=email, tool=TOOL, label=label,
                                 return_url=return_url or _gallery_url(client),
@@ -100,7 +110,7 @@ def tell(client: str, *, label: str, suffix: str, return_url: str = "") -> int:
 
 
 def uploads_recorded(client: str, *, count: int, by: str = "client",
-                     folder: str = "") -> int:
+                     folder: str = "", also=()) -> int:
     """Files landed in the gallery. One card per person per client per hour.
 
     `count` is how many this hour, which the caller counts off the gallery
@@ -111,7 +121,7 @@ def uploads_recorded(client: str, *, count: int, by: str = "client",
     label = (f"{count} new file{'s' if count != 1 else ''} for {client}"
              f"{where} — {who}")
     hour = time.strftime("%Y%m%d%H", time.gmtime())
-    return tell(client, label=label, suffix=f"uploads-{hour}")
+    return tell(client, label=label, suffix=f"uploads-{hour}", also=also)
 
 
 def optimized_all(client: str, count: int) -> int:
