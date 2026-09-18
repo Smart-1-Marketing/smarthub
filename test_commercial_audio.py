@@ -763,6 +763,140 @@ check("and it still refuses the render rather than advising",
       "voice_fits" in qc_service.ADVISORY_CHECKS, False)
 
 
+# ---------------------------------------------------------------------------
+section("Hardening: the bitrate, the cache key, and the scene that gets cut")
+# ---------------------------------------------------------------------------
+# Three ways the narration work above could still go quietly wrong.
+
+# --- 1. The format and the bitrate cannot disagree ---------------------
+# They were two constants that had to agree and nothing checked. Bump the
+# format to mp3_44100_192 and leave the number at 128 and every duration in
+# this module comes back 1.5x too long -- reported as MEASURED, because the
+# arithmetic is on the byte count and the byte count is fine. The bed, the
+# voice take and music_length_mismatch all read it, so one wrong number is
+# wrong in three places at once.
+check("the bitrate is derived from the format rather than typed twice",
+      cb_config.AUDIO_OUTPUT_KBPS, cb_config._kbps_of(cb_config.AUDIO_OUTPUT_FORMAT))
+check("...so a format change carries its own bitrate with it",
+      (cb_config._kbps_of("mp3_44100_192"), cb_config._kbps_of("mp3_22050_32")),
+      (192, 32))
+# Only an mp3_<rate>_<kbps> shape parses. A pcm format would otherwise hand
+# back its SAMPLE rate as a bitrate -- a confident wrong number where 0 is the
+# true one, and 0 is what cbr_seconds() already refuses to measure from.
+check("a format the arithmetic is not valid for answers 0, not a sample rate",
+      [cb_config._kbps_of(f) for f in
+       ("pcm_44100", "opus_48000_64", "mp3_44100_xx", "", None)],
+      [0, 0, 0, 0, 0])
+check("and a zero bitrate is not measured rather than divided by",
+      audio.cbr_seconds(100_000, 0), None)
+
+# --- 2. A pace the provider clamps must not buy a second take ----------
+# The scene cache is keyed on a fingerprint of the settings. Asking for 1.25
+# and 1.30 both read at 1.2 and come back byte-identical, so fingerprinting the
+# raw number makes two keys for one take -- a paid regeneration that buys
+# nothing, on the cache whose stated job is not spending twice.
+from modules.commercial_builder.services import media_state as _ms           # noqa: E402
+
+
+def _take_key(raw_speed):
+    settings = {"stability": 0.5, "style": 0.5, "speed": vo.clamp_speed(raw_speed)}
+    return _ms.fingerprint(["sig", "voice-1", settings, None])
+
+
+check("two paces that clamp to the same rate share one cache key",
+      _take_key(1.25), _take_key(1.30))
+check("and two that genuinely differ do not",
+      _take_key(1.0) == _take_key(1.15), False)
+check("the route clamps before it fingerprints, not after",
+      "settings[\"speed\"] = elevenlabs_service.clamp_speed" in
+      (ROOT / "modules/commercial_builder/routes/voices.py").read_text(), True)
+
+# --- 3. The scene that gets cut ----------------------------------------
+# Scenes mode places each read with an explicit `duration` of that scene's own
+# span, so a long read is cut at the SCENE boundary, mid-word, while the spot's
+# total length is perfectly fine. Nothing was asking: `scene_assets` is about
+# the FOOTAGE being shorter than the scene, not the narration being longer.
+check("the renderer really does cap each scene's read to its scene",
+      '"duration": scene["end"] - scene["start"], "type": "audio"' in
+      (ROOT / "modules/commercial_builder/services/creatomate_service.py").read_text(),
+      True)
+
+
+def _scene(n, start, end, seconds=None, measured=True, presenter=False, narration="hi"):
+    meta = {}
+    if seconds is not None:
+        meta["voiceover"] = {"seconds": seconds, "measured": measured}
+    if presenter:
+        meta["spokesperson_url"] = "https://x/clip.mp4"
+    return {"id": n, "start": start, "end": end, "narration": narration,
+            "asset_meta": meta}
+
+
+_mixed = [_scene(1, 0, 4, 5.4), _scene(2, 4, 24, 26.0), _scene(3, 24, 30, 5.0)]
+_rows = _ms.scene_voice_fits(_mixed)
+check("every narration scene with a measured take is read",
+      [r["scene"] for r in _rows], [1, 2, 3])
+check("and each says how far over its own scene it runs",
+      [r["over"] for r in _rows], [1.4, 6.0, -1.0])
+# The binding scene is the one needing the hardest PUSH, not the biggest
+# overrun: 1.4s over a 4s scene needs more than 6s over a 20s one, and one pace
+# is asked of the whole spot, so the wrong pick leaves a scene still cut.
+check("the scene that binds is the one needing the hardest push",
+      _ms.worst_scene_voice_fit(_mixed)["scene"], 1)
+check("...which is NOT the biggest overrun",
+      max(_rows, key=lambda r: r["over"])["scene"], 2)
+check("a take nobody measured is not judged as one",
+      [r["scene"] for r in _ms.scene_voice_fits([_scene(1, 0, 4, 9.9, measured=False)])],
+      [])
+check("nor is a presenter scene, whose clip carries the read",
+      _ms.scene_voice_fits([_scene(1, 0, 4, 9.9, presenter=True)]), [])
+check("a scene with no span is skipped rather than divided by",
+      _ms.scene_voice_fits([_scene(1, 5, 5, 3.0)]), [])
+check("and nothing over means nothing binds",
+      _ms.worst_scene_voice_fit([_scene(1, 0, 6, 5.4)]), None)
+
+_scenes_project = {"script": {"word_count": 65}, "length_seconds": 30,
+                   "music": {"voice_mode": "scenes"}}
+# The scene tolerance is its own number and deliberately not the bed's. One
+# second is 3% of a :30 runway and a QUARTER of a four-second scene, and the
+# two readings disagreed once: the per-scene finding flagged an overrun that
+# the rate to fix it then called "fits", because the rate was worked out
+# against the bed's tolerance.
+check("a scene is judged at its own tolerance, not the bed's",
+      (_ms.scene_tolerance_s(), cb_config.SCENE_VOICE_TOLERANCE_S), (0.1, 0.1))
+check("...which is tighter than the bed's, because the cut is hard",
+      _ms.scene_tolerance_s() < cb_config.MUSIC_LENGTH_TOLERANCE_S, True)
+check("a trailing breath over is not a finding",
+      _ms.worst_scene_voice_fit([_scene(1, 0, 4, 4.05)]), None)
+check("but a third of a second on a four-second scene is",
+      (_ms.worst_scene_voice_fit([_scene(1, 0, 4, 4.3)]) or {}).get("scene"), 1)
+check("and the gate reads that same number rather than the bed's",
+      qc_service._check_voice_fits(_scenes_project,
+                                   [_scene(1, 0, 4, 4.3)])["passed"], False)
+check("a scene carrying more read than scene stops the render",
+      qc_service._check_voice_fits(_scenes_project, _mixed)["passed"], False)
+check("...and the finding names the scene and both numbers",
+      "1 (5.4s in 4.0s)" in
+      qc_service._check_voice_fits(_scenes_project, _mixed)["message"], True)
+check("scenes that all fit pass", qc_service._check_voice_fits(
+      _scenes_project, [_scene(1, 0, 6, 5.4), _scene(2, 6, 12, 5.0)])["passed"], True)
+# A spot whose every scene is a presenter has no narration to measure and is
+# perfectly shippable -- failing it here would be the gate refusing the correct
+# thing, which is the note QR_CODE_RULES carries.
+_presenter_only = qc_service._check_voice_fits(
+    _scenes_project, [_scene(1, 0, 15, presenter=True, narration=""),
+                      _scene(2, 15, 30, presenter=True, narration="")])
+check("a presenter-only spot is not refused for having no narration",
+      _presenter_only["passed"], True)
+check("...and says why rather than reporting a gap",
+      "Every scene is a presenter" in _presenter_only["message"], True)
+# Narration that exists but has not been generated falls back to the word
+# count, exactly as the single-track path does before a take exists.
+check("narration not yet generated falls back to the word count",
+      "word count rather than a length" in qc_service._check_voice_fits(
+          _scenes_project, [_scene(1, 0, 6)])["message"], True)
+
+
 print("\n" + "-" * 62)
 print(f"{_passed} passed, {_failed} failed")
 shutil.rmtree(TMP, ignore_errors=True)

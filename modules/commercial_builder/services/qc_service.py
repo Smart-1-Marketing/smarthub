@@ -127,7 +127,7 @@ def run_qc(project_dict, client_dict, scenes):
     checks["timing"] = _check_timing(project_dict, scenes)
     checks["scene_assets"] = _check_scene_assets(scenes)
     checks["media_integrity"] = media_state.integrity(project_dict, scenes)
-    checks["voice_fits"] = _check_voice_fits(project_dict)
+    checks["voice_fits"] = _check_voice_fits(project_dict, scenes)
     checks["cta"] = _check_cta(project_dict, client_dict, scenes)
     checks["brand"] = _check_brand(client_dict)
     checks["resolution"] = _check_resolution(scenes)
@@ -418,7 +418,7 @@ def _join(numbers):
     return ", ".join(str(n) for n in numbers)
 
 
-def _check_voice_fits(project_dict):
+def _check_voice_fits(project_dict, scenes=()):
     """Does the narration fit the spot -- measured where a take exists.
 
     The word count is the proxy, and it was the only reading here. That is the
@@ -445,6 +445,47 @@ def _check_voice_fits(project_dict):
     length = project_dict.get("length_seconds")
     wc = script.get("word_count")
     lo, hi = VO_WORD_TARGETS.get(length, (0, 10_000))
+
+    # Scenes mode has no single track to measure. Each scene's read is placed
+    # with its own scene's span as an explicit duration, so the cut happens at
+    # the SCENE boundary and the check has to be per scene -- one long read in
+    # a five-second scene is a line that stops mid-word while the spot's total
+    # length is perfectly fine.
+    if music.get("voice_mode") == "scenes":
+        rows = media_state.scene_voice_fits(scenes)
+        over = [r for r in rows if r["over"] > media_state.scene_tolerance_s()]
+        if over:
+            named = ", ".join(f"{r['scene']} ({r['seconds']}s in {r['span']}s)"
+                              for r in over[:4])
+            more = "" if len(over) <= 4 else f" and {len(over) - 4} more"
+            return {"passed": False,
+                    "message": (f"Scene(s) {named}{more} carry narration longer "
+                                "than the scene. Each read is cut at its own "
+                                "scene boundary rather than running over, so "
+                                "what is lost is the end of the line. Record the "
+                                "narration again at a brisker pace, or give "
+                                "those scenes more time.")}
+        if rows:
+            one = len(rows) == 1
+            return {"passed": True,
+                    "message": (f"{'The' if one else f'All {len(rows)}'} "
+                                f"narration scene{'' if one else 's'} "
+                                f"fit{'s' if one else ''} the scene "
+                                f"{'it sits' if one else 'they sit'} in.")}
+        # Nothing measured. A spot whose every scene is a presenter has no
+        # narration to measure and is perfectly shippable -- HeyGen speaks the
+        # read, and failing it here would be the gate refusing the correct
+        # thing, which is the note `QR_CODE_RULES` carries. Narration that
+        # exists but has not been generated falls through to the word count,
+        # exactly as the single-track path does before a take exists.
+        spoken = [sc for sc in scenes
+                  if (sc.get("narration") or "").strip()
+                  and not media_state.has_presenter(sc)]
+        if not spoken:
+            return {"passed": True,
+                    "message": ("Every scene is a presenter, so the clip "
+                                "carries the read and there is no separate "
+                                "narration to fit.")}
 
     seconds = music.get("voice_seconds") if music.get("voice_measured") else None
     if seconds is not None and length:
