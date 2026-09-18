@@ -143,6 +143,39 @@ says the words were worked out from their website, because a client reading
 "your topics are built from marine upholstery" about words they never typed
 should know where they came from.
 
+## Four things the first cut got wrong, fixed the day after
+
+**Old uploads were never queued.** The optimization row is written by
+`/api/uploads`, so every gallery filled before the feature existed read "0
+of 0" on the counter for ever. `optimize.backfill()` runs at the start of
+each sweep and queues the galleries with the oldest unqueued image, twenty
+per run, so a Hub with a thousand old photographs fills in over a few runs
+rather than one run scanning everything it holds.
+
+**Deleting a gallery orphaned its SEO copies.** The gallery delete looped
+over its own rows' public ids and never saw the copies'. `optimize.forget()`
+returns True, False or None now (destroyed, refused, nothing stored) and the
+gallery delete counts the copies beside the originals -- a clean "deleted"
+with files still in the account is the tick `hub/domain_links.py` warns
+about.
+
+**Nobody attached meant nobody told, silently.** A client with no owner,
+follower or Client Success contact produced no card and no inbox item and
+nothing said so. The asset home now carries `attached`, the card draws
+"nobody is attached to this account, so upload notices go to no one" with a
+link to the owner control, and a staff upload is announced to the uploader
+as well, because the person who pressed Upload is the one who can fix the
+assignment. A list that could not be read is `null`, never `[]`: only an
+empty list draws the line.
+
+**The load threshold was a constant nobody could see or change.** Inside a
+container the load average is usually the host's while the core count may
+be the container's, so 1.5 × cores may trip always or never. The factor is
+`IMAGE_OPTIMIZE_LOAD_FACTOR` through `hub/config.py` (default 1.5), every
+run's result carries the reading and the limit it was held against so the
+`picker_optimize` row on Diagnostics shows both, and `/status` has a row
+naming the variable and what unset means.
+
 ## Tests
 
 `test_master_gallery.py` (five sections at zero, Logos/Internal routing, the

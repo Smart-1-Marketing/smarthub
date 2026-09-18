@@ -509,6 +509,15 @@ for pid, rtype in (("smart1/testy/one.jpg", "image"),
                       cloudinary_public_id=pid, cloudinary_url="https://x/" + pid,
                       resource_type=rtype, ghl_status="sent"))
 db.commit()
+# One of them has its SEO copy made. Deleting the gallery has to take that
+# object too, or it sits in the account under a gallery that no longer
+# exists -- the orphan single-image delete already avoids.
+from modules.image_picker.models import ImageOptimization as _ImgOpt   # noqa: E402
+_one = db.query(SavedImage).filter(SavedImage.cloudinary_public_id == "smart1/testy/one.jpg").one()
+db.add(_ImgOpt(image_id=_one.id, client_id=cid, state="done",
+               optimized_public_id="smart1/testy/optimized/one-1",
+               optimized_url="https://x/smart1/testy/optimized/one-1.webp"))
+db.commit()
 
 # The name is typed. An OK button means the same thing whichever row was
 # mis-tapped, and for a file the client uploaded ours is often the only copy.
@@ -531,10 +540,13 @@ check("and its images with it",
 # signature reported as a clean success: row gone, file still in the account.
 check("a PDF is destroyed as raw", ("smart1/testy/brochure.pdf", "raw") in destroyed, True)
 check("an image as an image", ("smart1/testy/one.jpg", "image") in destroyed, True)
+check("and its SEO copy with it", ("smart1/testy/optimized/one-1", "image") in destroyed, True)
+check("the copy's row is gone too",
+      session().query(_ImgOpt).filter(_ImgOpt.client_id == cid).count(), 0)
 
 # "Deleted" and "deleted, and one file is still in the account" are different
 # outcomes, and one tick for both is how somebody learns not to trust the tick.
-check("what Cloudinary removed is counted", d["cloudinary_removed"], 2)
+check("what Cloudinary removed is counted, the copy included", d["cloudinary_removed"], 3)
 check("what it would not is counted apart", d["cloudinary_left"], 1)
 check("and said out loud", "still in the account" in d["note"], True)
 # Once a file is in the client's media library it may be in a funnel already.
@@ -884,6 +896,25 @@ check("but a folder named Logos still lands in the Logos section",
       organized["section"], "logos")
 check("under the one Logos folder", organized["folder"], "Logos")
 
+# --- The person who pressed Upload is told, attached or not ---------------
+# With nobody attached to the account a notice goes to no one, silently. A
+# staff upload is announced to the uploader as well, so the one person who
+# can fix the assignment learns that nobody else heard.
+_told_owners = []
+with patch("hub.job_notify.register", side_effect=lambda **kw: _told_owners.append(kw["owner"]) or kw), \
+        patch("hub.client_owner.owner_of", return_value=None), \
+        patch("hub.client_owner.followers_of", return_value=[]), \
+        patch("hub.client_owner.client_success_of", return_value={}):
+    http.post("/tools/image-picker/api/uploads",
+              json=dict(UPLOAD, public_id=INTERNAL_UP + "-b",
+                        secure_url="https://res.cloudinary.com/demo/image/upload/v1/" + INTERNAL_UP + "-b",
+                        original_filename="drive-logo-b.png",
+                        client_id=dup_id, internal=True, folder="Logos"))
+check("a staff upload with nobody attached still tells the uploader",
+      _told_owners, ["tester@smart1marketing.com"])
+home = http.get(f"/tools/image-picker/api/master-gallery?client_id={dup_id}").get_json()
+check("the asset home says who is attached", isinstance(home.get("attached"), list), True)
+
 # --- Every upload is queued for its SEO copy, and never made here ---------
 from modules.image_picker import optimize as _optimize              # noqa: E402
 from modules.image_picker.models import ImageOptimization           # noqa: E402
@@ -914,6 +945,27 @@ check("and names why", "load average" in deferred.get("why", ""), True)
 check("without touching a row", _optimize.progress(session(), dup_id)["pending"], prog["pending"])
 check("an unconfigured Hub skips rather than errors",
       "skipped" in _optimize.run_backlog(), True)
+check("the load reading is on the result, with the limit it is held against",
+      set(deferred["load"]) >= {"measured", "cores", "factor"}, True)
+check("and the factor is the typed setting", deferred["load"]["factor"],
+      float(__import__("hub.config", fromlist=["settings"]).settings.image_optimize_load_factor))
+
+# --- Images from before this feature existed are queued by the sweep -------
+# Nothing queued them: the row is written by /api/uploads, and a gallery
+# filled before that existed read "0 of 0" for ever.
+_db = session()
+_old = SavedImage(client_id=dup_id, provider="local", provider_image_id="old-photo",
+                  filename="IMG_0001.jpg", resource_type="image",
+                  cloudinary_public_id="smart1-client-images/duplicate-choice-co/uploads/IMG_0001",
+                  cloudinary_url="https://res.cloudinary.com/demo/image/upload/v1/old/IMG_0001.jpg")
+_db.add(_old); _db.commit()
+check("an old upload has no row", _db.execute(_select(ImageOptimization).where(
+    ImageOptimization.image_id == _old.id)).scalar_one_or_none(), None)
+filled = _optimize.backfill(_db)
+check("the backfill queues it", filled["rows"] >= 1, True)
+check("as pending", _db.execute(_select(ImageOptimization).where(
+    ImageOptimization.image_id == _old.id)).scalar_one().state, "pending")
+check("and a second pass has nothing left to queue", _optimize.backfill(_db)["rows"], 0)
 
 
 class _Stored:
@@ -953,7 +1005,7 @@ check("the original's URL is untouched",
       original.cloudinary_url, "https://res.cloudinary.com/demo/image/upload/v1/" + INTERNAL_UP)
 check("and its filename", original.filename, "drive-logo.png")
 check("the people on the account are told when every copy is made",
-      told and told[0][0], "Duplicate Choice Co")
+      any(name == "Duplicate Choice Co" for name, _n in told), True)
 after = _optimize.progress(_db, dup_id)
 check("the counter reads all done", after["pending"], 0)
 copies = _optimize.copies_for(_db, [original.id])

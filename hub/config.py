@@ -78,6 +78,14 @@ def _i(name: str, default: int) -> int:
         return default
 
 
+def _f(name: str, default: float) -> float:
+    try:
+        value = float(_s(name) or default)
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
+
 def _b(name: str, default: bool = False) -> bool:
     raw = _s(name).lower()
     if not raw:
@@ -273,6 +281,12 @@ class Settings:
     # ---- image pipeline ----
     max_edge: int = field(default_factory=lambda: _i("SEO_IMAGES_MAX_EDGE", 2400))
     preview_edge: int = field(default_factory=lambda: _i("HUB_PREVIEW_EDGE", 640))
+    # The one-minute load average, as a multiple of the core count, above
+    # which the SEO-copy sweep (modules/image_picker/optimize.py) steps
+    # aside. A float so 1.25 is expressible; the reading it is held against
+    # is on the scheduler row for picker_optimize on /diagnostics.
+    image_optimize_load_factor: float = field(
+        default_factory=lambda: _f("IMAGE_OPTIMIZE_LOAD_FACTOR", 1.5))
 
     # ---- providers ----
     # Every provider credential resolves through ALIASES above, so a key set
@@ -704,6 +718,11 @@ class Settings:
                 "local disk, outside the backup, and get no delivery URL."),
             row("OpenAI", self.openai_ready, False,
                 "OPENAI_API_KEY — AI naming, FAQ, schema and copy fall back to templates."),
+            row("SEO copy sweep load limit", True, False,
+                f"IMAGE_OPTIMIZE_LOAD_FACTOR — {self.image_optimize_load_factor:g} × cores; "
+                "unset means 1.5. The sweep that makes web-ready copies of uploads "
+                "waits while the one-minute load average is above it. The reading "
+                "it is held against is on the picker_optimize row of /diagnostics."),
             row("Pickaxe", self.pickaxe_ready, False,
                 "PICKAXE_API_KEY — Pickaxe-backed helpers (SEM quote help) fall "
                 "back to the Hub's own AI."),
