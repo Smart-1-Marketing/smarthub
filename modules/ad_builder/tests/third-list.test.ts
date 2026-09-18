@@ -10,7 +10,8 @@ import * as path from 'node:path';
 import { adoptLook, styleFor, carryFor } from '../src/carry';
 import { familyFor, getTemplate } from '../src/registry';
 import { campaignHealth } from '../src/health';
-import { commentOnClientProof, getClientProof, clientProofHtml, clientProofsByProject, COMMENT_LIMIT, type ClientProof } from '../src/workflow';
+import { commentOnClientProof, getClientProof, clientProofHtml, clientProofsByProject, COMMENT_LIMIT, type ClientProof, type Notifier } from '../src/workflow';
+import type { Notification, NotifyResult } from '../src/notify';
 import { ProjectStore } from '../src/projects';
 import type { CreativeConcept } from '../src/types';
 
@@ -130,6 +131,34 @@ test('a note is refused on a size that is not on the proof, when empty, and once
   assert.throws(() => commentOnClientProof(out, store, token, { cell: '', text: 'late' }), /approved/);
 });
 
+test('a note pages the team with the size and a link to the build screen', async (t) => {
+  const { out, store, token } = proofFixture(t);
+  const calls: { n: Notification; outDir: string }[] = [];
+  const fake: Notifier = async (n, outDir) => { calls.push({ n, outDir }); return { sent: true, transports: ['test'] }; };
+  const saved = process.env.PUBLIC_URL; process.env.PUBLIC_URL = 'https://ads.example.com/';
+  try {
+    commentOnClientProof(out, store, token, { cell: 'A/google/728x90', text: 'The logo is cut off' }, fake);
+    // Fire-and-forget: let the microtask land.
+    await new Promise((r) => setImmediate(r));
+  } finally {
+    if (saved === undefined) delete process.env.PUBLIC_URL; else process.env.PUBLIC_URL = saved;
+  }
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].n.subject, /Client note — Acme \/ Spring/);
+  assert.match(calls[0].n.body, /728x90 \(google\)/);
+  assert.match(calls[0].n.body, /The logo is cut off/);
+  assert.equal(calls[0].n.url, 'https://ads.example.com/build?request=AD-NOTE-1&size=728x90');
+  assert.equal(calls[0].outDir, out);
+
+  // A note on the whole set omits the size link but still pages.
+  calls.length = 0;
+  commentOnClientProof(out, store, token, { cell: '', text: 'Love the blue.' }, fake);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].n.body, /the whole set/);
+  assert.doesNotMatch(calls[0].n.url ?? '', /size=/);
+});
+
 test('the proof page has a note box under each ad and lists what was said', (t) => {
   const { out, token, proof } = proofFixture(t);
   const withNotes = { ...getClientProof(out, token), comments: [{ id: '1', cell: 'A/google/300x250', size: '300x250', text: 'Bigger <logo>', at: 'now' }] };
@@ -139,6 +168,16 @@ test('the proof page has a note box under each ad and lists what was said', (t) 
   assert.match(html, /\/client-proof\/11111111-2222-4333-8444-555555555555\/comment/);
   const closed = clientProofHtml({ ...proof, status: 'complete' });
   assert.doesNotMatch(closed, /<button type="button" data-send-note/, 'no note box once approved');
+});
+
+test('a failed decision writes under the buttons, not over the page\'s status', (t) => {
+  const { out, token } = proofFixture(t);
+  const html = clientProofHtml(getClientProof(out, token));
+  // The decision has its own alert line under the Approve / Request changes buttons.
+  assert.match(html, /<p id="decision-said" role="status" aria-live="polite"><\/p>/);
+  // The script restores the page's original status sentence on a failed send.
+  assert.match(html, /const originalStatus=status\.textContent/);
+  assert.match(html, /status\.textContent=originalStatus;decSay\(e\.message/);
 });
 
 /* ------------------------------------------------------------ health */

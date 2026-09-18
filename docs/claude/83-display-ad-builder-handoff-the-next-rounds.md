@@ -2,11 +2,17 @@
 
 Written for whoever picks this module up next -- another Claude session,
 another model, or a person -- after five rounds of "make it bulletproof"
-(September 17-18, 2026; PRs #705, #710, #727, #738, #743). It says where
-things stand, what the last five rounds learned about working in this
-module, and a costed backlog of the next improvements with enough detail
-to start on any one of them cold. The narrative of each round is in
-`docs/claude/43`; this file is the map and the to-do list, not the story.
+(September 17-18, 2026; PRs #705, #710, #727, #738, #743) and a sixth pass
+knocking four items off this list (September 18, 2026). It says where
+things stand, what the rounds learned about working in this module, and a
+costed backlog of the next improvements with enough detail to start on any
+one of them cold. The narrative of each round is in `docs/claude/43`; this
+file is the map and the to-do list, not the story.
+
+The sixth pass closed **items 1, 6, 11 and 12** below (staff paged when a
+client leaves a note; the style panel's number boxes track state; nightly
+failures reach the team channel; the decision has its own alert line). The
+remaining eight items stand.
 
 ### Where it stands
 
@@ -126,15 +132,14 @@ Each item: what is wrong, what to build, where, how it is proven, and a
 rough size (S under an hour, M a few hours, L a day). Ordered by what bites
 first.
 
-**1. Staff are not told when a client leaves a note. (S)** A client's note on
-the proof is written to the project record and drawn on the build screen,
-and nobody is told it exists until they open that campaign. `src/notify.ts`
-already sends the approval and the delivery emails. In
-`workflow.commentOnClientProof()`, after `store.save(project)`, call
-`notify()` with the size, the text and a link to the build screen at that
-size (`/build?request=<id>&size=<size>`); one email per note is right, they
-are rare. Prove it in `tests/third-list.test.ts` by injecting a fake
-notifier the way `notify.test.ts` does. Pin: "a client note reaches staff".
+**1. Staff are not told when a client leaves a note. ~~(S)~~ DONE (sixth
+pass).** `workflow.commentOnClientProof()` now takes an optional `notifier`
+(default: the real `notify()` from `src/notify.ts`) and pages the team as
+soon as the note saves. The subject names the client and the campaign; the
+body carries the size (or "the whole set") and the version; the URL is
+`${PUBLIC_URL}/build?request=<requestId>&size=<size>` so the team lands on
+the right size. Injected in `tests/third-list.test.ts` with a fake
+notifier; pinned in `test_display_ads.py`.
 
 **2. The client proof page inlines every image as base64. (M)**
 `clientProofHtml()` embeds each frozen cell as a data URI. A Meta set with
@@ -180,13 +185,13 @@ the campaign name: "Also open by Todd, 2 minutes ago". No locking; the
 recovery dialog stays the safety net. Prove with the editor harness (two
 names, one expires).
 
-**6. The style panel's number boxes lag the arrows and the keys. (S)**
-`setBlockStyle()` writes the value and schedules a preview but does not
-update the `<input data-style data-prop>` on screen; the box catches up
-only when the panel redraws. Set the box's value in `setBlockStyle()` when
-it exists (`$('controls').querySelector('[data-style="' + block + '"][data-prop="' + prop + '"]')`).
-Then the e2e can assert on the box after ArrowDown, which is the assertion
-it wanted to make.
+**6. The style panel's number boxes lag the arrows and the keys. ~~(S)~~
+DONE (sixth pass).** `setBlockStyle()` now writes the shown value back to
+every `<input data-style="<block>" data-prop="<prop>">` on the panel,
+skipping colour pickers and the Put-it-back buttons. An unset value clears
+the input (rather than leaving the old number). An ArrowUp on the canvas
+moves the ad and its input in step. Pinned in `test_display_ads.py`; the
+e2e can assert on the box after ArrowDown when Chromium is available.
 
 **7. Split `build.html`'s script into files. (L, risky)** One 6,700-line
 inline script is the reason every change there is a Python edit script
@@ -221,18 +226,22 @@ generous for the public proof routes. The honest fix is a file under
 sentence in `docs/claude/74` saying the ceiling is per process. Either is
 fine; today it is neither.
 
-**11. Nightly failures go to one inbox. (S)** A scheduled workflow that
-fails emails the last person who touched it. Add a final step
-`if: failure()` that POSTs to the Hub's notify route (or a Slack webhook
-held in a secret) with the run URL, so a red night is seen by the team.
-The Hub's `hub/notify` module is the one the renderer's emails go through.
+**11. Nightly failures go to one inbox. ~~(S)~~ DONE (sixth pass).** Both
+jobs in `nightly-browser.yml` now post the run URL to
+`secrets.NIGHTLY_WEBHOOK_URL` on failure, gated so an unset secret is a
+no-op (the message reads "NIGHTLY_WEBHOOK_URL is not set; skipping team
+ping" in the log). The message says which job failed and links the run
+page. Render environment note: `NIGHTLY_WEBHOOK_URL` is a GitHub Actions
+secret, not a service env var; nothing to add on Render.
 
-**12. The proof page's decision and note share one `#status` line. (S)** A
-note that failed to send and a decision that saved both write to different
-places now, but the decision's failure still replaces the page's status
-sentence. Give the decision its own `role="alert"` line under the buttons,
-the way notes have `.said`. Prove in `tests/third-list.test.ts` by reading
-the markup.
+**12. The proof page's decision and note share one `#status` line. ~~(S)~~
+DONE (sixth pass).** The decision has its own alert line
+(`<p id="decision-said" role="status" aria-live="polite">`) under its
+buttons, reusing the notes' `.said`/`.sent`/`.notsent` classes. A failed
+`decide()` restores the page's original status sentence and writes the
+error to the alert line. The success path still writes to `#status`
+because approve genuinely changes the page's state. Pinned in
+`tests/third-list.test.ts` by asserting the markup.
 
 ### What not to do
 
