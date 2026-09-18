@@ -442,7 +442,12 @@ class PageTests(unittest.TestCase):
 
     def test_render_context_carries_the_temperature_into_the_meta(self):
         from modules.camhub import render, store
-        ctx = render.build(self.page, store.cache_for(self.page["id"]))
+        # Pin the render clock to the fixture: this test asserts the first
+        # forecast row reads "Today", which only holds when the render's
+        # "today in the page's timezone" matches the fixture's forecast date.
+        # Left to the wall clock, the assertion drifts to "Thu" after midnight
+        # EDT of the fixture's date and reddens CI on every branch.
+        ctx = render.build(self.page, store.cache_for(self.page["id"]), now=NOW)
         self.assertIn("82°F", ctx["meta_description"])
         self.assertIn("892.07", ctx["meta_description"])
         self.assertTrue(ctx["strip"]["rendered"])
