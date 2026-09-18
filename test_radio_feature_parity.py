@@ -354,11 +354,20 @@ check("each beat says where it sits and what it does",
       sorted(_lengths[30]["beats"][0]),
       sorted(["end_pct", "guidance", "label", "start_pct"]))
 
-# The rail is drawn from that, and the length badge reads the same table --
+# The shape is drawn from that, and the length badge reads the same table --
 # a local two-entry map is how the :10 and the :60 came to be drawn as bare
 # numbers once the shared menu brought them in.
+#
+# It is a chip beside each heading opening a modal now, rather than a rail in
+# the middle of the card: it is reference rather than work, and six copies of
+# it pushed the script somebody is actually here to edit further down every
+# card. What matters to this check is unchanged and is what it still asserts --
+# the beats come from the shared table, not from a map kept here.
 _page = fan.get("/").get_data(as_text=True)
-check("the builder draws the rail", "function beatRail(" in _page, True)
+check("the builder draws the shape from the shared table",
+      ("function beatsFor(" in _page and "len.beats" in _page), True)
+check("...as a chip that opens it rather than a rail down every card",
+      ('data-a="shape"' in _page and "function openShape(" in _page), True)
 check("and draws the script panel", "function scriptQcRows(" in _page, True)
 check("and re-asks it wherever the copy changes",
       _page.count("refreshScriptQc()") >= 4, True)
