@@ -1419,8 +1419,14 @@ def job_reports_backup(app, *, force: bool = False, restore: bool = False,
             st = backup.status()
             if st["running"]:
                 return {"skipped": "a backup is running"}
-            today = _now().astimezone(EASTERN).date().isoformat()
-            if str(st.get("finished_at") or "")[:10] == today:
+            # Both days in Eastern: the manifest's finish time is UTC, and
+            # for four hours a night the two calendars disagree.
+            today = _now().astimezone(EASTERN).date()
+            try:
+                finished_day = datetime.fromisoformat(str(st.get("finished_at") or "")).astimezone(EASTERN).date()
+            except ValueError:
+                finished_day = None
+            if finished_day == today:
                 return {"skipped": "backed up today already", "finished_at": st["finished_at"]}
             if _eastern_hour() < BACKUP_AFTER_HOUR:
                 return {"skipped": f"waits for {BACKUP_AFTER_HOUR} AM Eastern, after the pulls"}
