@@ -63,7 +63,10 @@ python3 test_camhub.py             # CamHub: adapters normalized from recorded
                                    #   cam page public and indexable; the sponsor
                                    #   system: one presenting slot at a time, tiles
                                    #   shuffled by weight, house ads in every unsold
-                                   #   slot, a flight that ends itself
+                                   #   slot, a flight that ends itself; tracking:
+                                   #   viewable impressions once per unit, clicks
+                                   #   through /go/, crawlers and double clicks kept
+                                   #   with a reason, reports read only the rollup
 python3 test_smartforecast_store.py # the move off its own SQLite file: a forward
                                    #   foreign key SQLite resolves lazily and
                                    #   Postgres refuses, a generated-id sequence

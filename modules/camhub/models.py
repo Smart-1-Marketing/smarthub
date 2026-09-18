@@ -144,6 +144,53 @@ class Placement(Base):
     updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
 
 
+class Event(Base):
+    """One raw impression, click or pageview. Written in batches from the
+    page, read only by the rollup. The IP is hashed with the Hub secret and
+    truncated; the raw address is never stored, because there is no reason
+    to hold it and it creates an obligation nobody wants. A filtered row is
+    kept with its reason rather than deleted, so a sponsor who asks what was
+    excluded can be shown."""
+    __tablename__ = "camhub_events"
+    id = Column(Integer, primary_key=True)
+    page_id = Column(Integer, ForeignKey("camhub_pages.id"), nullable=False, index=True)
+    placement_id = Column(Integer, index=True)       # null for a pageview
+    sponsor_id = Column(Integer)
+    kind = Column(String(16), nullable=False)        # pageview | impression | click
+    at = Column(DateTime(timezone=True), default=_now, index=True)
+    day = Column(String(10), index=True)             # ISO date, in the page's timezone
+    position = Column(Integer)                       # 0 presenting, 1-4 supporting
+    session_hash = Column(String(32), index=True)
+    ip_hash = Column(String(24))
+    device = Column(String(12))                      # desktop | mobile | tablet
+    referrer_host = Column(String(120))
+    user_agent = Column(String(200))
+    scrolled = Column(Boolean)
+    ms_on_page = Column(Integer)
+    filtered = Column(Boolean, default=False)
+    filter_reason = Column(String(40))
+
+
+class DailyStat(Base):
+    """One row per placement per day, plus one per page per day with the
+    placement blank for the page's own totals. Reports read this, never
+    the raw table, so reporting stays instant as the raw table grows; raw
+    events are kept ninety days and these for ever."""
+    __tablename__ = "camhub_daily_stats"
+    __table_args__ = (UniqueConstraint("page_id", "placement_id", "day", name="uq_camhub_daily"),)
+    id = Column(Integer, primary_key=True)
+    page_id = Column(Integer, ForeignKey("camhub_pages.id"), nullable=False, index=True)
+    placement_id = Column(Integer, index=True)
+    sponsor_id = Column(Integer)
+    day = Column(String(10), nullable=False, index=True)
+    pageviews = Column(Integer, default=0)
+    impressions = Column(Integer, default=0)
+    clicks = Column(Integer, default=0)
+    unique_sessions = Column(Integer, default=0)
+    filtered = Column(Integer, default=0)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now)
+
+
 def _create_tables() -> str:
     return create_all_metadata(Base.metadata)
 

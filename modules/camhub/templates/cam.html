@@ -198,17 +198,18 @@
   {# Presenting sponsor: the placement sponsors.py picked, or the house ad. Every paid link carries rel="nofollow sponsored". #}
   {% set pres = sponsors.presenting %}
   {% set anim = pres.animation if sponsors.sold else 'static' %}
+  {% macro href(slot) %}{% if slot.sold and slot.placement_id %}{{ go_base }}{{ slot.placement_id }}{% else %}{{ slot.url }}{% endif %}{% endmacro %}
   {% macro badge(slot, cls) %}<span class="{{ cls }}">{% if slot.logo %}<img src="{{ slot.logo }}" alt="" width="30" height="30">{% else %}{{ slot.badge }}{% endif %}</span>{% endmacro %}
   <div class="presents {{ anim }}" data-placement="{{ pres.placement_id or '' }}" data-position="0">
     {% if anim == 'crossfade' %}
     <div class="xf">
       <span class="slot-a"><span class="xf-title">{{ h1 }}</span><span class="presents-lab">{{ cfg.cam_label or 'live' }}</span></span>
       <span class="slot-b"><span class="presents-lab">Presented by</span>
-        <a class="plogo" href="{{ pres.url or '#' }}" rel="nofollow sponsored">{{ badge(pres, 'plogo-badge') }}<span class="plogo-name">{{ pres.name }}</span></a></span>
+        <a class="plogo" href="{{ href(pres) }}" rel="nofollow sponsored">{{ badge(pres, 'plogo-badge') }}<span class="plogo-name">{{ pres.name }}</span></a></span>
     </div>
     {% else %}
     <span class="presents-lab">{{ 'Presented by' if sponsors.sold else pres.eyebrow }}</span>
-    {% if pres.url %}<a class="plogo" href="{{ pres.url }}"{% if sponsors.sold %} rel="nofollow sponsored"{% endif %}>{% else %}<span class="plogo">{% endif %}
+    {% if pres.url %}<a class="plogo" href="{{ href(pres) }}"{% if sponsors.sold %} rel="nofollow sponsored"{% endif %}>{% else %}<span class="plogo">{% endif %}
       {{ badge(pres, 'plogo-badge') }}
       <span class="plogo-name">{{ pres.name }}</span>
     {% if pres.url %}</a>{% else %}</span>{% endif %}
@@ -228,7 +229,7 @@
     {% endif %}
     {% if cfg.cam_label %}<div class="cam-stamp">{{ cfg.cam_label }}</div>{% endif %}
     {% if embed.ok and (anim == 'lower_third' or not sponsors.sold) %}
-    {% if pres.url %}<a class="lower" href="{{ pres.url }}"{% if sponsors.sold %} rel="nofollow sponsored"{% endif %}>{% else %}<span class="lower">{% endif %}
+    {% if pres.url %}<a class="lower" href="{{ href(pres) }}"{% if sponsors.sold %} rel="nofollow sponsored"{% endif %}>{% else %}<span class="lower">{% endif %}
       {{ badge(pres, 'lower-badge') }}
       <span><span class="lower-name">{{ pres.name }}</span><span class="lower-sub">{{ pres.sub }}</span></span>
     {% if pres.url %}</a>{% else %}</span>{% endif %}
@@ -270,7 +271,7 @@
         <div class="feature-eyebrow">{{ 'Presenting sponsor' if sponsors.sold else pres.eyebrow }}</div>
         <h3>{{ pres.headline }}</h3>
         <p>{{ pres.body }}</p>
-        {% if pres.url and pres.cta %}<a class="btn" href="{{ pres.url }}"{% if sponsors.sold %} rel="nofollow sponsored"{% endif %}>{{ pres.cta }}</a>{% endif %}
+        {% if pres.url and pres.cta %}<a class="btn" href="{{ href(pres) }}"{% if sponsors.sold %} rel="nofollow sponsored"{% endif %}>{{ pres.cta }}</a>{% endif %}
       </div>
     </div>
   </div>
@@ -301,7 +302,7 @@
         <div class="stile-body">
           <h4>{{ t.name }}</h4>
           <p>{{ t.headline or t.body }}</p>
-          {% if t.url and t.cta %}<a class="btn btn-ghost" href="{{ t.url }}"{% if t.sold %} rel="nofollow sponsored"{% endif %}>{{ t.cta }}</a>{% endif %}
+          {% if t.url and t.cta %}<a class="btn btn-ghost" href="{{ href(t) }}"{% if t.sold %} rel="nofollow sponsored"{% endif %}>{{ t.cta }}</a>{% endif %}
         </div>
       </div>
       {% endfor %}
@@ -334,5 +335,112 @@
     <span>Data: National Weather Service &middot; USGS &middot; Ohio BeachGuard &middot; computed astronomy</span>
   </div>
 </div>
+{% if tracking %}
+<script>
+(function () {
+  /* Viewable impressions the IAB way: half the unit on screen for one
+     continuous second, once per placement per pageview, never re-counted
+     on scroll-back. Everything is batched and sent once with sendBeacon
+     when the page is hidden, plus a delayed first flush, so a popular page
+     is one request per visit rather than one per unit. House ads are not
+     units: they carry no data-placement. */
+  var endpoint = {{ events_url|tojson }};
+  var goBase = {{ go_base|tojson }};
+  var session = '';
+  try {
+    session = window.sessionStorage.getItem('camhub.session') || '';
+    if (!session) {
+      var buf = new Uint8Array(12);
+      (window.crypto || window.msCrypto).getRandomValues(buf);
+      session = Array.prototype.map.call(buf, function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+      window.sessionStorage.setItem('camhub.session', session);
+    }
+  } catch (e) { session = ''; }
+  var t0 = Date.now();
+  var scrolled = false;
+  var queue = [];
+  var sent = {};
+  var pageviewSent = false;
+
+  window.addEventListener('scroll', function () {
+    if (window.scrollY > 80) { scrolled = true; }
+  }, { passive: true });
+
+  function flush(final) {
+    if (!queue.length && pageviewSent) { return; }
+    var body = JSON.stringify({
+      session: session,
+      pageview: pageviewSent ? null : { scrolled: scrolled, ms: Date.now() - t0 },
+      events: queue.splice(0, queue.length)
+    });
+    pageviewSent = true;
+    var ok = false;
+    if (navigator.sendBeacon) {
+      try { ok = navigator.sendBeacon(endpoint, new Blob([body], { type: 'application/json' })); } catch (e) { ok = false; }
+    }
+    if (!ok && !final) {
+      try {
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', endpoint, true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.send(body);
+      } catch (e) { /* nothing to do: a lost batch is a lost batch */ }
+    }
+  }
+
+  var units = Array.prototype.slice.call(document.querySelectorAll('[data-placement]'))
+    .filter(function (el) { return el.getAttribute('data-placement'); });
+  if ('IntersectionObserver' in window && units.length) {
+    var timers = {};
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        var el = entry.target;
+        var id = el.getAttribute('data-placement');
+        if (sent[id]) { io.unobserve(el); return; }
+        if (entry.intersectionRatio >= 0.5) {
+          if (!timers[id]) {
+            timers[id] = setTimeout(function () {
+              if (sent[id]) { return; }
+              sent[id] = true;
+              queue.push({ kind: 'impression', placement: parseInt(id, 10),
+                           position: parseInt(el.getAttribute('data-position') || '0', 10),
+                           ms: Date.now() - t0 });
+              units.forEach(function (u) { if (u.getAttribute('data-placement') === id) { io.unobserve(u); } });
+            }, 1000);
+          }
+        } else if (timers[id]) {
+          clearTimeout(timers[id]);
+          timers[id] = null;
+        }
+      });
+    }, { threshold: [0, 0.5, 1] });
+    units.forEach(function (u) { io.observe(u); });
+  }
+
+  document.addEventListener('click', function (ev) {
+    var a = ev.target.closest ? ev.target.closest('a[href]') : null;
+    if (!a || a.href.indexOf(goBase) === -1) { return; }
+    var unit = a.closest('[data-placement]');
+    var id = unit ? unit.getAttribute('data-placement') : '';
+    if (id) {
+      queue.push({ kind: 'click', placement: parseInt(id, 10),
+                   position: parseInt(unit.getAttribute('data-position') || '0', 10),
+                   ms: Date.now() - t0 });
+    }
+    if (session && a.href.indexOf('s=') === -1) {
+      a.href += (a.href.indexOf('?') === -1 ? '?' : '&') + 's=' + encodeURIComponent(session);
+    }
+    flush(true);
+  });
+
+  setTimeout(function () { flush(false); }, 5000);
+  setInterval(function () { if (queue.length) { flush(false); } }, 15000);
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') { flush(true); }
+  });
+  window.addEventListener('pagehide', function () { flush(true); });
+})();
+</script>
+{% endif %}
 </body>
 </html>
