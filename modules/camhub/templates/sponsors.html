@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<title>Sponsors — CamHub</title>
+{% include "_staff_head.html" %}
+</head>
+<body>
+<div class="wrap s1d-page">
+  <p><a href="{{ mount }}/">&larr; CamHub</a></p>
+  <h1>Sponsors {{ help_dot('camhub.sponsors') if help_dot is defined else '' }}</h1>
+  <p class="lede">The advertiser as a business. A sponsor holds placements on a cam page; the category is what exclusivity is judged on.</p>
+
+  {% if saved %}<p class="pill green">Saved.</p>{% endif %}
+  {% if error %}<p class="err">{{ error }}</p>{% endif %}
+
+  <div class="card">
+    <h2 style="margin-top:0">{{ 'Edit ' + editing.name if editing else 'New sponsor' }}</h2>
+    <form method="post" action="{{ mount }}/sponsors{{ '/' + editing.id|string if editing else '' }}">
+      <div class="row" style="align-items:flex-start">
+        <label style="flex:1 1 220px">Name<br><input name="name" required maxlength="120" value="{{ editing.name if editing else '' }}" style="width:100%"></label>
+        <label style="flex:1 1 180px">Category<br><input name="category" maxlength="80" placeholder="marina, realtor, bank" value="{{ editing.category if editing else '' }}" style="width:100%"></label>
+        <label style="flex:1 1 180px">Contact<br><input name="contact_name" maxlength="120" value="{{ editing.contact_name if editing else '' }}" style="width:100%"></label>
+        <label style="flex:1 1 200px">Email<br><input name="email" type="email" maxlength="200" value="{{ editing.email if editing else '' }}" style="width:100%"></label>
+        <label style="flex:1 1 140px">Phone<br><input name="phone" maxlength="60" value="{{ editing.phone if editing else '' }}" style="width:100%"></label>
+        <label style="flex:1 1 220px">Website<br><input name="website" type="url" maxlength="300" value="{{ editing.website if editing else '' }}" style="width:100%"></label>
+      </div>
+      <label style="display:block;margin-top:10px">Notes<br><textarea name="notes" rows="2" style="width:100%">{{ editing.notes if editing else '' }}</textarea></label>
+      <div class="row" style="margin-top:10px">
+        <button class="btn" type="submit">{{ 'Save' if editing else 'Add sponsor' }}</button>
+        {% if editing %}<a class="btn sec" href="{{ mount }}/sponsors">Cancel</a>{% endif %}
+      </div>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Every sponsor</h2>
+    <table>
+      <thead><tr><th>Sponsor</th><th>Category</th><th>Contact</th><th>Placements</th></tr></thead>
+      <tbody>
+      {% for s in sponsors %}
+      <tr>
+        <td><a href="{{ mount }}/sponsors/{{ s.id }}">{{ s.name }}</a></td>
+        <td>{{ s.category or '' }}</td>
+        <td>{{ s.contact_name }}{% if s.email %} &middot; {{ s.email }}{% endif %}</td>
+        <td>
+          {% for pl in by_sponsor.get(s.id, []) %}
+            <a href="{{ mount }}/placements/{{ pl.id }}">{{ pl.page_title }} &middot; {{ pl.position }}</a>
+            <span class="pill {{ 'green' if pl.effective == 'live' else 'amber' if pl.effective == 'scheduled' else 'off' }}">{{ pl.effective }}</span><br>
+          {% else %}<span class="muted">none yet</span>{% endfor %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="muted">No sponsors yet. Add the first above; placements are made from a cam page.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+</body>
+</html>

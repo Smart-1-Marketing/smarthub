@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<title>Placements — {{ page.title }}</title>
+{% include "_staff_head.html" %}
+</head>
+<body>
+<div class="wrap s1d-page">
+  <p><a href="{{ mount }}/pages/{{ page.slug }}">&larr; {{ page.title }}</a></p>
+  <h1>Placements {{ help_dot('camhub.placements') if help_dot is defined else '' }}</h1>
+  <p class="lede">Five positions: one presenting sponsor, four supporting tiles. What is live fills the slot; what is not falls back to a house ad, so the page never shows an empty box.</p>
+  {% if saved %}<p class="pill green">Saved.</p>{% endif %}
+  {% if warning %}<p class="err">{{ warning }}</p>{% endif %}
+
+  <div class="card">
+    <h2 style="margin-top:0">On the page right now</h2>
+    <table>
+      <thead><tr><th>Position</th><th>Showing</th><th></th></tr></thead>
+      <tbody>
+        <tr><td>Presenting</td><td>{{ slots.presenting.name }} <span class="pill {{ 'green' if slots.presenting.sold else 'off' }}">{{ 'sold' if slots.presenting.sold else 'house' }}</span>{% if slots.presenting.sold %} &middot; {{ slots.presenting.animation }}{% endif %}</td>
+            <td>{% if slots.presenting.placement_id %}<a href="{{ mount }}/placements/{{ slots.presenting.placement_id }}">edit</a>{% endif %}</td></tr>
+        {% for t in slots.supporting %}
+        <tr><td>Supporting {{ t.position }}</td><td>{{ t.name }} <span class="pill {{ 'green' if t.sold else 'off' }}">{{ 'sold' if t.sold else 'house' }}</span></td>
+            <td>{% if t.placement_id %}<a href="{{ mount }}/placements/{{ t.placement_id }}">edit</a>{% endif %}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <p class="muted" style="margin:8px 0 0">Supporting tiles shuffle by weight on every page load; the order above is one draw.</p>
+  </div>
+
+  <div class="row" style="margin:0 0 14px">
+    <a class="btn" href="{{ mount }}/pages/{{ page.slug }}/placements/new?position=presenting">New presenting placement</a>
+    <a class="btn" href="{{ mount }}/pages/{{ page.slug }}/placements/new?position=supporting">New supporting placement</a>
+    <a class="btn sec" href="{{ mount }}/sponsors">Sponsors</a>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Every placement</h2>
+    <table>
+      <thead><tr><th>Position</th><th>Sponsor / name</th><th>Flight</th><th>Status</th><th>Treatment</th><th>Weight</th><th>Updated</th></tr></thead>
+      <tbody>
+      {% for p in placements %}
+      <tr>
+        <td>{{ p.position }}{% if p.is_house %} <span class="pill off">house</span>{% endif %}</td>
+        <td><a href="{{ mount }}/placements/{{ p.id }}">{{ p.name or p.sponsor_name or '(unnamed)' }}</a>{% if p.sponsor_name and p.sponsor_name != p.name %}<br><span class="muted">{{ p.sponsor_name }}{% if p.category %} &middot; {{ p.category }}{% endif %}</span>{% endif %}</td>
+        <td>{{ p.start_date or 'open' }} &rarr; {{ p.end_date or 'open' }}{% if p.days_remaining is not none and p.effective == 'live' %}<br><span class="muted">{{ p.days_remaining }} days left{% if p.days_remaining <= 60 %} &middot; renewal due{% endif %}</span>{% endif %}</td>
+        <td><span class="pill {{ 'green' if p.effective == 'live' else 'amber' if p.effective == 'scheduled' else 'off' }}">{{ p.effective }}</span></td>
+        <td>{{ p.animation }}</td>
+        <td>{{ p.weight }}</td>
+        <td class="muted">{{ p.updated_by }}{% if p.updated_at %} &middot; {{ p.updated_at.strftime('%b %d') }}{% endif %}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="muted">No placements yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+</body>
+</html>

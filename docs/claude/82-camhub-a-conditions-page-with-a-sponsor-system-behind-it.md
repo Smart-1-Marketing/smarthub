@@ -25,12 +25,51 @@ Sprints 1 and 2 of the spec's delivery plan:
 - **The Buckeye Lake seed** — `seeds.py` is the exact configuration the
   spec resolved. Provision it from the staff index with one button.
 
-Not yet: sponsor tables and the placement editor (Sprint 3), viewability
-tracking (4), reports and the Client 360 card (5), the Cam Builder screens
-(6). `builder.py` holds the geocode and concurrent-probe library the
-screens will use; `/tools/camhub/api/probe` exposes it to staff. Until
-Sprint 3 every sponsor slot renders the house ad from the page's config,
-so no slot is ever an empty box.
+Sprint 3, the sponsor system, in `sponsors.py`:
+
+- **Two tables**, `camhub_sponsors` (the advertiser as a business, with
+  the category exclusivity is judged on) and `camhub_placements` (that
+  business in one position on one page for one flight, with its creative).
+  Separating them is what lets a sponsor hold the presenting slot in
+  summer and a tile in winter without re-entering creative.
+- **The presenting slot is one placement at a time.** Two active
+  presenting flights that overlap are a `ValueError` at save, never a
+  silent overwrite. A category clash is a warning on the form, and a
+  person decides.
+- **Status is what a person set** (draft, active, paused); **what the page
+  shows is derived** from the flight dates on read (scheduled, live,
+  ended). A flight that ends reverts its slot to house without anybody
+  remembering to swap it.
+- **Supporting slots fill by weight, shuffled per page load**
+  (`_weighted_shuffle`, a draw without replacement), house placements in
+  sort order for the rest, and the served position rides on every slot as
+  `data-placement` / `data-position` for Sprint 4's impression log.
+- **Five house placements** are created at provision from the page's
+  config (`ensure_house_placements`); a page without them falls back to
+  the config itself.
+- **Copy is capped at the tile** (`LIMITS`), server-side and on the
+  form's counters, because copy that overflows is the most common way an
+  ad swap goes wrong.
+- **The editor's live preview is the real page.** `/cam/<slug>?preview=`
+  carries a signed, hour-long token (`hub/signing.py`, salt
+  `camhub-preview`) naming the page, the position and the placement, plus
+  the unsaved draft as urlsafe-base64 JSON; only copy fields are honored,
+  so a draft cannot flip a slot to sold or move it. A preview answers
+  `noindex` and `no-store`. An unsaved new placement previews too.
+- **Creative uploads** go through `hub/images.optimise` (logos to PNG at
+  640, images to WebP at 1600) and `hub/storage.put` under the `camhub`
+  kind, per client, never to the disk.
+- **Six treatments** on the presenting bar, per placement: `lower_third`
+  (the broadcast card over the cam), `wipe`, `crossfade`, `shimmer`,
+  `tagline`, `static`. All pure CSS in `cam.html`, every one off under
+  `prefers-reduced-motion`; the feature image drifts (the spec's option F)
+  only when the slot is sold. A sold link carries `rel="nofollow
+  sponsored"`; a house link does not, because it is the client's own.
+
+Not yet: viewability tracking (Sprint 4), reports and the Client 360 card
+(5), the Cam Builder screens (6). `builder.py` holds the geocode and
+concurrent-probe library the screens will use; `/tools/camhub/api/probe`
+exposes it to staff.
 
 ## Where this departs from the spec, and why
 
@@ -97,7 +136,11 @@ value if the number moves more than `max_change`.
 `python3 test_camhub.py` — every provider answer is a recorded shape
 (the sandbox this was written in could not reach any of the hosts), the
 collapse rule, the datum gate, the failed-fetch-keeps-payload rule, the
-public/guarded split through the composed app, and the job registration.
+public/guarded split through the composed app, and the job registration;
+then the sponsor system: the one-at-a-time presenting slot, the category
+warning, the caps, the weighted shuffle measured over 300 draws, the
+flight that ends itself, the signed preview, the editor round trip, and
+the upload through the shared pipeline.
 `test_blueprint_guards.py` carries the two public routes with their reason.
 `tools/integritycheck.py` needs `camhub` in `hub/client_brand.WORK_KINDS`,
 which it has, so a refresh logged with `client=` reads on Client 360.

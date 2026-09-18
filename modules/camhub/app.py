@@ -15,7 +15,7 @@ from pathlib import Path
 
 from flask import Flask, Response, abort, jsonify, redirect, render_template, request, url_for
 
-from . import builder, render as page_render, seeds, store
+from . import builder, render as page_render, seeds, sponsors, store
 from .models import boot_error, init_db
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -129,6 +129,158 @@ def provision(slug: str):
     return redirect(url_for("page_detail", slug=slug))
 
 
+# ---------------------------------------------------------------- sponsors
+
+@app.route("/sponsors", methods=["GET", "POST"])
+def sponsors_index():
+    down = _db_or_503()
+    if down:
+        return down
+    error = warning = ""
+    if request.method == "POST":
+        try:
+            row = sponsors.save_sponsor(request.form.to_dict())
+            _activity("sponsor_saved", sponsor=row["name"], sponsor_id=row["id"])
+            return redirect(url_for("sponsors_index", saved=row["id"]))
+        except ValueError as exc:
+            error = str(exc)
+    rows = sponsors.list_sponsors()
+    by_sponsor: dict[int, list] = {}
+    for page in store.list_pages():
+        for pl in sponsors.list_placements(page["id"]):
+            if pl["sponsor_id"]:
+                by_sponsor.setdefault(pl["sponsor_id"], []).append({**pl, "page_slug": page["slug"],
+                                                                   "page_title": page["title"]})
+    return render_template("sponsors.html", sponsors=rows, by_sponsor=by_sponsor, error=error,
+                           warning=warning, editing=None, mount=request.script_root or MOUNT,
+                           saved=request.args.get("saved"))
+
+
+@app.route("/sponsors/<int:sponsor_id>", methods=["GET", "POST"])
+def sponsor_edit(sponsor_id: int):
+    down = _db_or_503()
+    if down:
+        return down
+    editing = sponsors.get_sponsor(sponsor_id)
+    if not editing:
+        abort(404)
+    error = ""
+    if request.method == "POST":
+        try:
+            editing = sponsors.save_sponsor(request.form.to_dict(), sponsor_id)
+            _activity("sponsor_saved", sponsor=editing["name"], sponsor_id=sponsor_id)
+            return redirect(url_for("sponsors_index", saved=sponsor_id))
+        except ValueError as exc:
+            error = str(exc)
+    by_sponsor: dict[int, list] = {}
+    for page in store.list_pages():
+        for pl in sponsors.list_placements(page["id"]):
+            if pl["sponsor_id"] == sponsor_id:
+                by_sponsor.setdefault(sponsor_id, []).append({**pl, "page_slug": page["slug"],
+                                                             "page_title": page["title"]})
+    return render_template("sponsors.html", sponsors=sponsors.list_sponsors(), by_sponsor=by_sponsor,
+                           error=error, warning="", editing=editing, mount=request.script_root or MOUNT,
+                           saved=None)
+
+
+@app.route("/pages/<slug>/placements")
+def placements_index(slug: str):
+    down = _db_or_503()
+    if down:
+        return down
+    page = store.get_page(slug)
+    if not page:
+        abort(404)
+    rows = sponsors.list_placements(page["id"])
+    slots = sponsors.select_slots(page)
+    return render_template("placements.html", page=page, placements=rows, slots=slots,
+                           mount=request.script_root or MOUNT, saved=request.args.get("saved"),
+                           warning=request.args.get("warning", ""))
+
+
+def _placement_form(page: dict, placement: dict | None, *, error: str = "", warnings=()):
+    position = (placement or {}).get("position") or request.args.get("position") or "supporting"
+    if position not in sponsors.POSITIONS:
+        position = "supporting"
+    form = {**(placement or {"position": position, "status": "draft", "animation": "static",
+                             "weight": 1, "sort_order": 0, "is_house": False})}
+    for key in sponsors.DRAFT_FIELDS + ("start_date", "end_date", "sponsor_id", "position", "status",
+                                        "is_house", "weight", "sort_order"):
+        if key in request.form:
+            form[key] = request.form.get(key)
+    form["is_house"] = bool(form.get("is_house")) and str(form.get("is_house")).lower() not in ("0", "false", "")
+    token = sponsors.preview_token(page["id"], form["position"], (placement or {}).get("id"))
+    return render_template("placement.html", page=page, placement=placement, form=form,
+                           sponsors=sponsors.list_sponsors(), limits=sponsors.LIMITS,
+                           animations=sponsors.ANIMATIONS, positions=sponsors.POSITIONS,
+                           statuses=sponsors.STATUSES, preview_token=token, error=error,
+                           warnings=list(warnings), mount=request.script_root or MOUNT)
+
+
+def _placement_submit(page: dict, placement_id: int | None):
+    data = request.form.to_dict()
+    data["is_house"] = request.form.get("is_house") in ("1", "on", "true")
+    try:
+        for kind, field in (("image", "image_url"), ("logo", "logo_url")):
+            up = request.files.get(f"{kind}_file")
+            if up and up.filename:
+                data[field] = sponsors.store_creative(up, kind=kind, page=page)
+        row, warnings = sponsors.save_placement(data, page["id"], placement_id, actor=_user())
+    except (ValueError, LookupError) as exc:
+        return None, str(exc)
+    except Exception as exc:  # noqa: BLE001 -- an upload that fails is a sentence on the form, not a 500
+        return None, f"The creative could not be stored: {type(exc).__name__}: {exc}"
+    _activity("placement_saved", client=page.get("client_name"), slug=page["slug"],
+              placement_id=row["id"], position=row["position"], status=row["status"],
+              sponsor=row.get("sponsor_name") or ("house" if row["is_house"] else ""))
+    return (row, warnings), ""
+
+
+@app.route("/pages/<slug>/placements/new", methods=["GET", "POST"])
+def placement_new(slug: str):
+    down = _db_or_503()
+    if down:
+        return down
+    page = store.get_page(slug)
+    if not page:
+        abort(404)
+    if request.method == "POST":
+        result, error = _placement_submit(page, None)
+        if error:
+            return _placement_form(page, None, error=error), 400
+        row, warnings = result
+        return redirect(url_for("placement_edit", placement_id=row["id"], saved=1,
+                                warning=" ".join(warnings)))
+    return _placement_form(page, None)
+
+
+@app.route("/placements/<int:placement_id>", methods=["GET", "POST"])
+def placement_edit(placement_id: int):
+    down = _db_or_503()
+    if down:
+        return down
+    placement = sponsors.get_placement(placement_id)
+    if not placement:
+        abort(404)
+    page = next((p for p in store.list_pages() if p["id"] == placement["page_id"]), None)
+    if not page:
+        abort(404)
+    if request.method == "POST":
+        if request.form.get("delete") == "1":
+            sponsors.delete_placement(placement_id, page["id"])
+            _activity("placement_deleted", client=page.get("client_name"), slug=page["slug"],
+                      placement_id=placement_id)
+            return redirect(url_for("placements_index", slug=page["slug"]))
+        result, error = _placement_submit(page, placement_id)
+        if error:
+            return _placement_form(page, placement, error=error), 400
+        row, warnings = result
+        return redirect(url_for("placement_edit", placement_id=row["id"], saved=1,
+                                warning=" ".join(warnings)))
+    warnings = [w for w in [request.args.get("warning", "")] if w]
+    return _placement_form(page, placement, warnings=warnings)
+
+
 @app.route("/api/geocode")
 def api_geocode():
     address = (request.args.get("address") or "").strip()
@@ -176,8 +328,19 @@ def cam(slug: str):
     page = store.get_page(slug)
     if not page or page.get("status") != "live":
         return render_template("cam_missing.html", reason="not found"), 404
-    ctx = page_render.build(page, store.cache_for(page["id"]))
+    preview = None
+    token = request.args.get("preview")
+    if token:
+        claim = sponsors.read_preview(token, page["id"])
+        if claim is None:
+            return render_template("cam_missing.html", reason="preview link expired"), 404
+        preview = {"claim": claim, "draft": sponsors.decode_draft(request.args.get("draft", ""))}
+    ctx = page_render.build(page, store.cache_for(page["id"]), preview=preview)
     html = render_template("cam.html", **ctx)
+    if preview:
+        # A draft is for the editor's own iframe: never cached, never indexed.
+        return Response(html, headers={"X-Robots-Tag": "noindex, nofollow", "Cache-Control": "no-store",
+                                       "Content-Security-Policy": "frame-ancestors 'self'"})
     return Response(html, headers={
         # The middleware in wsgi.py adds noindex to everything that does not
         # say otherwise; this page says otherwise, on purpose.
