@@ -443,6 +443,31 @@ DEPT_COLORS = {
     "utilities":       "#475569",   # slate
 }
 
+# Two-letter monograms rendered on the sidebar in place of a department's
+# emoji, tinted with the department's own color from DEPT_COLORS. Emoji at
+# 15px read as decorative rather than as a landmark, and they were pulling
+# from four different glyph families -- one system, one no-face, one flag,
+# one animal -- so a person could not learn "the green square is Sales" the
+# way they learn "gmail is red." The monograms are the same 18px square as
+# the old emoji so no layout moves, and they collapse cleanly onto the 56px
+# rail. The `d["ico"]` emoji stays in the dept data because the /views/<slug>
+# index page still uses it in its own header (test_sidebar_departments already
+# asserts that), so this is a rendering swap in the sidebar, not a rename.
+DEPT_MONOS = {
+    "sales":           "SL",
+    "client-success":  "CS",
+    "product-success": "PS",
+    "seo":             "SE",
+    "web-dev":         "WD",
+    "accounting":      "AC",
+    "creative":        "CR",
+    "studio":          "ST",
+    "ad-tools":        "AT",
+    "leads":           "LD",
+    "qa":              "QA",
+    "utilities":       "UT",
+}
+
 # Section headings on an index page cycle through these tints, in order,
 # so neighboring groups never share a color.
 GROUP_TINTS = ["#1a5fb4", "#1d7a46", "#c2410c", "#7a3db8", "#0e7490", "#be185d", "#8a6d00"]
@@ -459,6 +484,13 @@ def _dept(slug, label, ico, groups, level=EVERYONE, blurb=""):
             "groups": [(g, list(keys)) for g, keys in groups]}
 
 
+# One section, twelve departments. The two-section split (2026-09-14) --
+# "Departments" for the six team lanes and "Tools" for the six tool
+# categories -- read as an information hierarchy but was not one: a person
+# still wants "the calculator" whether it lives under Sales or under Ad
+# Tools, and the split doubled the visual breaks the eye had to cross. One
+# header, twelve rows in the agreed order, and the same twelve on the index
+# page. Utilities is still the last row and still General-only.
 SECTIONS = [
     ("Departments", [
         _dept("sales", "Sales", "&#128188;", [
@@ -507,8 +539,6 @@ SECTIONS = [
                          "io_not_in_knack"]),
             ("Web Issues", ["domains", "ghl_billing_none", "ghl_billing_month", *_MODULES]),
         ], blurb="Where invoicing and the client record disagree."),
-    ]),
-    ("Tools", [
         _dept("creative", "Creative", "&#127912;", [
             ("Audio", _AUDIO),
             ("Videos", _VIDEOS),
@@ -813,6 +843,15 @@ body.s1hub-collapsed .s1hub-sb .s1hub-search-wrap { display: none; }
 .s1hub-sb a.s1hub-item.s1hub-on { background: rgba(255,255,255,.1); color: #fff;
   border-left-color: #5b8bff; font-weight: 600; }
 .s1hub-sb .s1hub-ico { width: 18px; text-align: center; font-size: 15px; }
+/* Department monogram: two letters on a colored square, one per department,
+   in place of an emoji. 18px matches the .s1hub-ico slot so the rail's
+   layout is unchanged, and the flex-centering keeps the letters honest at
+   every zoom level. The color is inlined per row from DEPT_COLORS -- no
+   twelve-color CSS to keep in step with the Python. */
+.s1hub-sb .s1hub-mono { display: inline-flex !important; align-items: center;
+  justify-content: center; width: 18px; height: 18px; border-radius: 4px;
+  color: #fff; font: 700 9.5px 'JetBrains Mono', ui-monospace,
+  Menlo, Consolas, monospace; letter-spacing: 0; text-align: center; }
 .s1hub-chip { position: fixed; bottom: 14px; left: 14px; z-index: 99999; background: #1a2e58;
   color: #fff; padding: 8px 14px; border-radius: 20px; font: 600 12.5px 'Segoe UI', system-ui, sans-serif;
   text-decoration: none; box-shadow: 0 6px 18px rgba(0,0,0,.3); }
@@ -1004,6 +1043,24 @@ def _department_html(d: dict, active: str, lit: str) -> str:
     count = len({href for _g, leaves in tiles for _k, href, *_ in leaves})
     on = " s1hub-on" if d["key"] == lit else ""
     admin = ' data-s1hub-admin="1"' if d["level"] == ADMIN_ONLY else ""
+    # Auto-expand the active department: it is what the person came in on,
+    # so its tree is what they want to see the moment the page renders --
+    # before any JS runs, before any hover, and without them chasing the
+    # chevron. Rendered directly on the outer .s1hub-dept so the CSS rule
+    # that shows the inline list on .s1hub-pinned already covers it.
+    # A stored preference in localStorage[s1hub:open] still wins in both
+    # directions, so somebody who explicitly closed an auto-expanded row
+    # keeps it closed on the next visit -- see the JS `slug in open` guard.
+    is_active = d["key"] == lit
+    pinned = " s1hub-pinned" if is_active else ""
+    aria_expanded = "true" if is_active else "false"
+    # The department icon is now a colored monogram tinted with the
+    # department's own color, in place of the emoji. `d["ico"]` is still in
+    # the dept data because the /views/<slug> index page reads it in its own
+    # header -- this is a rendering swap in the sidebar only.
+    mono = DEPT_MONOS.get(d["slug"], (d["slug"][:2] or "??").upper())
+    ico_html = (f'<span class="s1hub-ico s1hub-mono" '
+                f'style="background:{d["color"]}" aria-hidden="true">{mono}</span>')
     # The flyout: one column per group, up to four across. A named group's
     # heading is a link to that same group on the department's index page --
     # the mega-menu still lists every tool under it on hover, and clicking
@@ -1032,12 +1089,12 @@ def _department_html(d: dict, active: str, lit: str) -> str:
     # inside an anchor is not HTML a browser has to honour, and a chevron
     # that also navigated would make "pin open" and "open the page" the
     # same click.
-    return (f'<div class="s1hub-dept" data-s1hub-dept="{d["slug"]}"{admin}>'
+    return (f'<div class="s1hub-dept{pinned}" data-s1hub-dept="{d["slug"]}"{admin}>'
             f'<div class="s1hub-dept-row{on}">'
             f'<a class="s1hub-dept-link" href="{d["href"]}" title="{d["label"]}">'
-            f'<span class="s1hub-ico">{d["ico"]}</span>'
+            f'{ico_html}'
             f'<span class="s1hub-label"> {d["label"]}</span></a>'
-            f'<button class="s1hub-chev" type="button" aria-expanded="false" '
+            f'<button class="s1hub-chev" type="button" aria-expanded="{aria_expanded}" '
             f'aria-label="Pin {d["label"]} open" title="Pin open">&#9656;</button></div>'
             f'<div class="s1hub-inline">{"".join(inline)}</div>'
             + fly + "</div>")
@@ -1140,7 +1197,7 @@ def render_sidebar(active: str = "", is_admin: bool = True,
         "chev=d.querySelector('.s1hub-chev'),fly=d.querySelector('.s1hub-fly');"
         "function pin(on){d.classList.toggle('s1hub-pinned',on);"
         "if(chev)chev.setAttribute('aria-expanded',on?'true':'false');}"
-        "if(open[slug])pin(true);"
+        "if(slug in open)pin(open[slug]);"
         "if(chev)chev.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();"
         "var on=!d.classList.contains('s1hub-pinned');pin(on);open[slug]=on;"
         "try{localStorage.setItem('s1hub:open',JSON.stringify(open));}catch(x){}});"
