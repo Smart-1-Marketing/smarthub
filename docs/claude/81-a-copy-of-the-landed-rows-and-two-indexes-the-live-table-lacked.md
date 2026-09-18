@@ -77,7 +77,39 @@ not backed up again; **Back up now** forces it. A deploy that ends a run
 mid-way leaves the manifest a step behind the files, and the next run
 rewrites what differs.
 
+## Moving the tables to the dedicated database
+
+The reports tables live in the Hub's own 1 GB Postgres, not in the
+dedicated `smart1-hub-db` instance `render.yaml` describes for them, which
+is empty: `REPORTS_DATABASE_URL` is blank or points at the Hub database.
+The move is an environment change plus one restore, and the backup makes
+it safe to do in that order:
+
+1. On `/reports/`, press **Back up now** and wait for the Backups card to
+   read "current" with today's time. The copy is on the persistent disk,
+   which the next deploy keeps.
+2. On Render, set `REPORTS_DATABASE_URL` to the dedicated instance's
+   Internal Database URL. Check the linked env group first: a service-level
+   value overrides a group's silently. The deploy restarts the Hub, the
+   store creates the tables on the new instance with their indexes, and
+   the Backups card reads: "The dedicated reports database (host/name):
+   0 fact rows and 0 mapped campaigns live; the copy holds N and M", with
+   the **database** pill red and "The live tables hold fewer rows than the
+   copy". The nightly backup refuses to run over that — an empty table is
+   never written over a full file.
+3. Press **Restore from backup**. It runs on the background lane; reload
+   in a minute or two. The card reads live equal to the copy, the pill goes
+   green, and the platform table on the same page shows the rows.
+4. The old tables stay in the Hub database, untouched. Drop them later or
+   not at all; nothing reads them once the binding moved.
+
+The nightly ledger, the history ledger, the refresh note and the Trade
+Desk and Amazon DSP notes are files on the disk, not rows, so they carry
+across unchanged. The hourly provider normalize writes to the new instance
+from its first tick after the restart.
+
 `test_reports_backup.py` holds the indexes on a table that lacked them, the
 partition files, the unchanged run that writes nothing, the changed row
-that rewrites one file, the restore into an emptied table, the row it
-never deletes, the scheduler's gates and the buttons.
+that rewrites one file, the run over emptied tables that refuses, the
+restore into them, the row it never deletes, the scheduler's gates and
+the buttons.

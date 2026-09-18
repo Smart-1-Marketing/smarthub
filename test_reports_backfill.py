@@ -114,10 +114,29 @@ class _TTD:
         return {"ok": True, "rows": 2, "pending": False, "error": ""}
 
 
+class _Amazon:
+    """Amazon's window answers pending as a dict of report ids, the way the
+    module's pull() does, then lands on the next call."""
+    calls = 0
+
+    def pull_window(self, start, end):
+        CALLS.append(("amazon_dsp", start, end))
+        _Amazon.calls += 1
+        if _Amazon.calls == 1:
+            return {"ok": True, "rows": 0, "pending": {"A1": {"report_id": "rep-h1"}},
+                    "note": "1 report(s) still preparing", "error": ""}
+        store.upsert_rows([_row("amazon_dsp", end)])
+        return {"ok": True, "rows": 1, "pending": {}, "error": ""}
+
+
 def _fake_module(name):
-    return _TTD() if name == "ttd" else _Pull({"google_ads_perf": "google", "stackadapt": "stackadapt",
-                                              "audiogo": "audiogo", "bing": "bing",
-                                              "groundtruth": "groundtruth"}[name])
+    if name == "ttd":
+        return _TTD()
+    if name == "amazon_dsp":
+        return _Amazon()
+    return _Pull({"google_ads_perf": "google", "stackadapt": "stackadapt",
+                  "audiogo": "audiogo", "bing": "bing", "groundtruth": "groundtruth",
+                  "callrail": "callrail"}[name])
 
 
 backfill._pull_module = _fake_module
@@ -156,8 +175,6 @@ res = backfill.run_platform("bing", today=TODAY)
 check("an empty window marks the platform complete", (res["ok"], res["rows"], res["complete"]), (True, 0, True))
 check("...with reached at the window's start", backfill.entry("bing")["reached"], "2026-08-18")
 
-res = backfill.run_platform("amazon_dsp", today=TODAY)
-check("Amazon DSP is refused by name", (res["ok"], "Not wired" in res["error"]), (False, True))
 res = backfill.run_platform("nope", today=TODAY)
 check("...and so is a platform that is not a native pull", res["error"], "nope is not a native pull.")
 
@@ -174,6 +191,14 @@ res = backfill.run_platform("ttd", today=TODAY)
 check("the second call lands the file", (res["ok"], res["pending"], res["rows"]), (True, False, 2))
 check("...and the ledger moves", (backfill.entry("ttd")["reached"], backfill.entry("ttd")["pending"]), ("2026-08-18", {}))
 
+res = backfill.run_platform("amazon_dsp", today=TODAY)
+check("Amazon DSP's window is pending while its reports prepare, as a dict of ids",
+      (res["ok"], res["pending"], res["rows"]), (True, True, 0), note=res)
+check("...with the note on the ledger", backfill.entry("amazon_dsp")["pending"]["note"], "1 report(s) still preparing")
+res = backfill.run_platform("amazon_dsp", today=TODAY)
+check("...and lands on the next call", (res["ok"], res["pending"], res["rows"]), (True, False, 1))
+check("...moving the ledger", backfill.entry("amazon_dsp")["reached"], "2026-08-18")
+
 # -------------------------------------------------------------- nightly
 section("Nightly: a flag per platform, once a night, until complete")
 
@@ -183,11 +208,11 @@ backfill.set_nightly("bing", True)
 check("turning nightly on clears complete", backfill.entry("bing")["complete"], False)
 check("both are due", backfill.due_nightly(date(2026, 9, 18)), ["google", "bing"])
 try:
-    backfill.set_nightly("amazon_dsp", True)
+    backfill.set_nightly("nope", True)
     refused = ""
 except ValueError as exc:
     refused = str(exc)
-check("nightly for Amazon DSP is refused by name", "Not wired" in refused, note=refused)
+check("nightly for a platform that is not a native pull is refused by name", "not a native pull" in refused, note=refused)
 CALLS.clear()
 out = backfill.run_nightly(today=date(2026, 9, 18))
 check("the nightly run pulls each due platform's next window", sorted(out["platforms"]), ["bing", "google"])
@@ -202,9 +227,9 @@ check("nightly off leaves it out", backfill.due_nightly(date(2026, 9, 19)), [])
 section("What the index prints")
 
 rows = {r["platform"]: r for r in backfill.rows(TODAY)}
-check("one row per native platform, Amazon DSP included and marked",
-      (sorted(rows), rows["amazon_dsp"]["supported"], rows["amazon_dsp"]["state"]),
-      (sorted(backfill.PLATFORMS), False, "unsupported"))
+check("one row per native platform, every one of them with a window",
+      (sorted(rows), all(r["supported"] for r in rows.values()), rows["amazon_dsp"]["state"]),
+      (sorted(backfill.PLATFORMS), True, "partial"))
 check("google: oldest day on file is the CSV's, own API back to the ledger's reached",
       (rows["google"]["oldest_any"], rows["google"]["reached"], rows["google"]["state"]),
       ("2026-07-01", "2026-06-16", "partial"))
@@ -245,8 +270,8 @@ if t is not None:
     t.join(20)
 check("...which pulled stackadapt's next window", [c[0] for c in CALLS], ["stackadapt"])
 check("...by Ann", backfill.entry("stackadapt")["actor"], "Ann")
-res = scheduler.backfill_now(["amazon_dsp"], actor="Ann")
-check("the button refuses Amazon DSP by name", res["started"] is False and "Not wired" in res["note"], note=res)
+res = scheduler.backfill_now(["nope"], actor="Ann")
+check("the button refuses a platform that is not a native pull", res["started"] is False and "No such platform" in res["note"], note=res)
 
 # ---------------------------------------------------------- the page
 section("The Reports index draws the History card")
@@ -263,12 +288,10 @@ _g = {r["platform"]: r for r in backfill.rows()}["google"]
 check("...with google's reach and its oldest day on file (native rows are older than the CSV's now)",
       _g["reached"] in page and _g["oldest_any"] in page and _g["oldest_any"] < "2026-07-01", note=_g)
 check("...bing complete, twice over", "nothing before 2026-07-19" in page)
-check("...and Amazon DSP marked not wired", "not wired" in page and "Not wired for history yet" in page)
+check("...and no platform marked not wired", "not wired" not in page)
 r = c.post("/backfill/bing/nightly", data={"on": "1"}, environ_base={"s1hub.user": "Todd"})
 check("the nightly toggle answers with a redirect to the card", (r.status_code, "#history" in r.headers.get("Location", "")), (302, True))
 check("...and set the flag", backfill.entry("bing")["nightly"], True)
-r = c.post("/backfill/amazon_dsp/nightly", data={"on": "1"})
-check("...refusing Amazon DSP in the banner", "error=" in r.headers.get("Location", ""))
 r = c.post("/backfill/audiogo", environ_base={"s1hub.user": "Todd"})
 check("the pull button answers at once", (r.status_code, "saved=" in r.headers.get("Location", "")), (302, True), note=r.headers.get("Location"))
 t = scheduler._background.get("reports_backfill")
