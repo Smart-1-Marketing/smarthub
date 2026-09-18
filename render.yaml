@@ -110,6 +110,9 @@ services:
       # and the partner id. Unset, /reports/ says so and the pull skips it.
       - key: TTD_API_TOKEN
         sync: false
+      # Optional: unset, the pull uses the one partner the token can see and
+      # names them all when there are several; a wrong id is answered with
+      # the list on /reports/.
       - key: TTD_PARTNER_ID
         sync: false
       # Optional: overrides the MyReports template the pull picks by name

@@ -774,6 +774,9 @@ python3 test_reports_amazon_dsp.py # the native Amazon DSP pull and the
 python3 test_reports_backfill.py  # history: thirty days further back on request or
                                    #   nightly until nothing is older; the ledger, a
                                    #   pending Trade Desk file, and the button on the lane
+python3 test_reports_backup.py    # the backup: one file per platform-month, rewritten
+                                   #   only when it changed, restore by upsert that never
+                                   #   deletes, and the fact table's late indexes
 python3 test_reports_seo.py        # the organic search section for SEO clients
 python3 test_places.py             # a client's Google listing: proposed once,
                                    #   confirmed by a person, read once a night,

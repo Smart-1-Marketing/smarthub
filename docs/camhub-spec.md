@@ -2,7 +2,7 @@
 
 Buckeye Lake Winery · 2026-09-17 · Smart 1 Marketing
 
-> Exported from the Claude Doc "Lake Cam 2.0 — Design & Build Spec" on 2026-09-17. The build that follows it is `modules/camhub/`; `docs/claude/81-camhub-a-conditions-page-with-a-sponsor-system-behind-it.md` records what was built and where it departs from this text.
+> Exported from the Claude Doc "Lake Cam 2.0 — Design & Build Spec" on 2026-09-17. The build that follows it is `modules/camhub/`; `docs/claude/82-camhub-a-conditions-page-with-a-sponsor-system-behind-it.md` records what was built and where it departs from this text.
 
 ## The layout
 

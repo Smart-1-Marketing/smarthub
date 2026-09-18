@@ -83,10 +83,10 @@ section("Unconfigured is a sentence, not an exception")
 st = ttd.status()
 check("not configured", st["configured"], False)
 check("...the line names the token variable", st["line"], "Trade Desk: not configured: TTD_API_TOKEN (or TRADE_DESK_API) unset")
-check("...and missing lists both", st["missing"], ["TTD_API_TOKEN", "TTD_PARTNER_ID"])
+check("...and missing lists the token alone: the partner is asked for", st["missing"], ["TTD_API_TOKEN"])
 res = ttd.pull()
 check("a pull returns rather than raising", res["ok"], False)
-check("...saying what is unset", res["error"], "not configured: TTD_API_TOKEN, TTD_PARTNER_ID unset")
+check("...saying what is unset", res["error"], "not configured: TTD_API_TOKEN unset")
 check("...and wrote no watermark", store.sync_status().get("ttd"), None)
 try:
     ttd.request("POST", ttd.ADVERTISER_QUERY, {})
@@ -166,7 +166,8 @@ os.environ["TTD_PARTNER_ID"] = "partner-x"
 os.environ["TTD_API_BASE"] = "https://sandbox.example.test/v3/"
 
 calls = []
-STATE = {"schedule": None, "fail_download": False, "templates": [], "history": {}}
+STATE = {"schedule": None, "fail_download": False, "templates": [], "history": {},
+         "partners": [{"PartnerId": "partner-x", "PartnerName": "Smart 1 Marketing"}]}
 
 
 class _Resp:
@@ -185,6 +186,10 @@ class _Resp:
 def fake_http(method, url, *, headers, body=None, timeout=60):
     calls.append({"method": method, "url": url, "headers": dict(headers), "body": body})
     path = url.replace("https://sandbox.example.test/v3", "")
+    if path == ttd.PARTNER_QUERY:
+        return _Resp(200, {"Result": list(STATE["partners"])})
+    if path == ttd.ADVERTISER_QUERY and body.get("PartnerId") != "partner-x":
+        return _Resp(403, {"Message": f"You are not authorized to access Partner '{body.get('PartnerId')}'."})
     if path == ttd.ADVERTISER_QUERY:
         start = body["PageStartIndex"]
         # 150 advertisers: a full page, then a short one.
@@ -364,6 +369,52 @@ check("...while google is not skipped for it", not out["google"].get("native"))
 st = ttd.status()
 check("the status line reports the pull",
       st["line"].startswith("Trade Desk: connected, 150 advertisers, last pull 20"), note=st["line"])
+
+# ------------------------------------------------------- the partner
+section("The partner is asked for from the platform, and a refusal names what the token sees")
+
+os.environ["TTD_PARTNER_ID"] = "1739"
+calls.clear()
+res = ttd.pull()
+check("a partner id the token cannot reach is refused by the platform", res["ok"], False)
+check("...and the error names the partners the token can see, by name and id",
+      "HTTP 403" in res["error"] and "Smart 1 Marketing (partner-x)" in res["error"]
+      and "Set TTD_PARTNER_ID" in res["error"], note=res["error"])
+check("...after asking the platform for them", any(c["url"].endswith(ttd.PARTNER_QUERY) for c in calls))
+check("...and the watermark carries it", "Smart 1 Marketing (partner-x)" in store.sync_status()["ttd"]["error"])
+os.environ.pop("TTD_PARTNER_ID")
+ttd._partner = {}
+calls.clear()
+res = ttd.pull()
+check("with no partner id set and one partner visible, the pull uses it", (res["ok"], res["partner"]),
+      (True, {"id": "partner-x", "name": "Smart 1 Marketing", "source": "discovered"}), note=res)
+check("...every partner call named it", all(c["body"].get("PartnerId") == "partner-x" for c in calls
+                                             if c["url"].endswith(ttd.ADVERTISER_QUERY)))
+st = ttd.status()
+check("the status says which partner and how it was found",
+      (st["partner_id"], st["partner_name"], st["partner_source"]), ("partner-x", "Smart 1 Marketing", "discovered"))
+check("...on the line", "(partner Smart 1 Marketing, the one the token sees)" in st["line"], note=st["line"])
+STATE["partners"] = [{"PartnerId": "partner-x", "PartnerName": "Smart 1 Marketing"},
+                     {"PartnerId": "partner-y", "PartnerName": "Another Seat"}]
+ttd._partner = {}
+ttd._remember({})
+res = ttd.pull()
+check("several partners and no variable is a refusal naming them",
+      res["ok"] is False and "several partners" in res["error"] and "Another Seat (partner-y)" in res["error"], note=res["error"])
+STATE["partners"] = []
+res = ttd.pull()
+check("no partner at all says the token needs partner-level access",
+      res["ok"] is False and "no partner at all" in res["error"], note=res["error"])
+STATE["partners"] = [{"PartnerHeaderId": 1, "Name": "odd"}]
+res = ttd.pull()
+check("a partner list with no PartnerId is refused naming its keys", "carried no PartnerId" in res["error"], note=res["error"])
+STATE["partners"] = [{"PartnerId": "partner-x", "PartnerName": "Smart 1 Marketing"}]
+os.environ["TTD_PARTNER_ID"] = "partner-x"
+ttd._partner = {}
+check("with the variable set the status says so", ttd.status()["partner_source"], "env")
+calls.clear()
+res = ttd.pull()
+check("...and the pull lands again", res["ok"], True, note=res.get("error"))
 
 # ---------------------------------------------------- a history window
 section("A history window: a one-off schedule, pending until its file lands")
