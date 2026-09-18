@@ -2341,6 +2341,17 @@ def test_the_third_list_seven_more():
           r'r"^client-proof/[a-f0-9-]{36}/cell/\d+$"' in proxy)
     check("and the inventory names the new path",
           "/cell/<i>" in (ROOT / "docs" / "claude" / "74-every-link-that-works-without-a-hub-login.md").read_text())
+    # 2c. Warn-only sizes can be approved together with their findings shown
+    review_html = (MODULE / "public" / "review.html").read_text()
+    check("the review page offers a warn-accepting bulk approve",
+          'id="warn-panel"' in review_html and 'id="approve-warnings"' in review_html
+          and "Approve these, accepting their warnings" in review_html)
+    check("only warn-only sizes are offered (never a fail)",
+          "function warnSizes()" in review_html and "g.anyFail" in review_html and "g.anyWarn" in review_html and "!g.allApproved" in review_html)
+    check("the ticked sizes call /approve-size with acceptWarnings",
+          "/approve-size" in review_html and "acceptWarnings:true" in review_html)
+    check("the plain-English findings are drawn beside each size",
+          "q.status==='warn'" in review_html and "esc(c.platform)" in review_html)
 
     # 3. Hold to see before
     check("there is a before chip", 'id="beforeBtn"' in screen and "Hold to see before" in screen)
