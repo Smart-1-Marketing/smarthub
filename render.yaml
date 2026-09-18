@@ -463,6 +463,27 @@ services:
       # default when this is unset. Set it to name a mailbox somebody reads.
       - key: CAMHUB_USER_AGENT
         sync: false
+      # CamHub sponsor outbox — the SMTP channel that mails the monthly
+      # PDF on the 1st. Optional: unset, the outbox renders and files the
+      # PDF but leaves it in `rendered` state for staff hand-off from
+      # /tools/camhub/reports. Set SMTP_HOST + SMTP_FROM (and creds if the
+      # server requires them) to switch the outbox onto real SMTP.
+      # STARTTLS is on by default for port 587; SMTP_SSL flips to SMTPS
+      # for port 465.
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: SMTP_STARTTLS
+        sync: false
+      - key: SMTP_SSL
+        sync: false
       # Background jobs — exactly one worker runs them.
       - key: HUB_SCHEDULER
         value: "true"
