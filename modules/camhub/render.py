@@ -15,7 +15,7 @@ import json
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from .tiles import _local, build_strip, fresh
+from .tiles import build_strip, fresh
 from .verdict import verdict
 
 WEATHER_KEYS = ("weather_now", "observation", "lake_level", "alerts", "advisories")

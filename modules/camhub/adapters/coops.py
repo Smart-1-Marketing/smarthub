@@ -70,7 +70,9 @@ def fetch(config: dict) -> dict:
             payload["water_temp_f"] = round(float(rows[-1]["v"]))
             payload["water_observed_at"] = rows[-1].get("t")
     except (SourceError, ValueError, TypeError):
-        pass
+        # Water temperature is a nicety most tide stations lack; the tide
+        # predictions above are the source, and they are already in hand.
+        payload["water_temp_f"] = None
     return payload
 
 
