@@ -115,6 +115,24 @@ jobs:
           echo "== renderer"; tail -n 120 /tmp/renderer.log || true
           echo "== hub"; tail -n 120 /tmp/hub.log || true
 
+      # A failed scheduled workflow emails the last person who touched it, and
+      # nobody else. Post the run to the team's webhook so a red night is seen
+      # by more than one address. Optional: the step is a no-op when the
+      # secret is not set, so a fork or a new repo runs green without it.
+      - name: Say a red night in the team channel
+        if: failure()
+        env:
+          WEBHOOK: ${{ secrets.NIGHTLY_WEBHOOK_URL }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then
+            echo "NIGHTLY_WEBHOOK_URL is not set; skipping team ping."
+            exit 0
+          fi
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -fsS -X POST -H 'content-type: application/json' \
+            -d "{\"text\":\"*Nightly browser test failed* (through-the-hub)\n$RUN_URL\"}" \
+            "$WEBHOOK" || true
+
   staging:
     # Repository variables are readable in a job-level condition; secrets are
     # not, which is why the URL and request id are variables and only the
@@ -147,3 +165,17 @@ jobs:
         run: |
           export PUPPETEER_EXECUTABLE_PATH="$(cd ../hf_render_service && node -e "console.log(require('puppeteer').executablePath())")"
           npm run test:browser
+
+      - name: Say a red night in the team channel
+        if: failure()
+        env:
+          WEBHOOK: ${{ secrets.NIGHTLY_WEBHOOK_URL }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then
+            echo "NIGHTLY_WEBHOOK_URL is not set; skipping team ping."
+            exit 0
+          fi
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -fsS -X POST -H 'content-type: application/json' \
+            -d "{\"text\":\"*Nightly browser test failed* (staging)\n$RUN_URL\"}" \
+            "$WEBHOOK" || true

@@ -2730,6 +2730,19 @@
     if (!Object.keys(st).length) delete home[block];
     pruneStyle();
 
+    // The panel's number boxes are re-drawn only when drawControls() runs,
+    // so an ArrowUp on the canvas or an Enter on the anchor buttons moves
+    // the ad but leaves the input still saying what it did before the nudge.
+    // Sync the boxes here — the same rule that sets state — so the shown
+    // number always matches what the preview is rendering.
+    var current = home[block];
+    var shown = current ? current[prop] : undefined;
+    var inputs = document.querySelectorAll('[data-style="' + block + '"][data-prop="' + prop + '"]');
+    Array.prototype.forEach.call(inputs, function (input) {
+      if (input.tagName !== 'INPUT' || input.type === 'color' || input.classList.contains('bsclear')) return;
+      input.value = shown === undefined ? '' : String(shown);
+    });
+
     state.dirty = true;
     schedule();          // same debounce the copy fields use
   }

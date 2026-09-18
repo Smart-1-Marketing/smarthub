@@ -168,6 +168,16 @@ test('the proof page has a note box under each ad and lists what was said', (t) 
   assert.doesNotMatch(closed, /<button type="button" data-send-note/, 'no note box once approved');
 });
 
+test('a failed decision writes under the buttons, not over the page\'s status', (t) => {
+  const { out, token } = proofFixture(t);
+  const html = clientProofHtml(getClientProof(out, token));
+  // The decision has its own alert line under the Approve / Request changes buttons.
+  assert.match(html, /<p id="decision-said" role="status" aria-live="polite"><\/p>/);
+  // The script restores the page's original status sentence on a failed send.
+  assert.match(html, /const originalStatus=status\.textContent/);
+  assert.match(html, /status\.textContent=originalStatus;decSay\(e\.message/);
+});
+
 test('the proof page streams cells from disk instead of inlining them as base64', (t) => {
   // A Meta set with the story and the square at 2x is ten megabytes of HTML
   // per open, on a phone. The frozen cell URL brings the page under 20 KB
