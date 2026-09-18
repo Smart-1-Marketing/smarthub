@@ -88,5 +88,5 @@ say "above" or "below" mean earlier or later files in this list.
 | [`80-the-clients-360-script-in-files-not-a-template.md`](80-the-clients-360-script-in-files-not-a-template.md) | The Client 360 script, in files, not a template | 53 |
 | [`81-a-copy-of-the-landed-rows-and-two-indexes-the-live-table-lacked.md`](81-a-copy-of-the-landed-rows-and-two-indexes-the-live-table-lacked.md) | A copy of the landed rows, and two indexes the live table lacked | 115 |
 | [`82-camhub-a-conditions-page-with-a-sponsor-system-behind-it.md`](82-camhub-a-conditions-page-with-a-sponsor-system-behind-it.md) | CamHub: a conditions page with a sponsor system behind it | 193 |
-| [`83-display-ad-builder-handoff-the-next-rounds.md`](83-display-ad-builder-handoff-the-next-rounds.md) | Display Ad Builder: handoff for the next rounds | 256 |
+| [`83-display-ad-builder-handoff-the-next-rounds.md`](83-display-ad-builder-handoff-the-next-rounds.md) | Display Ad Builder: handoff for the next rounds | 273 |
 | [`84-camhub-sprint-5-reporting-portal-the-hub-card-and-the-mcp-tool.md`](84-camhub-sprint-5-reporting-portal-the-hub-card-and-the-mcp-tool.md) | CamHub Sprint 5: reporting, the portal, the Client 360 card and the MCP tool | 105 |
