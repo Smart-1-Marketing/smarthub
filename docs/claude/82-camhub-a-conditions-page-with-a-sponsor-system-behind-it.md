@@ -66,8 +66,40 @@ Sprint 3, the sponsor system, in `sponsors.py`:
   only when the slot is sold. A sold link carries `rel="nofollow
   sponsored"`; a house link does not, because it is the client's own.
 
-Not yet: viewability tracking (Sprint 4), reports and the Client 360 card
-(5), the Cam Builder screens (6). `builder.py` holds the geocode and
+Sprint 4, tracking, in `tracking.py`:
+
+- **A viewable impression is what the page's own script reports** after an
+  `IntersectionObserver` has seen at least half of the unit for one
+  continuous second (the IAB display standard), once per placement per
+  pageview, never re-counted on scroll-back. The script batches
+  everything and sends one payload with `sendBeacon` when the page is
+  hidden, plus a first flush after five seconds, so a popular page is one
+  request per visit. House ads carry no `data-placement` and are never
+  units. A preview renders no script at all.
+- **Every sold link goes through `/go/<placement_id>`**, which records the
+  click and answers a 302; the destination never appears in the page. A
+  second click within two seconds from the same session is a double click,
+  kept and marked. A house link never goes through it: it is the client's
+  own site.
+- **Filtering never deletes.** A crawler user agent (`CRAWLER_RE` plus the
+  names in `hub/no_crawl.py`), a click before the page could have been
+  read, a click with no scroll on a tile below the fold, a session past
+  sixty events a minute or an address past thirty pageviews a minute:
+  each row is written with `filtered` and the reason, and the rollup
+  leaves it out. A sponsor who asks what was excluded can be shown.
+- **The address is hashed with the Hub secret and truncated** to 24
+  characters; the page's random session token is hashed the same way.
+  Nothing in the table can give a visitor's IP back.
+- **The rollup** (`camhub_rollup`, hourly in `hub/scheduler.py`) writes
+  one `camhub_daily_stats` row per placement per day and one per page,
+  from unfiltered rows only, for today and yesterday, then purges raw
+  events past ninety days. It is idempotent. `stats()` reads the rollup
+  and never the raw table: impressions, clicks, CTR, unique sessions and
+  the share of pageviews the unit was viewable on, the number that makes
+  the presenting slot obviously worth more than a tile.
+
+Not yet: reports and the Client 360 card (Sprint 5), the Cam Builder
+screens (6). `builder.py` holds the geocode and
 concurrent-probe library the screens will use; `/tools/camhub/api/probe`
 exposes it to staff.
 
@@ -140,7 +172,12 @@ public/guarded split through the composed app, and the job registration;
 then the sponsor system: the one-at-a-time presenting slot, the category
 warning, the caps, the weighted shuffle measured over 300 draws, the
 flight that ends itself, the signed preview, the editor round trip, and
-the upload through the shared pipeline.
+the upload through the shared pipeline; then tracking: a batch written
+with no address in it, once per unit per visit, crawlers and instant
+clicks kept with a reason, the redirect and the double click, the rollup
+reading only unfiltered rows, the ninety-day purge.
+`test_blueprint_guards.py` carries `/go/<id>` and the events endpoint as
+public with their reasons.
 `test_blueprint_guards.py` carries the two public routes with their reason.
 `tools/integritycheck.py` needs `camhub` in `hub/client_brand.WORK_KINDS`,
 which it has, so a refresh logged with `client=` reads on Client 360.

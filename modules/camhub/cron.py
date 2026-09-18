@@ -30,3 +30,22 @@ def job_refresh(app=None) -> dict:
         return store.refresh_due()
     except Exception as exc:  # noqa: BLE001 -- reported as a failed run, never raised into the loop
         return {"error": f"{type(exc).__name__}: {exc}"}
+
+
+def job_rollup(app=None) -> dict:
+    """Today's and yesterday's impressions and clicks into camhub_daily_stats,
+    then the ninety-day purge of raw events. Hourly, so the staff screens
+    read near-live; a day is final once it is two days old."""
+    try:
+        from . import tracking
+        from .models import boot_error, init_db
+    except Exception as exc:  # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    init_db()
+    err = boot_error()
+    if err:
+        return {"skipped": f"database: {err[:120]}"}
+    try:
+        return tracking.rollup_recent()
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"{type(exc).__name__}: {exc}"}

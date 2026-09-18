@@ -981,6 +981,20 @@ def job_camhub_refresh(app) -> dict:
     return cron.job_refresh(app)
 
 
+def job_camhub_rollup(app) -> dict:
+    """Roll CamHub's raw impressions and clicks into per-day rows.
+
+    Today and yesterday every hour, so the placement screens read near-live
+    and a day is final once it is two days old; then the ninety-day purge
+    of the raw table. Reports read the rollup, never the raw rows.
+    """
+    try:
+        from modules.camhub import cron
+    except Exception as exc:                              # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    return cron.job_rollup(app)
+
+
 def job_ads_optimization_scan(app) -> dict:
     """Sweep every live Google Ads account we deployed, twice a day.
 
@@ -1685,6 +1699,8 @@ JOBS = {
                           "Turn each approved weather campaign's triggers on and off."),
     "camhub_refresh":    (5, job_camhub_refresh,
                           "Pull every CamHub conditions feed that is due (each on its own cadence)."),
+    "camhub_rollup":     (60, job_camhub_rollup,
+                          "Roll CamHub impressions and clicks into per-day rows; purge raw rows past 90 days."),
     "creative_studio":   (5, job_creative_studio_sweep,
                           "Advance queued Creative Studio jobs (Media Library backfill, "
                           "concept/script/image generation)."),

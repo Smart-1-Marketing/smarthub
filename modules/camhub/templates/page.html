@@ -41,6 +41,21 @@
   </div>
 
   <div class="card">
+    <h2 style="margin-top:0">Traffic this month</h2>
+    <p style="margin:0 0 8px">{{ month.page.pageviews }} pageviews &middot; {{ month.page.unique_sessions }} sessions &middot; {{ month.page.filtered }} filtered</p>
+    {% if month.placements %}
+    <table>
+      <thead><tr><th>Placement</th><th>Viewable impressions</th><th>Clicks</th><th>CTR</th><th>Seen on</th></tr></thead>
+      <tbody>
+      {% for pid, st in month.placements.items() %}
+      <tr><td><a href="{{ mount }}/placements/{{ pid }}">{{ placement_names.get(pid, pid) }}</a></td><td>{{ st.impressions }}</td><td>{{ st.clicks }}</td><td>{{ st.ctr }}%</td><td>{% if st.viewable_share is not none %}{{ st.viewable_share }}% of pageviews{% else %}&mdash;{% endif %}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}<p class="muted">No sponsor impressions rolled up yet this month.</p>{% endif %}
+  </div>
+
+  <div class="card">
     <h2 style="margin-top:0">Sources</h2>
     <table>
       <thead><tr><th>Source</th><th>Adapter</th><th>Config</th><th>Every</th><th>Tolerance</th><th>Fetched</th><th>State</th><th>Last error</th></tr></thead>
