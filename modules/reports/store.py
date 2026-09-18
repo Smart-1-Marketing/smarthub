@@ -2071,6 +2071,77 @@ def pending_count() -> int:
         db.close()
 
 
+def queue_version() -> str:
+    """A short digest of the state that decides the queue's likeness: the
+    newest mapping time and the newest refusal time, side by side.
+
+    ``likely_by_client()`` reads it and re-computes when it changes. This is
+    the piece that lets the two gunicorn workers share a reading -- one
+    worker's press invalidates the other's cache on the next call, because
+    each looks the digest up in the same database.
+
+    Never raises past the store: no tables yet is ``"boot"``, so the caller
+    reads once and then holds it, rather than being served the cached count
+    of a book that has since grown.
+    """
+    db = None
+    try:
+        db = SessionLocal()
+        mp = db.query(func.max(CampaignMap.mapped_at)).scalar()
+        rf = db.query(func.max(MapRefusal.refused_at)).scalar()
+        return f"{iso(mp) or ''}|{iso(rf) or ''}"
+    except Exception:                  # noqa: BLE001 - no tables yet, or no database
+        return "boot"
+    finally:
+        if db is not None:
+            db.close()
+
+
+# Pending past this many days is stale: shown as a warning on the queue and
+# the pacing card, because a pileup nobody is working needs a signal that
+# it is happening.
+PENDING_STALE_DAYS = 3
+
+
+def pending_age() -> dict:
+    """How long the pending proposals have been waiting: the oldest, the
+    median, and how many are over ``PENDING_STALE_DAYS`` days old. Never
+    raises past the store: no tables yet is an empty reading rather than a
+    crash on the page.
+
+    The pending queue is a queue only if it is worked -- a proposal filed
+    hourly and never decided sits on the client's page as nothing, and there
+    is no gate on the auto-mapper filing another for the same campaign next
+    week. This reading is what makes the pileup visible."""
+    from statistics import median
+    out = {"count": 0, "oldest_at": None, "oldest_days": None, "median_days": None,
+           "stale": 0, "stale_days": PENDING_STALE_DAYS}
+    db = None
+    try:
+        db = SessionLocal()
+        rows = (db.query(CampaignMap.mapped_at)
+                  .filter(CampaignMap.confirmed_at.is_(None)).all())
+    except Exception:                  # noqa: BLE001 - no table yet
+        return out
+    finally:
+        if db is not None:
+            db.close()
+    when = [r[0] for r in rows if r[0] is not None]
+    if not when:
+        return out
+    # SQLite drops the timezone; Postgres keeps it. Making both sides naive
+    # in UTC gives one subtraction that works on both.
+    def _naive(dt):
+        return dt.replace(tzinfo=None) if dt.tzinfo is not None else dt
+    right_now = _naive(now())
+    days = sorted(max(0.0, (right_now - _naive(dt)).total_seconds() / 86400) for dt in when)
+    out.update(count=len(rows), oldest_at=iso(min(when)),
+               oldest_days=round(days[-1], 1),
+               median_days=round(median(days), 1),
+               stale=sum(1 for d in days if d >= PENDING_STALE_DAYS))
+    return out
+
+
 def _latest_name(db, platform: str, account_id: str, campaign_id: str) -> str:
     """The newest campaign name the fact table holds for a key, or ""."""
     row = (db.query(AdPerfDaily.campaign_name)

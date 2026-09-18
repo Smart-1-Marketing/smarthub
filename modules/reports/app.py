@@ -762,6 +762,7 @@ def unmapped():
         file_pct=int(round(automap.FUZZY_FILE_SCORE * 100)),
         aliases=store.campaign_aliases(), alias_file_count=automap.ALIAS_FILE_COUNT,
         scorecard=store.automap_scorecard(),
+        pending_age=store.pending_age(),
         days=days, shape=store.RENAME_SHAPE,
         products=products.catalog(),
         defaults=products.DEFAULT_PRODUCT_FOR_PLATFORM,
