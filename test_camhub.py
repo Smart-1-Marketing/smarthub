@@ -1426,6 +1426,177 @@ class McpToolTests(unittest.TestCase):
         self.assertEqual(out["reason"], "no_pages")
 
 
+class SmtpSenderTests(unittest.TestCase):
+    """The outbox's SMTP send channel: unconfigured, the row stays
+    `rendered` with a `no_channel` reason; configured, the outbox renders
+    the PDF and hands a properly-shaped MIME message to a stubbed SMTP
+    server. Nothing here touches a real network."""
+
+    @classmethod
+    def setUpClass(cls):
+        from modules.camhub import models, seeds, sponsors as _sp
+        from modules.camhub.models import (DailyStat, Event, Placement,
+                                           Sponsor, SponsorReport, session)
+        from sqlalchemy import delete
+        assert not models.init_db()
+        import wsgi  # noqa: F401
+        cls.page = seeds.provision("buckeye-lake", fetch=False)["page"]
+        with session() as s:
+            for table in (SponsorReport, Event, DailyStat, Placement, Sponsor):
+                s.execute(delete(table))
+            s.commit()
+        _sp.ensure_house_placements(cls.page)
+        cls.sponsor = _sp.save_sponsor({"name": "Rosewood Marine",
+                                        "category": "marina",
+                                        "email": "ops@rosewood.example"})
+        _sp.save_placement({"position": "supporting", "status": "active",
+                            "animation": "static", "sponsor_id": cls.sponsor["id"],
+                            "name": "Rosewood Marine",
+                            "start_date": "2026-05-01", "end_date": "2026-11-30"},
+                           cls.page["id"])
+
+    @classmethod
+    def tearDownClass(cls):
+        from modules.camhub.models import Placement, Sponsor, SponsorReport, session
+        from sqlalchemy import delete
+        from modules.camhub import outbox
+        with session() as s:
+            s.execute(delete(SponsorReport))
+            s.execute(delete(Placement))
+            s.execute(delete(Sponsor))
+            s.commit()
+        outbox.register_sender(None)
+
+    def setUp(self):
+        # Each test enqueues a fresh row; the previous run's rows would
+        # collide on the (sponsor_id, period) unique key otherwise.
+        from modules.camhub.models import SponsorReport, session
+        from sqlalchemy import delete
+        with session() as s:
+            s.execute(delete(SponsorReport))
+            s.commit()
+
+    def _row(self, period="2026-08"):
+        from modules.camhub import outbox
+        year, month = outbox.parse_period(period)
+        result = outbox.enqueue_month(year, month, actor="test")
+        row_id = result["created"][0]
+        outbox.render_row(row_id)
+        return row_id
+
+    @staticmethod
+    def _patch_setting(name, value):
+        """`hub.config.settings` is a frozen dataclass, so setattr is
+        refused. Patch the property on the class instead so every
+        `settings.<name>` read (property or attribute) reads `value`
+        for the duration of the with-block."""
+        from unittest.mock import patch, PropertyMock
+        from hub.config import settings
+        return patch.object(type(settings), name,
+                            new_callable=PropertyMock, return_value=value)
+
+    def test_default_sender_no_channel_when_smtp_unconfigured(self):
+        from modules.camhub import outbox
+        row_id = self._row()
+        with self._patch_setting("smtp_ready", False):
+            result = outbox.send_row(row_id)
+        self.assertFalse(result["sent"])
+        self.assertEqual(result["reason"], "no_channel")
+        self.assertEqual(outbox.get_row(row_id)["status"], "rendered")
+
+    def test_smtp_sender_ships_a_multipart_message_with_the_pdf_attached(self):
+        from unittest.mock import MagicMock, patch
+        from modules.camhub import outbox
+        row_id = self._row()
+        captured = {}
+        smtp_instance = MagicMock()
+        smtp_instance.__enter__.return_value = smtp_instance
+        smtp_instance.__exit__.return_value = False
+        smtp_instance.send_message.side_effect = lambda m: captured.update(message=m)
+        smtp_conf = {"host": "mail.example", "port": 587,
+                     "username": "user", "password": "pw",
+                     "from_addr": "reports@smart1.agency",
+                     "starttls": True, "ssl": False}
+        with self._patch_setting("smtp_ready", True), \
+             patch.object(type(__import__("hub.config", fromlist=["settings"]).settings),
+                          "smtp", return_value=smtp_conf), \
+             patch("smtplib.SMTP", return_value=smtp_instance) as smtp_cls:
+            result = outbox.send_row(row_id)
+        self.assertTrue(result["sent"], result)
+        self.assertEqual(result.get("channel"), "smtp")
+        smtp_cls.assert_called_with("mail.example", 587, timeout=30)
+        self.assertTrue(smtp_instance.starttls.called)
+        smtp_instance.login.assert_called_with("user", "pw")
+        msg = captured["message"]
+        self.assertEqual(msg["From"], "reports@smart1.agency")
+        self.assertEqual(msg["To"], "ops@rosewood.example")
+        self.assertIn("Rosewood Marine", msg["Subject"])
+        self.assertEqual(msg["X-CamHub-Period"], "2026-08")
+        self.assertEqual(msg["X-CamHub-Sponsor-Id"], str(self.sponsor["id"]))
+        attachments = list(msg.iter_attachments())
+        self.assertEqual(len(attachments), 1)
+        att = attachments[0]
+        self.assertTrue(att.get_filename().endswith(".pdf"))
+        self.assertEqual(att.get_content_type(), "application/pdf")
+        self.assertTrue(att.get_payload(decode=True).startswith(b"%PDF"))
+        self.assertEqual(outbox.get_row(row_id)["status"], "sent")
+
+    def test_smtp_ssl_path_skips_starttls_and_uses_smtp_ssl(self):
+        from unittest.mock import MagicMock, patch
+        from modules.camhub import outbox
+        row_id = self._row()
+        smtp_instance = MagicMock()
+        smtp_instance.__enter__.return_value = smtp_instance
+        smtp_conf = {"host": "mail.example", "port": 465,
+                     "username": "user", "password": "pw",
+                     "from_addr": "reports@smart1.agency",
+                     "starttls": True, "ssl": True}
+        with self._patch_setting("smtp_ready", True), \
+             patch.object(type(__import__("hub.config", fromlist=["settings"]).settings),
+                          "smtp", return_value=smtp_conf), \
+             patch("smtplib.SMTP_SSL", return_value=smtp_instance) as ssl_cls, \
+             patch("smtplib.SMTP") as plain_cls:
+            outbox.send_row(row_id)
+        self.assertTrue(ssl_cls.called)
+        self.assertFalse(plain_cls.called)
+        self.assertFalse(smtp_instance.starttls.called)
+
+    def test_smtp_error_moves_the_row_after_max_attempts(self):
+        import smtplib
+        from unittest.mock import MagicMock, patch
+        from modules.camhub import outbox
+        row_id = self._row()
+        smtp_instance = MagicMock()
+        smtp_instance.__enter__.return_value = smtp_instance
+        smtp_instance.send_message.side_effect = smtplib.SMTPException("nope")
+        smtp_conf = {"host": "mail.example", "port": 587, "username": "",
+                     "password": "", "from_addr": "reports@smart1.agency",
+                     "starttls": True, "ssl": False}
+        with self._patch_setting("smtp_ready", True), \
+             patch.object(type(__import__("hub.config", fromlist=["settings"]).settings),
+                          "smtp", return_value=smtp_conf), \
+             patch("smtplib.SMTP", return_value=smtp_instance):
+            for _ in range(outbox.MAX_ATTEMPTS):
+                result = outbox.send_row(row_id)
+        self.assertFalse(result["sent"])
+        self.assertEqual(result["reason"], "sender_error")
+        self.assertEqual(outbox.get_row(row_id)["status"], "failed")
+
+    def test_smtp_without_from_addr_refuses_to_send(self):
+        from unittest.mock import patch
+        from modules.camhub import outbox
+        row_id = self._row()
+        smtp_conf = {"host": "mail.example", "port": 587, "username": "",
+                     "password": "", "from_addr": "",
+                     "starttls": True, "ssl": False}
+        with self._patch_setting("smtp_ready", True), \
+             patch.object(type(__import__("hub.config", fromlist=["settings"]).settings),
+                          "smtp", return_value=smtp_conf):
+            result = outbox.send_row(row_id)
+        self.assertFalse(result["sent"])
+        self.assertEqual(result["reason"], "no_channel")
+
+
 class HardeningTests(unittest.TestCase):
     """The Sprint-7 hardening pass: CSV cells that could execute a
     spreadsheet formula, a portal-token rotation that turns off every
