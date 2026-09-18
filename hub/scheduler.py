@@ -965,6 +965,22 @@ def job_smartforecast_maintenance(app) -> dict:
         return store().run_maintenance()
 
 
+def job_camhub_refresh(app) -> dict:
+    """Refresh every CamHub source whose own cadence has elapsed.
+
+    One job for every feed on every cam page: the store knows each source's
+    cadence (weather every 10 minutes, the lake gauge every 15, the beach
+    hourly, the pool table once a year) and pulls only what is due. Every
+    outcome is written to the source row, which is what the module's
+    source-health screen reads -- so a dead feed shows there, not here.
+    """
+    try:
+        from modules.camhub import cron
+    except Exception as exc:                              # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    return cron.job_refresh(app)
+
+
 def job_ads_optimization_scan(app) -> dict:
     """Sweep every live Google Ads account we deployed, twice a day.
 
@@ -1667,6 +1683,8 @@ JOBS = {
                                   "Expire overrides and enforce SmartForecast retention."),
     "weather_triggers":  (30, job_weather_triggers,
                           "Turn each approved weather campaign's triggers on and off."),
+    "camhub_refresh":    (5, job_camhub_refresh,
+                          "Pull every CamHub conditions feed that is due (each on its own cadence)."),
     "creative_studio":   (5, job_creative_studio_sweep,
                           "Advance queued Creative Studio jobs (Media Library backfill, "
                           "concept/script/image generation)."),

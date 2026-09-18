@@ -1,0 +1,33 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+/* Cards, tables, buttons and pills come from hub/static/hub-detail.css via
+   `s1d-page` on the wrapper, which wsgi.py's HubBar injects. What is here is
+   only what is this screen's own. */
+  :root{--navy:#1a2e58;--blue:#2563eb;--line:#e2e8f0;--soft:#f8fafc;--muted:#64748b;--bad:#dc2626;--ok:#16a34a;--warn:#d97706}
+  *{box-sizing:border-box}
+  body{margin:0;background:#f4f6fa;color:#1e293b;font:14px 'Segoe UI',system-ui,sans-serif}
+  .wrap{max-width:1120px;margin:0 auto;padding:28px 22px 70px}
+  h1{color:var(--navy);font-size:22px;margin:0 0 6px}
+  h2{color:var(--navy);font-size:15px;margin:26px 0 10px}
+  .lede{color:var(--muted);margin:0 0 18px;max-width:70ch;line-height:1.5}
+  .card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin-bottom:14px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .pill{display:inline-block;padding:2px 9px;border-radius:12px;font-size:11.5px;font-weight:600}
+  .pill.green{background:#dcfce7;color:#166534}.pill.amber{background:#fef3c7;color:#92400e}
+  .pill.red{background:#fee2e2;color:#991b1b}.pill.off{background:#f1f5f9;color:#475569}
+  .btn{border:0;background:var(--blue);color:#fff;font:600 13px inherit;padding:8px 14px;border-radius:8px;cursor:pointer;text-decoration:none;display:inline-block}
+  .btn.sec{background:#fff;color:#1e293b;border:1px solid var(--line)}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .muted{color:var(--muted)} .err{color:var(--bad);font-size:12px} .mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+  .missing li{margin:4px 0;color:#92400e}
+  details summary{cursor:pointer;color:var(--blue);font-size:13px}
+  pre{background:var(--soft);border:1px solid var(--line);border-radius:8px;padding:10px;font-size:12px;white-space:pre-wrap;max-height:300px;overflow:auto}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+  .tile{background:var(--soft);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+  .tile b{display:block;font-size:20px} .tile small{color:var(--muted);display:block}
+  .verdict{border-left:4px solid var(--ok);padding:10px 14px;background:var(--soft);border-radius:0 8px 8px 0}
+  .verdict.caution{border-left-color:var(--warn)} .verdict.poor{border-left-color:var(--bad)}
+</style>

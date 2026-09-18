@@ -301,6 +301,12 @@ class Settings:
     # only where the two have to differ (a Places key restricted to Places
     # API (New) is refused by YouTube).
     youtube_key: str = field(default_factory=lambda: _s("YOUTUBE_API_KEY"))
+    # CamHub (modules/camhub): the identifying User-Agent every public data
+    # API it calls wants -- NWS throttles or blocks a call without one -- as
+    # "<app>/<version> (<contact>)". One spelling and a working default, so
+    # nothing is dead when it is unset; set it to name a real mailbox.
+    camhub_user_agent: str = field(default_factory=lambda: _s(
+        "CAMHUB_USER_AGENT", "SmartHub-CamModule/1.0 (adops@smart1marketing.com)"))
     # Microsoft Advertising, for Smart 1 Ads' connection and the reports
     # module's native pull (modules/ads_builder/bing_ads.py reads these at
     # call time through _s() and _alias()). Exactly the spellings set on
@@ -746,6 +752,10 @@ class Settings:
                 "YOUTUBE_API_KEY — a client's channel subscribers, views and video count, read nightly; "
                 + ("reading GOOGLE_PLACES_API_KEY, the same Cloud project" if self.google_places_key and not self.youtube_key
                    else "falls back to GOOGLE_PLACES_API_KEY when unset") + "."),
+            row("CamHub data feeds", True, False,
+                "CAMHUB_USER_AGENT — the User-Agent sent to NWS, USGS, BeachGuard and NOAA "
+                "(all keyless). Unset, the built-in default is sent; set it to name the "
+                "mailbox a provider should write to."),
             row("Google Fonts", bool(self.google_fonts_key), False, f"{self.spellings('google_fonts_key')} — optional; curated list used without it."),
             row("Insites", bool(self.insites_key), False, f"{self.spellings('insites_key')} — Site Scans disabled without it."),
             row("HeyGen", bool(self.heygen_key), False,

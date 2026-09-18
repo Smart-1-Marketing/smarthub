@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<title>CamHub — Smart 1 Hub</title>
+{% include "_staff_head.html" %}
+</head>
+<body>
+<div class="wrap s1d-page">
+  <h1>CamHub {{ help_dot('camhub.index') if help_dot is defined else '' }}</h1>
+  <p class="lede">A live-cam conditions page per client, served from cache and refreshed on a schedule.
+    Every feed is listed with its last successful read, so a dead source shows here before a sponsor says the page looks empty.</p>
+
+  {% if not pages %}
+  <div class="card">
+    <p class="muted" style="margin:0 0 10px">No cam page is provisioned yet.</p>
+    {% for slug in seeds_available %}
+    <form method="post" action="{{ mount }}/provision/{{ slug }}" class="row">
+      <button class="btn" type="submit">Provision {{ slug.replace('-', ' ').title() }} from the spec</button>
+      <span class="muted">Writes the page and its sources, then runs the first fetch of every feed.</span>
+    </form>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% for p in pages %}
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <div>
+        <h2 style="margin:0"><a href="{{ mount }}/pages/{{ p.slug }}">{{ p.title }}</a></h2>
+        <span class="muted">{{ p.client_name }} &middot; {{ p.location_name }} &middot; {{ p.location_type.replace('_', ' ') }}</span>
+      </div>
+      <div class="row">
+        <span class="pill {{ p.health }}">sources {{ p.health }}</span>
+        <a class="btn sec" href="{{ mount }}/cam/{{ p.slug }}" target="_blank" rel="noopener">Open the page</a>
+        <form method="post" action="{{ mount }}/pages/{{ p.slug }}/refresh"><button class="btn" type="submit">Refresh now</button></form>
+      </div>
+    </div>
+    <table style="margin-top:12px">
+      <thead><tr><th>Source</th><th>Adapter</th><th>Every</th><th>Last success</th><th>State</th><th>Last error</th></tr></thead>
+      <tbody>
+      {% for s in p.sources %}
+      <tr>
+        <td><span class="mono">{{ s.key }}</span><br><span class="muted">{{ s.label }}</span></td>
+        <td>{{ s.adapter }}</td>
+        <td>{{ s.cadence_minutes }} min</td>
+        <td>{% if s.fetched_at %}{{ s.age_minutes }} min ago{% else %}<span class="muted">never</span>{% endif %}</td>
+        <td><span class="pill {{ s.state }}">{{ s.state }}</span></td>
+        <td class="err">{{ s.last_error or '' }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% if p.missing %}
+    <h2 style="margin-top:14px">Still to fill in</h2>
+    <ul class="missing">{% for m in p.missing %}<li>{{ m }}</li>{% endfor %}</ul>
+    {% endif %}
+  </div>
+  {% endfor %}
+
+  {% if pages and seeds_available %}
+  <div class="card">
+    {% for slug in seeds_available %}
+    <form method="post" action="{{ mount }}/provision/{{ slug }}" class="row">
+      <button class="btn sec" type="submit">Provision {{ slug.replace('-', ' ').title() }}</button>
+    </form>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+</body>
+</html>
