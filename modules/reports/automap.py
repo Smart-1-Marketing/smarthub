@@ -604,21 +604,31 @@ def product_from_name(name: str) -> str:
 # The pacing board asks, per line, how many unmapped campaigns look like
 # the client's -- once per page, not once per line, and not afresh on every
 # load: the reading costs a registry index and a likeness per queue row.
-# Held per process for LIKELY_TTL_SECONDS. Read-only, so the two workers
-# holding two copies is fine.
+# Held per process; the cache reads ``store.queue_version()`` on every call
+# to check that the two gunicorn workers agree with what the database says.
+# One worker's mapping press invalidates the other's cache on the other's
+# next call, because they look the digest up in the same database. The TTL
+# is a ceiling in case the version reader is silent (an empty book returns
+# ``"boot"`` and never changes).
 LIKELY_TTL_SECONDS = 300
 LIKELY_QUEUE_LIMIT = 500
-_LIKELY_CACHE: dict = {"at": 0.0, "value": None}
+_LIKELY_CACHE: dict = {"at": 0.0, "version": None, "value": None}
 
 
 def likely_by_client(refresh: bool = False) -> dict[str, int]:
     """{client key: how many unmapped campaigns look like theirs}, from the
     queue's likeness (``annotate``) over the newest LIKELY_QUEUE_LIMIT rows.
     Raises when the store or registry will not answer: the caller draws
-    "not measured" rather than a nought."""
+    "not measured" rather than a nought.
+
+    The cache is keyed on the store's queue version, so a press on either
+    worker is seen by both."""
     import time as _time
+    version = store.queue_version()
     cached = _LIKELY_CACHE["value"]
-    if cached is not None and not refresh and _time.time() - _LIKELY_CACHE["at"] < LIKELY_TTL_SECONDS:
+    same = cached is not None and _LIKELY_CACHE["version"] == version
+    fresh = _time.time() - _LIKELY_CACHE["at"] < LIKELY_TTL_SECONDS
+    if same and fresh and not refresh:
         return cached
     rows = store.unmapped_campaigns(days=30, limit=LIKELY_QUEUE_LIMIT)
     outcome = annotate(rows)
@@ -628,13 +638,15 @@ def likely_by_client(refresh: bool = False) -> dict[str, int]:
     for r in rows:
         for s in r.get("suggestions") or ():
             out[s["key"]] = out.get(s["key"], 0) + 1
-    _LIKELY_CACHE["value"], _LIKELY_CACHE["at"] = out, _time.time()
+    _LIKELY_CACHE.update(value=out, version=version, at=_time.time())
     return out
 
 
 def forget_likely() -> None:
-    """Drop the held reading: a mapping just changed what the queue holds."""
-    _LIKELY_CACHE["value"] = None
+    """Drop the held reading in this process. Not called on ordinary presses
+    any more -- ``queue_version()`` handles cross-worker invalidation -- but
+    kept for tests and for a caller that wants to force a re-read."""
+    _LIKELY_CACHE.update(value=None, version=None)
 
 
 def learn(campaign_name: str, *, client: str, client_name: str, by: str) -> dict | None:

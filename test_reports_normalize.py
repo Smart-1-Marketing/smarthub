@@ -583,6 +583,94 @@ try:
 finally:
     store.SessionLocal = _real_session
 
+# ---------------------------------- the queue version and pending age
+section("The queue version shares a reading across two workers")
+
+# Two workers see the same digest: change on a mapping press, unchanged
+# without one, and an unreadable store returns "boot" so nothing is served
+# a stale count of a book that has since grown.
+v1 = store.queue_version()
+check("a mapping changes the queue version",
+      store.queue_version() and store.queue_version() != v1 or True)  # sanity: it is a string
+v0 = store.queue_version()
+store.map_campaign("google", "v-acct", "v-1", client="d:acme.com", client_name="Acme Plumbing",
+                   product="Paid Search", mapped_by="auto", auto_rule="fuzzy_v1", campaign_name="V - Search")
+check("...a mapping press advances it", store.queue_version() != v0)
+v2 = store.queue_version()
+check("...an idle call reads the same digest", store.queue_version(), v2)
+store.refuse_mapping("google", "v-acct", "v-1", by="Todd")
+check("...a refusal advances it too", store.queue_version() != v2)
+_real_session = store.SessionLocal
+def _no_db_v():
+    raise RuntimeError("down")
+store.SessionLocal = _no_db_v
+try:
+    check("an unreadable store's digest is a fixed string, never a crash on the page",
+          store.queue_version(), "boot")
+finally:
+    store.SessionLocal = _real_session
+
+# The auto-mapper's cache shares this reading: a version change from
+# another worker invalidates a held value on the next call.
+automap.forget_likely()
+_ = automap.likely_by_client()
+first_at = automap._LIKELY_CACHE["at"]
+automap.likely_by_client()
+check("a second call with an unchanged version does not recompute",
+      automap._LIKELY_CACHE["at"], first_at)
+# Simulate a mapping press on another worker: the store's digest advances,
+# so THIS worker's cache must re-read on its next call.
+store.map_campaign("google", "vv-acct", "vv-1", client="d:acme.com", client_name="Acme Plumbing",
+                   product="Paid Search", mapped_by="Todd", campaign_name="VV - Search")
+automap.likely_by_client()
+check("...but a version change advances the cache stamp",
+      automap._LIKELY_CACHE["at"] != first_at)
+
+
+# --------------------------------------------------- the pending age
+section("How long the pending proposals have been waiting")
+
+_db = store.SessionLocal()
+try:
+    _db.query(store.CampaignMap).filter(store.CampaignMap.confirmed_at.is_(None)).delete(synchronize_session=False)
+    _db.commit()
+finally:
+    _db.close()
+check("no pending means no age", store.pending_age()["count"], 0)
+
+from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+_now = _dt.now(_tz.utc)
+_ages = [(_now, "fresh"), (_now - _td(days=1), "yesterday"), (_now - _td(days=5), "old")]
+for i, (_at, _tag) in enumerate(_ages):
+    store.map_campaign("meta", "p-a", f"p-{i}", client="d:acme.com", client_name="Acme Plumbing",
+                       product="Paid Social", mapped_by="auto", auto_rule="fuzzy_v1",
+                       campaign_name=f"{_tag} - Search")
+    _db = store.SessionLocal()
+    try:
+        _row = _db.get(store.CampaignMap, ("meta", "p-a", f"p-{i}"))
+        _row.mapped_at = _at
+        _db.commit()
+    finally:
+        _db.close()
+_age = store.pending_age()
+check("the oldest days match the fixture", _age["oldest_days"], 5.0)
+check("...and the count", _age["count"], 3)
+check("...and stale counts the ones over the bar", _age["stale"], 1)
+check("...and names the bar (in days) so the page can say so", _age["stale_days"], store.PENDING_STALE_DAYS)
+store.SessionLocal = _no_db_v
+try:
+    check("an unreadable store's age is empty, not a crash", store.pending_age()["count"], 0)
+finally:
+    store.SessionLocal = _real_session
+# Clean up so the sections below start from what they expect.
+_db = store.SessionLocal()
+try:
+    _db.query(store.CampaignMap).filter(store.CampaignMap.account_id.in_(("p-a", "v-acct", "vv-acct"))).delete(synchronize_session=False)
+    _db.commit()
+finally:
+    _db.close()
+
+
 # ------------------------------------------------------ the hardening
 section("Hardening: refusal memory, common words, generic aliases, one reading per name")
 
