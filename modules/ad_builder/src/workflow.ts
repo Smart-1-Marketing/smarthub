@@ -6,6 +6,16 @@ import { readReview, fileHash } from './review-set';
 import { buildZip } from './deliver';
 import type { Project, ProjectStore } from './projects';
 
+/**
+ * A note from a client lands on the project record and is drawn on the build
+ * screen at that size -- but a staff person hears about it only when they open
+ * that campaign next. commentOnClientProof() takes a notifier so the server
+ * can raise a real alert and tests can hand it a spy. The workflow layer knows
+ * the project and the note; how to phrase the alert and where its link points
+ * is the caller's, so PUBLIC_URL stays out of here.
+ */
+export type ProofCommentNotifier = (ctx: { project: Project; proof: ClientProof; note: ProofComment; platform: string }) => void;
+
 type ProofCell = { conceptId: string; platform: string; size: string; file: string; fileHash: string; inputHash: string };
 export type ClientProof = { token: string; version: number; projectId: string; reviewId: string; revision: string; client: string;
   campaign: string; createdAt: string; cells: ProofCell[]; status: 'ready'|'sent'|'changes-requested'|'approved'|'complete';
@@ -102,7 +112,7 @@ export function decideClientProof(out:string,root:string,store:ProjectStore,toke
  * on that size. It is not a decision: the proof stays open for the approve or
  * the change request that follows.
  */
-export function commentOnClientProof(out:string,store:ProjectStore,token:string,body:any): ProofComment {
+export function commentOnClientProof(out:string,store:ProjectStore,token:string,body:any,notifier?:ProofCommentNotifier): ProofComment {
   const proof=getClientProof(out,token), project=store.get(proof.projectId);
   if(!project)throw new Error('This campaign is unavailable.');
   if(proof.status==='complete'||proof.status==='approved')throw new CampaignConflict('This version has been approved, so notes on it are closed. Ask Smart 1 if something needs changing.');
@@ -115,8 +125,14 @@ export function commentOnClientProof(out:string,store:ProjectStore,token:string,
   if(comments.length>=COMMENT_LIMIT)throw Object.assign(new Error('This proof has all the notes it can hold. Use Request changes for the rest.'),{statusCode:400});
   const note:ProofComment={id:randomUUID(),cell,size:found?found.size:'',text,at:new Date().toISOString()};
   proof.comments=[...comments,note];save(out,proof);
-  project.notes.push(`[${note.at}] Client note on ${found?found.size+' ('+found.platform+')':'the whole set'}, version ${proof.version}: ${text}`);
+  const where=found?found.size+' ('+found.platform+')':'the whole set';
+  project.notes.push(`[${note.at}] Client note on ${where}, version ${proof.version}: ${text}`);
   store.save(project);
+  if(notifier){
+    // Swallow a notifier throw: an alert not going out cannot swallow the
+    // client's note. The notifier itself falls back to the outbox on failure.
+    try{notifier({project,proof,note,platform:found?found.platform:''});}catch{/* the note is saved; the alert is on its own */}
+  }
   return note;
 }
 /** Every proof in the store, grouped by project, read once for a list view. */

@@ -118,6 +118,33 @@ test('a client note lands on the ad it was written under and on the project reco
   assert.equal(clientProofsByProject(out).get(project.projectId)?.[0].comments?.length, 2);
 });
 
+test('a note tells staff at once, with the size and a link to that size on the build screen', (t) => {
+  // A note is written to the project record and drawn on the build screen,
+  // and until now nobody heard about it until they opened that campaign. A
+  // fake notifier proves the alert goes out with the size, the text and the
+  // deep link -- the way notify.test.ts checks the transport itself.
+  const { out, store, project, token } = proofFixture(t);
+  const alerts: Array<{ project: any; proof: any; note: any; platform: string }> = [];
+  commentOnClientProof(out, store, token, { cell: 'A/google/728x90', text: 'Logo is cut off.' }, (c) => alerts.push(c));
+  assert.equal(alerts.length, 1, 'one note, one alert');
+  assert.equal(alerts[0].note.size, '728x90');
+  assert.equal(alerts[0].platform, 'google', 'the platform tells staff which ad on that size');
+  assert.equal(alerts[0].note.text, 'Logo is cut off.');
+  assert.equal(alerts[0].project.requestId, project.requestId, 'so the caller can build the build-screen link');
+  assert.equal(alerts[0].proof.version, 2, 'and name the version in the alert');
+
+  // A whole-set note names no size, so the build-screen link stays on the campaign.
+  commentOnClientProof(out, store, token, { cell: '', text: 'Nice palette.' }, (c) => alerts.push(c));
+  assert.equal(alerts[1].note.size, '');
+  assert.equal(alerts[1].platform, '', 'no platform when it is about the whole set');
+
+  // A notifier that throws must not swallow the client's note.
+  const before = getClientProof(out, token).comments?.length ?? 0;
+  const saved = commentOnClientProof(out, store, token, { cell: '', text: 'Also great.' }, () => { throw new Error('outbox is down'); });
+  assert.equal(saved.text, 'Also great.');
+  assert.equal(getClientProof(out, token).comments?.length, before + 1);
+});
+
 test('a note is refused on a size that is not on the proof, when empty, and once the proof is approved', (t) => {
   const { out, store, token, proof } = proofFixture(t);
   assert.throws(() => commentOnClientProof(out, store, token, { cell: 'A/google/999x999', text: 'x' }), /Choose an ad from this proof/);

@@ -901,7 +901,15 @@ const server = http.createServer(async (req, res) => {
       // a decision: the proof stays where it is.
       if(req.method==='POST' && action==='comment') {
         const body=JSON.parse(await readBody(req,10_000));
-        const note=commentOnClientProof(OUT,projects,token,body);
+        const note=commentOnClientProof(OUT,projects,token,body,(ctx)=>{
+          const where=ctx.note.size?`${ctx.note.size}${ctx.platform?` (${ctx.platform})`:''}`:'the whole set';
+          const link=`${PUBLIC_URL}/build?request=${encodeURIComponent(ctx.project.requestId)}${ctx.note.size?`&size=${encodeURIComponent(ctx.note.size)}`:''}`;
+          void notify({
+            subject:`Client note on ${where} — ${ctx.project.client} / ${ctx.project.projectName}`,
+            body:`${ctx.project.client} left a note on version ${ctx.proof.version} (${where}):\n\n"${ctx.note.text}"`,
+            url:link,
+          },OUT);
+        });
         return json(res,201,note);
       }
       return json(res,405,{error:'Unsupported proof action.'});
