@@ -21,20 +21,49 @@
   const esc = value => String(value ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const prefix = '/api/project/' + encodeURIComponent(id);
   let review, requestId;
-  async function api(path, body){const r=await fetch(prefix+path,body ? {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)} : undefined);const b=await r.json();if(!r.ok)throw Error(b.error||'Request failed');return b;}
-  function message(text){$('message').textContent=text;}
+  // One reading of every answer. An HTML page where JSON was expected is the
+  // Hub's proxy speaking for a renderer that is restarting (every deploy) or
+  // a session that has ended, and .json() throwing on it used to surface as
+  // "Unexpected token <" -- true, and useless. Each is named instead.
+  async function api(path, body){
+    let r;
+    try{r=await fetch(prefix+path,body ? {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)} : undefined);}
+    catch(e){throw Object.assign(Error('The Display Ad Builder could not be reached. Check your connection.'),{transient:true});}
+    if(r.redirected && /\/login$/.test(new URL(r.url).pathname))throw Error('Your Hub sign-in has ended. Sign in again in another tab, then try again here.');
+    const type=r.headers.get('content-type')||'';
+    if(!/json/.test(type)){
+      if(r.status>=500)throw Object.assign(Error('The Display Ad Builder is not answering right now. This happens for a minute or two during a deploy; it will be tried again.'),{transient:true});
+      throw Error('The Display Ad Builder answered with something other than JSON ('+r.status+'). Reload the page and try again.');
+    }
+    const b=await r.json();if(!r.ok)throw Object.assign(Error(b.error||'Request failed'),{transient:r.status>=500});return b;
+  }
+  // A failure names itself and offers the way back: the last action, one
+  // press away, rather than a reload that loses the place.
+  let lastAction=null;
+  function message(text,retry){
+    const box=$('message');box.textContent=text;
+    if(retry){const b=document.createElement('button');b.type='button';b.id='retry';b.textContent='Try again';b.style.marginLeft='12px';b.onclick=()=>{box.textContent='Trying again…';retry();};box.appendChild(b);}
+  }
+  // A poll that fails once (a deploy, a dropped connection) keeps polling at
+  // a widening interval rather than reporting the sheet lost while the
+  // renderer is still building it. Six misses in a row is a real failure.
+  const wait=ms=>new Promise(r=>setTimeout(r,ms));
   function cards(cells){return cells.map(c=>{const edit=(window.S1_BASE||'')+'/build?request='+encodeURIComponent(requestId||'')+'&concept='+encodeURIComponent(c.conceptId)+'&size='+encodeURIComponent(c.size)+'&platform='+encodeURIComponent(c.platform);return '<article class="card"><h3>'+esc(c.conceptId)+' · '+esc(c.size)+' · '+esc(c.platform)+'</h3><div class="art">'+(c.image?'<img loading="lazy" src="'+esc(c.image)+'" alt="'+esc(c.conceptId+' '+c.size+' '+c.platform)+'">':'No artwork captured')+'</div><p class="status '+c.status+'">'+esc(c.approved?'Approved':c.status==='pass'?'Ready for approval':c.status==='warn'?'Needs your review':'Needs fixing')+'</p><ul>'+c.qa.filter(q=>q.status!=='pass').map(q=>'<li>'+esc(q.detail)+'</li>').join('')+'</ul>'+(c.status!=='pass'?'<p><a href="'+esc(edit)+'#controls">Edit headline or adjust crop</a></p><a href="'+esc(edit)+'#overrideBtn">Replace artwork</a>':'')+'</article>';}).join('');}
   function showSheet(){if(!review)return;const order={fail:0,warn:1,pass:2};const cells=[...review.cells].sort((a,b)=>order[a.status]-order[b.status]);$('sheet').innerHTML=cards(cells.filter(c=>!$('problems-only').checked||c.status!=='pass'));const sizes=new Map();cells.forEach(c=>{const key=c.conceptId+'/'+c.size;sizes.set(key,(sizes.get(key)??true)&&c.status==='pass');});const ready=[...sizes.values()].filter(Boolean).length;$('ready-count').textContent=ready+' sizes ready · '+(sizes.size-ready)+' need attention';$('send-next').disabled=review.status!=='ready'||!cells.length||cells.some(c=>c.status==='fail'||!c.approved);}
   async function timeline(){const b=await api('/workflow');$('next-owner').textContent=b.next;$('timeline').innerHTML=b.events.map(e=>'<li><time>'+esc(new Date(e.at).toLocaleString())+'</time> — '+esc(e.label)+'</li>').join('');}
   async function history(){const b=await api('/versions');requestId=b.requestId;$('client').textContent=b.client+' · '+b.projectName;document.title='Ad review — '+b.client+' — '+b.projectName;$('editor').href=(window.S1_BASE||'')+'/build?request='+encodeURIComponent(b.requestId);for(const key of ['before','after'])$(key).innerHTML=b.versions.map(v=>'<option value="'+esc(v.id||v.revision)+'">'+esc(new Date(v.savedAt).toLocaleString()+' · '+v.kind)+'</option>').join('');if(b.versions.length>1)$('before').selectedIndex=1;}
-  async function poll(token){
+  async function poll(token,misses){
+    misses=misses||0;
     try{review=await api('/review-set/'+token);showSheet();message(review.status==='building'?'Preparing '+review.cells.length+' placements so far. You can leave this page and return; work continues.':review.status==='ready'?'Contact sheet ready · saved version '+review.revision.slice(0,8)+' · '+new Date(review.createdAt).toLocaleString():review.error);
-      if(review.status==='building'){setTimeout(()=>poll(token),1500);return;}
+      if(review.status==='building'){setTimeout(()=>poll(token,0),1500);return;}
       $('build').disabled=false;$('approve').disabled=review.status!=='ready'||!review.cells.some(c=>c.status==='pass'&&!c.approved);await history();
-    }catch(e){message(e.message);$('build').disabled=false;$('approve').disabled=true;}
+    }catch(e){
+      if(e.transient && misses<6){const delay=Math.min(10000,2000*Math.pow(2,misses));message(e.message+' Checking again in '+Math.round(delay/1000)+'s.');await wait(delay);return poll(token,misses+1);}
+      lastAction=()=>poll(token,0);message(e.message,lastAction);$('build').disabled=false;$('approve').disabled=true;
+    }
   }
-  $('build').onclick=async()=>{try{$('build').disabled=true;$('approve').disabled=true;message('Starting contact sheet…');const b=await api('/review-set',{});await poll(b.id);}catch(e){message(e.message);$('build').disabled=false;}};
-  $('approve').onclick=async()=>{if(!review)return;try{$('approve').disabled=true;const b=await api('/bulk-approve',{id:review.id,revision:review.revision});review=await api('/review-set/'+review.id);showSheet();message(b.approved.length+' sizes approved; '+b.skipped.length+' require individual attention.'+(b.skipped.length?' Open those sizes in the editor.':' Continue to Send when ready.'));await timeline();}catch(e){message(e.message);$('approve').disabled=false;}};
+  $('build').onclick=async()=>{try{$('build').disabled=true;$('approve').disabled=true;message('Starting contact sheet…');const b=await api('/review-set',{});await poll(b.id);}catch(e){lastAction=()=>$('build').click();message(e.message,lastAction);$('build').disabled=false;}};
+  $('approve').onclick=async()=>{if(!review)return;try{$('approve').disabled=true;const b=await api('/bulk-approve',{id:review.id,revision:review.revision});review=await api('/review-set/'+review.id);showSheet();message(b.approved.length+' sizes approved; '+b.skipped.length+' require individual attention.'+(b.skipped.length?' Open those sizes in the editor.':' Continue to Send when ready.'));await timeline();}catch(e){lastAction=()=>$('approve').click();message(e.message,e.transient?lastAction:null);$('approve').disabled=false;}};
   let filterBeforePrint=false;
   window.addEventListener('beforeprint',()=>{filterBeforePrint=$('problems-only').checked;$('problems-only').checked=false;showSheet();});
   window.addEventListener('afterprint',()=>{$('problems-only').checked=filterBeforePrint;showSheet();});
@@ -42,6 +71,7 @@
   $('compare').onclick=async()=>{try{const b=await api('/versions?before='+encodeURIComponent($('before').value)+'&after='+encodeURIComponent($('after').value));$('comparison').innerHTML='<p>'+b.changes.length+' changed fields.</p><table><thead><tr><th>Field</th><th>Older</th><th>Newer</th></tr></thead><tbody>'+b.changes.map(c=>'<tr><td>'+esc(c.path.replace(/^campaign\./,'').replace(/concepts\.(\d+)/,(_,n)=>'Concept '+(Number(n)+1)).replace(/\.copy\.default/g,' · All sizes').replace(/\./g,' · ').replace(/([a-z])([A-Z])/g,'$1 $2'))+'</td><td><pre>'+esc(JSON.stringify(c.before,null,2))+'</pre></td><td><pre>'+esc(JSON.stringify(c.after,null,2))+'</pre></td></tr>').join('')+'</tbody></table><div class="compare-art"><section><h3>Older captured artwork</h3>'+(b.before?cards(b.before.cells):'<p>No contact sheet captured for this version.</p>')+'</section><section><h3>Newer captured artwork</h3>'+(b.after?cards(b.after.cells):'<p>No contact sheet captured for this version.</p>')+'</section></div>';}catch(e){message(e.message);}};
   $('problems-only').onchange=showSheet;
   $('send-next').onclick=()=>{if(review)location.href=location.origin+'/display-ad-send?project='+encodeURIComponent(id)+'&review='+encodeURIComponent(review.id);};
-  if(!id){message('Open this page from a saved campaign.');$('build').disabled=true;}else history().then(async()=>{await timeline();const b=await api('/review-set');if(b.review)await poll(b.review.id);else $('build').click();}).catch(e=>message(e.message));
+  async function start(){try{await history();await timeline();const b=await api('/review-set');if(b.review)await poll(b.review.id);else $('build').click();}catch(e){lastAction=start;message(e.message,lastAction);}}
+  if(!id){message('Open this page from a saved campaign.');$('build').disabled=true;}else start();
 })();
 </script></body></html>
