@@ -727,7 +727,6 @@ UNORDERED_FIRST_EXEMPT: dict[tuple, str] = {
 }
 
 _MODEL_BASES = {"Model", "Base", "DeclarativeBase"}
-_TEMP_CALLS = {"mkdtemp", "TemporaryDirectory", "gettempdir"}
 
 
 def _model_unique_keys(trees: dict) -> tuple[dict, set]:
