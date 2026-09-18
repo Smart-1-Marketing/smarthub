@@ -269,6 +269,63 @@ def voice_speed_suggestion(project, take=None) -> dict:
                 "reason": f"The shared length rules could not be read: {exc}"}
     music = project.music or {}
     take = take or {}
+
+    # Scenes mode is a different question with the same answer. There is no one
+    # track: each scene carries its own read, placed with an explicit
+    # `duration` of that scene's span, so a long read is cut at the SCENE
+    # boundary rather than at the end of the spot. One pace is asked of the
+    # whole spot, so the scene needing the hardest push is the one the offer
+    # has to satisfy -- fix that and the rest come with it.
+    if music.get("voice_mode") == "scenes":
+        from .services.media_state import scene_voice_fits, worst_scene_voice_fit
+        scenes = [sc.to_dict() for sc in project.scenes.all()]
+        rows = scene_voice_fits(scenes)
+        if not rows:
+            # Told apart for the same reason the check tells them apart: a spot
+            # whose every scene is a presenter has no narration to pace, and
+            # telling somebody to go and generate some would be advice about a
+            # step their spot does not have.
+            from .services.media_state import has_presenter
+            spoken = [sc for sc in scenes
+                      if (sc.get("narration") or "").strip()
+                      and not has_presenter(sc)]
+            return {"available": False, "needed": False, "speed": None,
+                    "reason": ("Every scene is a presenter, so the clip carries "
+                               "the read and there is no separate narration to "
+                               "pace." if not spoken else
+                               "No scene has a narration take whose length was "
+                               "read off a file, so there is no rate to work "
+                               "out. Generate the narration and this answers "
+                               "from the takes.")}
+        worst = worst_scene_voice_fit(scenes)
+        if worst is None:
+            return {"available": True, "needed": False, "speed": None,
+                    "mode": "reread", "scenes": rows, "measured": True,
+                    "current_speed": float(music.get("voice_speed") or 1.0),
+                    "note": (f"Every one of the {len(rows)} narration scenes "
+                             "fits the scene it sits in.")}
+        # The SAME tolerance the row was flagged at. Left to default, the rate
+        # would be worked out against the bed's one second -- so a scene the
+        # finding calls over comes back "fits", which is the two readings
+        # disagreeing about one question.
+        from .services.media_state import scene_tolerance_s
+        out = radio_spec.speed_suggestion(
+            vo_seconds=worst["seconds"], target_seconds=worst["span"],
+            lead_in_ms=0, mode="reread", tolerance_s=scene_tolerance_s())
+        out.update(measured=True, scenes=rows, worst_scene=worst,
+                   current_speed=float(music.get("voice_speed") or 1.0))
+        # The rate is the binding scene's, so the note has to say which scene
+        # it came from -- a rate quoted against the spot's own length would be
+        # the wrong number for a question nobody asked.
+        over = [r for r in rows if r["over"] > 0]
+        out["note"] = (f"Scene {worst['scene']}'s read runs {worst['seconds']}s "
+                       f"in a {worst['span']}s scene"
+                       + (f", and {len(over) - 1} other scene(s) overrun too"
+                          if len(over) > 1 else "")
+                       + ". The render cuts each read at its own scene, so what "
+                         "is lost is the end of the line. " + out.get("note", ""))
+        return out
+
     # MEASURED or nothing, at both ends. A length that is not a reading of the
     # file is the words-per-minute guess wearing the same field name, and a
     # rate worked out from a division is precisely the confident wrong answer

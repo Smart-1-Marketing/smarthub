@@ -1543,6 +1543,95 @@ check("and the length line says whether it read a file or divided the words",
       ("byte count" in _voice_js and "words-per-minute" in _voice_js), True)
 
 
+section("Scenes mode gets a real answer, not a shrug")
+# The fit route answered "no take has been produced" for an entire MODE where
+# takes exist and can be too long. In scenes mode each read is placed with its
+# own scene's span as an explicit duration, so a long one is cut at the scene
+# boundary -- mid-word -- while the spot's total length is perfectly fine.
+def _set_scene_takes(rows, mode="scenes"):
+    """rows: [(end_offset, take_seconds|None)] laid end to end from 0."""
+    with hub_app.app_context():
+        proj = CommercialProject_cls.query.get(pid)
+        for sc in proj.scenes.all():
+            cb_db.session.delete(sc)
+        cb_db.session.flush()
+        start = 0.0
+        for i, (span, secs) in enumerate(rows, 1):
+            meta = {} if secs is None else {"voiceover": {"seconds": secs, "measured": True}}
+            cb_db.session.add(Scene_cls(project_id=pid, order_index=i,
+                                        start=start, end=start + span,
+                                        narration="Line %d." % i, asset_meta=meta))
+            start += span
+        proj.music = {**(proj.music or {}), "voice_mode": mode,
+                      "voice_seconds": None, "voice_measured": False}
+        cb_db.session.commit()
+
+
+from modules.commercial_builder.models import Scene as Scene_cls            # noqa: E402
+
+# Scene 1 is 0.3s over a 4s scene and scene 2 is a full 1.0s over a 20s one --
+# so the BIGGEST overrun is scene 2 while the hardest PUSH is scene 1 (1.08x
+# against 1.05x). One pace is asked of the whole spot, so picking by overrun
+# would leave scene 1 still cut.
+_set_scene_takes([(4.0, 4.3), (20.0, 21.0), (6.0, 5.0)])
+_sfit = get_json(_fit_url)["suggestion"]
+check("scenes mode is answered rather than shrugged at", _sfit["available"], True)
+check("...and it knows the read does not fit", _sfit["needed"], True)
+check("the rate comes from the scene that binds", _sfit["worst_scene"]["scene"], 1)
+check("...which is not the one with the biggest overrun",
+      max(_sfit["scenes"], key=lambda r: r["over"])["scene"], 2)
+# Asked at the SCENE tolerance, which is the whole point: at the bed's one
+# second a 0.3s overrun on a 4s scene comes back "fits", so the finding and
+# the rate to fix it would disagree about one question.
+from modules.commercial_builder.services.media_state import (                # noqa: E402
+    scene_tolerance_s as _scene_tol)
+
+check("a real rate is offered, and it is the shared module's own answer",
+      (_sfit["speed"], _sfit["speed"] == radio_spec.speed_suggestion(
+          vo_seconds=4.3, target_seconds=4.0, lead_in_ms=0, mode="reread",
+          tolerance_s=_scene_tol())["speed"]), (1.08, True))
+check("...and at the bed's tolerance that same scene would read as fitting",
+      radio_spec.speed_suggestion(vo_seconds=4.3, target_seconds=4.0,
+                                  lead_in_ms=0, mode="reread")["needed"], False)
+check("the scene tolerance is its own number, not the bed's",
+      (_scene_tol() < cb_config.MUSIC_LENGTH_TOLERANCE_S,
+       _scene_tol() == cb_config.SCENE_VOICE_TOLERANCE_S), (True, True))
+check("every scene's own reading rides along for the panel",
+      [r["scene"] for r in _sfit["scenes"]], [1, 2, 3])
+check("the note names the scene rather than the spot",
+      "Scene 1's read runs" in _sfit["note"], True)
+check("...and counts the others that overrun too",
+      "1 other scene(s) overrun" in _sfit["note"], True)
+check("and says what an overrun costs HERE — the end of the line",
+      "cuts each read at its own scene" in _sfit["note"], True)
+check("it is a re-read, so still no pitch shift is quoted",
+      _sfit["semitones"], None)
+
+# A scene far enough over is past the ceiling, and no rate is offered for it
+# any more than for a whole read that is five seconds long.
+_set_scene_takes([(4.0, 5.4), (20.0, 19.0)])
+_sfar = get_json(_fit_url)["suggestion"]
+check("a scene needing more than the ceiling is offered no rate",
+      (_sfar["needed"], _sfar["speed"], _sfar["comfort"]), (True, None, "too_far"))
+check("...and still says which scene it is about",
+      "Scene 1's read runs" in _sfar["note"], True)
+
+_set_scene_takes([(6.0, 5.4), (24.0, 20.0)])
+check("scenes that all fit are offered nothing",
+      get_json(_fit_url)["suggestion"]["needed"], False)
+_set_scene_takes([(6.0, None), (24.0, None)])
+check("takes nobody measured are refused rather than used",
+      get_json(_fit_url)["suggestion"]["available"], False)
+
+# The QC gate has to say the same thing the panel does, or the panel is advice
+# with nothing behind it.
+_set_scene_takes([(4.0, 5.4), (20.0, 26.0), (6.0, 5.0)])
+_srow = _voice_fits_row()
+check("and the gate stops the render on the same finding", _srow["passed"], False)
+check("...naming the scene and both numbers",
+      "1 (5.4s in 4.0s)" in _srow["message"], True)
+
+
 # ------------------------------------------------------------------- summary
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{'-' * 60}\n{_passed} passed, {_failed} failed")

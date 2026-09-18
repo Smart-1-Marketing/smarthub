@@ -153,6 +153,12 @@ def _generate_scene_audio(scene, client, voice_id, data):
     signature = media_state.speech_signature(scene.to_dict())
     settings = {key: float(data.get(key, default)) for key, default in
                 (("stability", 0.5), ("style", 0.5), ("speed", 1.0))}
+    # The pace is clamped BEFORE it reaches the fingerprint below, because the
+    # provider clamps it too. 1.25 and 1.30 both read at 1.2 and come back
+    # byte-identical, so fingerprinting the raw number makes two cache keys for
+    # one take -- a paid regeneration that buys nothing, on the one cache whose
+    # stated job is not spending twice.
+    settings["speed"] = elevenlabs_service.clamp_speed(settings["speed"])
     pronunciation = (scene.project.music or {}).get("pronunciation_dict", client.pronunciation_dict)
     take_key = media_state.fingerprint([signature, voice_id, settings, pronunciation])
     prior = (scene.asset_meta or {}).get("voiceover") or {}
