@@ -15,6 +15,12 @@ What it holds:
     header the key rides under, the date parameter names -- and a change
     to the map (or its environment overrides) changes the call with no
     edit here;
+  * AUDIOGO_API_BASE is the URL that gets called, exactly as set: nothing
+    is appended unless AUDIOGO_REPORT_PATH asks for it, and it can be
+    cleared again, which is what the September 18 404 cost;
+  * AUDIOGO_METHOD=POST sends the dates and AUDIOGO_BODY as a JSON body;
+  * a base that cannot carry a credential is owed, not configured;
+  * a refusal names the method and URL it called;
   * the key is never in a result, an error, a watermark or the page;
   * the check page renders the raw keys an endpoint answered with and
     says whether the map resolves, naming what is missing;
@@ -125,6 +131,57 @@ check("...and a date parameter name", "from" in audiogo.request_shape(date(2026,
 for k in ("AUDIOGO_REPORT_PATH", "AUDIOGO_AUTH_HEADER", "AUDIOGO_AUTH_PREFIX", "AUDIOGO_PARAM_START"):
     os.environ.pop(k)
 
+
+# ------------------------------------------- the URL, and only the URL
+section("The base is called exactly as it is set")
+
+os.environ["AUDIOGO_API_BASE"] = "https://api.adswizz.com/domain/v8/reports/query"
+check("a base that is the whole endpoint is called as it is, nothing appended",
+      audiogo.request_shape(date(2026, 9, 17), date(2026, 9, 17))["url"],
+      "https://api.adswizz.com/domain/v8/reports/query")
+check("...which is the September 18 404, and it does not recur",
+      "/v1/reports/campaigns/daily" not in audiogo_map.config()["url"])
+check("the module ships no path of its own", audiogo_map.REPORT_PATH, "")
+check("...and the documented AdsWizz base is what the map prints",
+      audiogo_map.DEFAULT_BASE, "https://api.adswizz.com/domain")
+
+os.environ["AUDIOGO_API_BASE"] = "https://api.adswizz.com/domain"
+os.environ["AUDIOGO_REPORT_PATH"] = "v8/reports/query"
+check("an origin plus a path still composes, slash or no slash",
+      audiogo_map.config()["url"], "https://api.adswizz.com/domain/v8/reports/query")
+for blank in ("", "-", "/", "none"):
+    os.environ["AUDIOGO_REPORT_PATH"] = blank
+    check(f"...and {blank!r} clears it back to nothing",
+          audiogo_map.config()["url"], "https://api.adswizz.com/domain")
+os.environ.pop("AUDIOGO_REPORT_PATH")
+
+check("an http origin is owed rather than configured, because the key would go in clear",
+      audiogo._carries_a_credential("http://api.example.com"), False)
+check("...loopback is a person testing against a stub", audiogo._carries_a_credential("http://127.0.0.1:5000"), True)
+os.environ["AUDIOGO_API_BASE"] = "http://api.adswizz.com/domain"
+check("...and missing() says which half is owed, not 'not configured'",
+      audiogo.missing(), ["AUDIOGO_API_BASE (set, but not https -- the key would go in clear)"])
+
+
+# ----------------------------------------------- the report as a query
+section("AUDIOGO_METHOD=POST sends the report as a body")
+
+os.environ["AUDIOGO_API_BASE"] = "https://api.audiogo.test/"
+os.environ["AUDIOGO_METHOD"] = "post"
+os.environ["AUDIOGO_BODY"] = '{"metrics": ["demandAudioImp"], "splitters": ["campaign"]}'
+shape = audiogo.request_shape(date(2026, 9, 17), date(2026, 9, 17))
+check("the method is the one set, upper-cased", shape["method"], "POST")
+check("...the query string is empty", shape["params"], {})
+check("...the dates ride in the body, over AUDIOGO_BODY",
+      (shape["json"]["start_date"], shape["json"]["metrics"], shape["json"]["granularity"]),
+      ("2026-09-17", ["demandAudioImp"], "day"))
+check("...and the key is still nowhere near it", KEY not in json.dumps(shape))
+os.environ["AUDIOGO_BODY"] = "{not json"
+check("a body that is not JSON is ignored rather than raising", audiogo_map.config()["body"], {})
+for k in ("AUDIOGO_METHOD", "AUDIOGO_BODY"):
+    os.environ.pop(k)
+check("the default is still the GET that was tried", audiogo_map.config()["method"], "GET")
+
 calls = []
 ANSWERS = []
 
@@ -142,8 +199,9 @@ class _Resp:
         return self._payload
 
 
-def fake_http(method, url, *, headers, params, timeout=60):
-    calls.append({"method": method, "url": url, "headers": dict(headers), "params": dict(params)})
+def fake_http(method, url, *, headers, params, json=None, timeout=60):
+    calls.append({"method": method, "url": url, "headers": dict(headers),
+                  "params": dict(params), "json": json})
     return ANSWERS.pop(0) if ANSWERS else _Resp(200, {"data": []})
 
 
@@ -189,6 +247,14 @@ check("...and names the missing fields", "does not resolve" in res["error"] and 
 check("...on the watermark", "does not resolve" in store.sync_status()["audiogo"]["error"])
 check("...pointing at the check page", "audiogo-check" in res["error"])
 
+ANSWERS.append(_Resp(404, None, text="{\"code\":\"not.found\"}"))
+res = audiogo.pull(days=3, today=date(2026, 9, 11))
+check("a 404 names the method and the URL it called, not just the path",
+      "HTTP 404 on GET https://api.audiogo.test" in res["error"])
+check("...and says which two settings compose that URL",
+      "AUDIOGO_API_BASE" in res["error"] and "AUDIOGO_REPORT_PATH" in res["error"])
+check("...and what to try next", "AUDIOGO_METHOD=POST" in res["error"])
+
 ANSWERS.append(_Resp(403, None, text=f"forbidden for key {KEY}"))
 res = audiogo.pull(days=3, today=date(2026, 9, 11))
 check("a refusal is a sentence", "HTTP 403" in res["error"])
@@ -218,7 +284,9 @@ check("...and the row keys the endpoint answered with", all(k in page for k in (
 check("...saying the map does not resolve", "Does not resolve" in page)
 check("...naming the field that is missing", f'{f["date"]}</span>' in page.replace(" ", "").replace("\n", "")
       or f["date"] in page and 'class="s1d-pill bad">missing' in page)
-check("...the request as configured", c["path"] in page and c["auth_header"] in page)
+check("...the request as configured", audiogo_map.config()["url"] in page and c["auth_header"] in page)
+check("...naming the two settings the URL is composed of",
+      "AUDIOGO_API_BASE" in page and "AUDIOGO_REPORT_PATH" in page)
 check("...and never the key", KEY not in page)
 check("...with the help bubble guarded", "help_dot('reports.audiogo.check') if help_dot is defined" in
       (ROOT / "modules" / "reports" / "templates" / "reports_audiogo_check.html").read_text())

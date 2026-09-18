@@ -156,9 +156,13 @@ services:
         sync: false
       - key: BING_AD_REFRESH_TOKEN
         sync: false
-      # The native AudioGo pull: the Reporting API key and origin. The field
-      # map is a placeholder until the spec arrives; /reports/audiogo-check
-      # is where it is corrected from.
+      # The native AudioGo pull: the Reporting API key, and the report
+      # endpoint URL called exactly as it is set (AudioGo runs on AdsWizz's
+      # Domain API under https://api.adswizz.com/domain; https only).
+      # AUDIOGO_REPORT_PATH, AUDIOGO_METHOD and AUDIOGO_BODY shape the call
+      # meanwhile and default to appending nothing and a plain GET. The
+      # field map is a placeholder until the spec arrives;
+      # /reports/audiogo-check is where all of it is corrected from.
       - key: AUDIOGO_API_KEY
         sync: false
       - key: AUDIOGO_API_BASE
