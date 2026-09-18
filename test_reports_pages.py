@@ -328,6 +328,12 @@ check("the product box opens on what the name says, and says so",
       'value="Streaming TV" title="the name says &#39;ott&#39;"' in body
       and "Product: the name says &#39;ott&#39;; check it." in body)
 body = staff.get("/reports/unmapped").get_data(as_text=True)
+body = staff.get("/reports/unmapped").get_data(as_text=True)
+check("the queue's heading names the oldest pending in days", "Oldest" in body and "median" in body)
+_stale = store.pending_age()["stale"]
+_flag = ("over " + str(store.PENDING_STALE_DAYS) + " days") in body
+check("...flags stale ones when there are any, and only then", _flag, bool(_stale))
+
 check("the whole queue has the bulk form with a tick per proposal",
       'id="confirm-many"' in body and body.count('name="keys" value="') == 3)
 check("...each tick saying whether its evidence was exact", body.count('data-sure="1"') == 3)

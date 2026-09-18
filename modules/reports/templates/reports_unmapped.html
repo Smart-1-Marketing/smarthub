@@ -41,7 +41,9 @@
 <div class="s1d-card" id="pending">
   <div class="s1d-cardhead">
     <h2>{{ pending|length }} filed from the name, waiting for confirmation {{ help_dot('reports.unmapped.pending') if help_dot is defined else '' }}</h2>
-    <span class="s1d-muted">Not on any client's page until somebody confirms.</span>
+    <span class="s1d-muted">Not on any client's page until somebody confirms.
+      {% if pending_age.oldest_days is not none %}Oldest {{ pending_age.oldest_days }} day{{ '' if pending_age.oldest_days == 1 else 's' }}, median {{ pending_age.median_days }}.
+      {% if pending_age.stale %}<span class="s1d-pill warn">{{ pending_age.stale }} over {{ pending_age.stale_days }} days</span>{% endif %}{% endif %}</span>
   </div>
   {% if pending %}
   <form id="confirm-many" method="post" action="/reports/unmapped/confirm-many" class="bulk">
