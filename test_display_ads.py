@@ -2520,6 +2520,56 @@ def test_the_fifth_round_review_send_and_restart():
     check("it reads the boot log for the recovery", "recovered 1 interrupted job" in text)
 
 
+def test_the_sixth_round_proof_status_and_decision_are_separate():
+    """The client proof page used to share one status line for its state
+    sentence and for a decision's alert. A failed decide() overwrote
+    'Version 2 · Sep 12', which was the reader's only signpost. The decision
+    has its own alert line under the buttons now, and its failure restores
+    the page's original status sentence."""
+    workflow_ts = (MODULE / "src" / "workflow.ts").read_text()
+    tests = (MODULE / "tests" / "third-list.test.ts").read_text()
+
+    check("the decision has its own alert line under its buttons",
+          '<p id="decision-said" role="status" aria-live="polite">' in workflow_ts)
+    check("the page's original status sentence is remembered on entry",
+          "const originalStatus=status.textContent" in workflow_ts)
+    check("a failed decide() restores that sentence and writes to the alert line",
+          "status.textContent=originalStatus;decSay(e.message" in workflow_ts)
+    check("the alert line reuses the notes' sent/notsent styling",
+          ".said{font-size:14px}.sent{color:#1a7f4b}.notsent{color:#b3261e}" in workflow_ts)
+    check("the test asserts the markup, not the behavior",
+          "a failed decision writes under the buttons, not over the page" in tests)
+
+
+def test_the_sixth_round_style_number_boxes_track_the_state():
+    """The style panel's number boxes read from state on the next redraw of
+    the controls, so an ArrowUp on the canvas moved the ad but left the
+    input still saying the old number. setBlockStyle() now writes the shown
+    value back to every input tagged for that block and property."""
+    said = strip_comments(BUILD_HTML.read_text())
+    check("setBlockStyle writes back to the input(s) for that block and prop",
+          "querySelectorAll('[data-style=\"' + block + '\"][data-prop=\"' + prop + '\"]')" in said)
+    check("and skips the color pickers and Put-it-back buttons",
+          "input.type === 'color' || input.classList.contains('bsclear')" in said)
+    check("an unset value clears the input, not leaves the old number",
+          "input.value = shown === undefined ? '' : String(shown);" in said)
+
+
+def test_the_sixth_round_a_red_night_is_seen_by_the_team():
+    """A failed scheduled workflow used to email whoever touched it last and
+    nobody else. Both jobs post the run URL to a team webhook now when
+    NIGHTLY_WEBHOOK_URL is set; a repo without the secret runs green."""
+    nightly = (ROOT / ".github" / "workflows" / "nightly-browser.yml").read_text()
+    check("both jobs post a red night to the team",
+          nightly.count("Say a red night in the team channel") == 2)
+    check("the secret is optional and skipped when absent",
+          'if [ -z "$WEBHOOK" ]; then' in nightly and "skipping team ping" in nightly)
+    check("the message carries the run URL back to the failing job",
+          '"*Nightly browser test failed*' in nightly and "github.run_id" in nightly)
+    check("through-the-hub and staging are named separately",
+          "(through-the-hub)" in nightly and "(staging)" in nightly)
+
+
 def main():
     print(__doc__.strip().splitlines()[0])
     print()

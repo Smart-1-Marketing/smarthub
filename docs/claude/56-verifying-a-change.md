@@ -845,7 +845,8 @@ python3 test_v2_insights.py        # the GA4 breakdown and the optimization-swee
 python3 test_ask_recipes.py        # the recipe library and every placement its chips
                                    #   appear in, through wsgi.application so a mounted
                                    #   page's chips are actually checked
-python3 test_ci_gate.py            # the gate runs every check a person runs
+python3 test_ci_gate.py            # the gate runs every check a person runs, and no
+                                   #   test plants a fixture file in the working tree
 ```
 
 ### One command: `python3 tools/preflight.py`

@@ -147,48 +147,53 @@ check("env_report covers every setting in the table",
 # config's source; the day those became a table it found no groups and reported
 # nothing at all, which looks exactly like a Hub with no drift in it. Feed it a
 # file that plainly drifts and require it to say so.
-_probe = ROOT / "hub" / "_env_drift_probe.py"
-_probe.write_text(
-    "import os\n"
-    'KEY = os.environ.get("PEXELS_API_KEY")\n', encoding="utf-8")
-try:
-    found = integrity.check_provider_key_drift()
-    hit = [f for f in found if f["file"].endswith("_env_drift_probe.py")]
-    check("a file reading one spelling is reported", len(hit), 1)
-    check("the report names the spellings it did not read",
-          "PEXELS_API" in (hit[0]["detail"] if hit else ""), True)
+#
+# The file is a string rather than a file. This block used to write
+# `hub/_env_drift_probe.py` into the repo and delete it in a `finally`, and both
+# halves of that were wrong: a concurrent `tools/preflight.py` listed the probe
+# and read it after the delete (`compile every module` failed once with
+# FileNotFoundError on a file that had never been committed), and a run killed
+# between the write and the finally left it in the working tree. So the check
+# takes its sources, the way check_shadowed_model_query() and
+# check_ai_callers() already did.
+def drift(*src):
+    return [f for f in integrity.check_provider_key_drift(
+        sources=[("hub/_env_drift_probe.py", "".join(src))])
+        if f["file"].endswith("_env_drift_probe.py")]
 
-    # 5. And prose is not a call site. Three modules explain the drift they no
-    # longer have by quoting os.environ["PEXELS_API_KEY"] in a docstring.
-    _probe.write_text(
-        "import os\n"
-        '"""This used to read os.environ["PEXELS_API_KEY"] and was wrong."""\n'
-        "from hub.config import settings\n"
-        "KEY = settings.pexels_key\n", encoding="utf-8")
-    found = integrity.check_provider_key_drift()
-    check("a docstring describing the fix is not a finding",
-          [f for f in found if f["file"].endswith("_env_drift_probe.py")], [])
 
-    # 6. os.getenv is the same read.
-    _probe.write_text(
-        "import os\n"
-        'KEY = os.getenv("SMART1SUITE_PRIVATE_TOKEN", "")\n', encoding="utf-8")
-    found = integrity.check_provider_key_drift()
-    check("os.getenv is read the same as os.environ",
-          len([f for f in found if f["file"].endswith("_env_drift_probe.py")]), 1)
+hit = drift("import os\n", 'KEY = os.environ.get("PEXELS_API_KEY")\n')
+check("a file reading one spelling is reported", len(hit), 1)
+check("the report names the spellings it did not read",
+      "PEXELS_API" in (hit[0]["detail"] if hit else ""), True)
 
-    # A fallback that lists the whole group resolves what config would, so it
-    # is not drift. Flagging it is how a check gets ignored.
-    _probe.write_text(
-        "import os\n"
-        'KEY = (os.environ.get("GHL_PRIVATE_TOKEN")\n'
-        '       or os.environ.get("SMART1SUITE_PRIVATE_TOKEN") or "")\n',
-        encoding="utf-8")
-    found = integrity.check_provider_key_drift()
-    check("reading every name in the group is not drift",
-          [f for f in found if f["file"].endswith("_env_drift_probe.py")], [])
-finally:
-    _probe.unlink(missing_ok=True)
+# 5. And prose is not a call site. Three modules explain the drift they no
+# longer have by quoting os.environ["PEXELS_API_KEY"] in a docstring.
+check("a docstring describing the fix is not a finding",
+      drift("import os\n",
+            '"""This used to read os.environ["PEXELS_API_KEY"] and was wrong."""\n',
+            "from hub.config import settings\n",
+            "KEY = settings.pexels_key\n"), [])
+
+# 6. os.getenv is the same read.
+check("os.getenv is read the same as os.environ",
+      len(drift("import os\n",
+                'KEY = os.getenv("SMART1SUITE_PRIVATE_TOKEN", "")\n')), 1)
+
+# A fallback that lists the whole group resolves what config would, so it is
+# not drift. Flagging it is how a check gets ignored.
+check("reading every name in the group is not drift",
+      drift("import os\n",
+            'KEY = (os.environ.get("GHL_PRIVATE_TOKEN")\n',
+            '       or os.environ.get("SMART1SUITE_PRIVATE_TOKEN") or "")\n'), [])
+
+# Handing the check its sources means the clean bill of health below no longer
+# proves the default walk reaches anything, so that is asserted rather than
+# assumed -- it is the same failure the regression above was: a sweep that has
+# stopped sweeping reports no findings, which reads identically to no defects.
+_walked = {rel for rel, _ in integrity._sources()}
+check("the default walk reaches hub/", "hub/config.py" in _walked, True)
+check("...and modules/", any(r.startswith("modules/") for r in _walked), True)
 
 check("and the Hub itself is clean", integrity.check_provider_key_drift(), [])
 
@@ -205,74 +210,94 @@ section("A page that exists is not a page anybody can reach")
 # read like the rest of the Hub, and google_finder's reports.html was
 # byte-identical to gtm_logs.html apart from its <title>. Reading the
 # directory, all three looked like features.
-_orphan = ROOT / "hub" / "templates" / "_integrity_orphan_probe.html"
-_orphan.write_text("<p>nothing renders this</p>\n", encoding="utf-8")
-try:
-    found = integrity.check_orphan_templates()
-    hit = [f for f in found if f["file"].endswith("_integrity_orphan_probe.html")]
-    check("a template no route can produce is reported", len(hit), 1)
-    check("and the finding says why that is invisible otherwise",
-          "no request can produce it" in (hit[0]["detail"] if hit else ""), True)
+#
+# The tree is a throwaway one, for the reason given above the drift probe. It
+# is laid out like this repo -- a hub/templates and a modules/*/templates --
+# because the two globs the check walks are exactly what the layout has to
+# match, and a fixture that flattened them would pass while the real walk found
+# nothing.
+TREE = Path(TMP) / "orphan_tree"
 
-    # A name chosen in a conditional and passed in a variable is still a
-    # render. modules/scans does exactly this to pick between widget.html and
-    # widget_audit.html, and a check reading only the literal arguments of a
-    # render_template() call reports its two most client-facing pages as dead
-    # -- which is how somebody comes to delete a live page.
-    _caller = ROOT / "hub" / "_integrity_orphan_caller.py"
-    _caller.write_text(
-        "def pick(kind):\n"
-        '    return "_integrity_orphan_probe.html" if kind else "other.html"\n',
-        encoding="utf-8")
-    try:
-        found = integrity.check_orphan_templates()
-        check("a computed template name is not an orphan",
-              [f for f in found
-               if f["file"].endswith("_integrity_orphan_probe.html")], [])
-    finally:
-        _caller.unlink(missing_ok=True)
 
-    # Reached by {% include %} rather than by a route: a partial has no route
-    # of its own and must not be read as dead. modules/scans/_scan_mark.html
-    # is the real one -- three client-facing pages import it.
-    _includer = ROOT / "hub" / "templates" / "_integrity_orphan_host.html"
-    _includer.write_text(
-        '{% include "_integrity_orphan_probe.html" %}\n', encoding="utf-8")
-    try:
-        found = integrity.check_orphan_templates()
-        check("a partial reached by include is not an orphan",
-              [f for f in found
-               if f["file"].endswith("_integrity_orphan_probe.html")], [])
-        # ...and the host itself, which nothing renders, still is.
-        check("while the file that includes it, which nothing renders, is",
-              len([f for f in found
-                   if f["file"].endswith("_integrity_orphan_host.html")]), 1)
-    finally:
-        _includer.unlink(missing_ok=True)
+def tree(**files):
+    """A throwaway repository holding exactly these files."""
+    shutil.rmtree(TREE, ignore_errors=True)
+    for rel, body in files.items():
+        p = TREE / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(body, encoding="utf-8")
+    return TREE
 
-    # ...but a file that documents its own include line is not rendered by
-    # saying so. The include pass had no "not its own name" guard -- the one
-    # the bare-.html pass beside it has always had -- so a template whose
-    # header comment reads `drop {% include "me.html" %} into the dashboard`
-    # registered itself as rendered and was invisible to this check.
-    # `_scorecard_stale_creative.html` did exactly that and sat there included
-    # by nothing, with the check reporting no orphans at all.
-    _orphan.write_text(
-        '{# drop {% include "_integrity_orphan_probe.html" %} '
-        'into the dashboard #}\n<p>still nothing renders this</p>\n',
-        encoding="utf-8")
-    found = integrity.check_orphan_templates()
-    check("a template that quotes its own include line is still an orphan",
-          len([f for f in found
-               if f["file"].endswith("_integrity_orphan_probe.html")]), 1)
-finally:
-    _orphan.unlink(missing_ok=True)
+
+def orphans(**files):
+    return sorted(f["file"] for f in
+                  integrity.check_orphan_templates(root=tree(**files)))
+
+
+PROBE = "hub/templates/_probe.html"
+MOD_PROBE = "modules/widget/templates/_widget_probe.html"
+DEAD = "<p>nothing renders this</p>\n"
+
+found = integrity.check_orphan_templates(
+    root=tree(**{PROBE: DEAD, MOD_PROBE: DEAD}))
+check("a template no route can produce is reported",
+      sorted(f["file"] for f in found), sorted([PROBE, MOD_PROBE]))
+check("and the finding says why that is invisible otherwise",
+      all("no request can produce it" in f["detail"] for f in found), True)
+check("each is filed under the module it sits in",
+      sorted(f["module"] for f in found), ["hub", "widget"])
+
+# ...which is a real reading of this repo only if this repo is laid out that
+# way, so that is asserted rather than assumed.
+check("and the Hub really is laid out like the fixture",
+      (ROOT / "hub" / "templates").is_dir()
+      and bool(list((ROOT / "modules").glob("*/templates"))), True)
+
+# A name chosen in a conditional and passed in a variable is still a render.
+# modules/scans does exactly this to pick between widget.html and
+# widget_audit.html, and a check reading only the literal arguments of a
+# render_template() call reports its two most client-facing pages as dead --
+# which is how somebody comes to delete a live page.
+check("a computed template name is not an orphan",
+      orphans(**{PROBE: DEAD, "hub/pick.py":
+                 "def pick(kind):\n"
+                 '    return "_probe.html" if kind else "other.html"\n'}), [])
+
+# But a test naming a template is not a route rendering it -- the rule
+# check_provider_key_drift() works to one step over. Left in, a test that
+# merely mentions an orphan hides it for ever, which is not hypothetical: the
+# sweep that restyled the dead site_detail.html added a test naming it.
+check("a test naming it does not render it",
+      orphans(**{PROBE: DEAD, "test_probe.py":
+                 'def test_page(c):\n    assert "_probe.html"\n'}), [PROBE])
+
+# Reached by {% include %} rather than by a route: a partial has no route of
+# its own and must not be read as dead. modules/scans/_scan_mark.html is the
+# real one -- three client-facing pages import it. The file that includes it,
+# which nothing renders, still is an orphan.
+check("a partial reached by include is not an orphan, and its host still is",
+      orphans(**{PROBE: DEAD,
+                 "hub/templates/host.html":
+                 '{% include "_probe.html" %}\n'}), ["hub/templates/host.html"])
+
+# ...but a file that documents its own include line is not rendered by saying
+# so. The include pass had no "not its own name" guard -- the one the bare-.html
+# pass beside it has always had -- so a template whose header comment reads
+# `drop {% include "me.html" %} into the dashboard` registered itself as
+# rendered and was invisible to this check. `_scorecard_stale_creative.html`
+# did exactly that and sat there included by nothing, with the check reporting
+# no orphans at all.
+check("a template that quotes its own include line is still an orphan",
+      orphans(**{PROBE: '{# drop {% include "_probe.html" %} into the '
+                        'dashboard #}\n<p>still nothing renders this</p>\n'}),
+      [PROBE])
+
+shutil.rmtree(TREE, ignore_errors=True)
 
 # It started empty, which is the only way it was worth adding: the three it
 # found were deleted in the same change.
 check("and no template in the Hub is unreachable",
       integrity.check_orphan_templates(), [])
-
 
 # ------------------------------------------------- 7. Cloudinary's two forms
 section("Cloudinary is configured either way it is published")
