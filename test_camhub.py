@@ -717,7 +717,7 @@ class SponsorTests(unittest.TestCase):
             calls.append((kind, filename, len(data), kw.get("client"), kw.get("subpath")))
             return SimpleNamespace(url=f"https://cdn.example/{filename}")
 
-        upload = SimpleNamespace(filename="logo.png", read=lambda: _png_bytes())
+        upload = SimpleNamespace(filename="logo.png", read=_png_bytes)
         with patch("hub.storage.put", fake_put):
             url = sponsors.store_creative(upload, kind="logo", page=self.page)
         self.assertTrue(url.startswith("https://cdn.example/buckeye-lake-logo-logo."))
