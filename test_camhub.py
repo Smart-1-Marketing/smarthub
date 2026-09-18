@@ -442,7 +442,7 @@ class PageTests(unittest.TestCase):
 
     def test_render_context_carries_the_temperature_into_the_meta(self):
         from modules.camhub import render, store
-        ctx = render.build(self.page, store.cache_for(self.page["id"]))
+        ctx = render.build(self.page, store.cache_for(self.page["id"]), now=NOW)
         self.assertIn("82°F", ctx["meta_description"])
         self.assertIn("892.07", ctx["meta_description"])
         self.assertTrue(ctx["strip"]["rendered"])
@@ -458,7 +458,7 @@ class PageTests(unittest.TestCase):
         page = {**self.page, "cam_embed_url": "https://www.youtube.com/embed/abc123",
                 "config": {**self.page["config"], "canonical_url": "https://example.com/lake-cam",
                            "cam_thumbnail_url": "https://example.com/cam.jpg"}}
-        ctx = render.build(page, store.cache_for(self.page["id"]))
+        ctx = render.build(page, store.cache_for(self.page["id"]), now=NOW)
         ld = {d["@type"]: d for d in json.loads(ctx["jsonld"])}
         self.assertTrue(ld["VideoObject"]["publication"]["isLiveBroadcast"])
         self.assertEqual(ld["BreadcrumbList"]["itemListElement"][1]["item"], "https://example.com/lake-cam")
@@ -493,7 +493,7 @@ class PageTests(unittest.TestCase):
         from flask import render_template
         from modules.camhub import render, store
         from modules.camhub.app import app
-        ctx = render.build(self.page, store.cache_for(self.page["id"]))
+        ctx = render.build(self.page, store.cache_for(self.page["id"]), now=NOW)
         ctx["sponsors"]["sold"] = True
         ctx["sponsors"]["presenting"]["url"] = "https://sponsor.example/"
         with app.test_request_context("/cam/buckeye-lake"):
