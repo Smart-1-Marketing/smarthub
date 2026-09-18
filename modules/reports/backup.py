@@ -29,6 +29,18 @@ bucket (``smart1-backups/reports/...``), only when Cloudinary is ready:
 the disk fallback in ``put()`` would be a second copy on the same disk,
 which is not a second copy. With Cloudinary unset the card says so.
 
+## A copy is never overwritten by less
+
+A table that reads empty while its file holds rows is not a change to
+record, it is the one situation the copy exists for -- a fresh database
+after the tables moved, a reset, a wrong ``REPORTS_DATABASE_URL``. ``run()``
+refuses to write an empty table over a full file, and refuses the fact
+files outright when the fact table is empty and the copy is not, and says
+"restore first" in its result and on the card. The card also prints which
+database the tables are bound to and the live row counts beside the copy's,
+so a move to the dedicated instance reads as: bound there, live behind the
+copy, Restore, live equal.
+
 ## Restore
 
 ``restore()`` reads the manifest and puts the rows back through
@@ -256,7 +268,7 @@ def run(actor: str = "scheduler", offsite: bool = True) -> dict:
     """Write what changed. ``{"ok", "files", "written", "rows", "bytes",
     "offsite", "offsite_note", "errors"}``."""
     out = {"ok": False, "files": 0, "written": 0, "rows": 0, "bytes": 0,
-           "offsite": 0, "offsite_note": "", "errors": {}, "actor": actor}
+           "offsite": 0, "offsite_note": "", "errors": {}, "refused": {}, "actor": actor}
     data = manifest()
     data["started_at"] = _now().isoformat(timespec="seconds")
     data["finished_at"] = ""
@@ -268,8 +280,16 @@ def run(actor: str = "scheduler", offsite: bool = True) -> dict:
         out["offsite_note"] = _offsite_available()
         offsite = not out["offsite_note"]
     try:
-        # The fact rows, a platform-month at a time.
-        for platform, year, month, _n in fact_partitions():
+        # The fact rows, a platform-month at a time. An empty fact table
+        # beside a copy that holds rows is refused whole: nothing would be
+        # rewritten anyway (a month with no rows is not a partition), but
+        # the reading belongs in the result, not in a silent no-op.
+        partitions = fact_partitions()
+        copied = sum(int(e.get("rows") or 0) for e in data["facts"].values())
+        if not partitions and copied:
+            out["refused"]["facts"] = (f"the fact table is empty and the copy holds {copied:,} "
+                                       "rows; restore first")
+        for platform, year, month, _n in partitions:
             key = f"{platform}/{year:04d}-{month:02d}"
             seen_facts.add(key)
             rows = fact_rows(platform, year, month)
@@ -302,6 +322,16 @@ def run(actor: str = "scheduler", offsite: bool = True) -> dict:
             digest = hashlib.sha256(packed).hexdigest()
             entry = dict(data["tables"].get(name) or {})
             relpath = f"tables/{name}.jsonl.gz"
+            if not rows and int(entry.get("rows") or 0) > 0:
+                # An empty table over a full file: the copy stands.
+                out["refused"][name] = (f"the live table is empty and the copy holds "
+                                        f"{int(entry['rows']):,} rows; restore first")
+                out["files"] += 1
+                out["rows"] += int(entry.get("rows") or 0)
+                out["bytes"] += int(entry.get("bytes") or 0)
+                if entry.get("offsite_url"):
+                    out["offsite"] += 1
+                continue
             changed = entry.get("sha256") != digest or not os.path.exists(os.path.join(root(), relpath))
             if changed:
                 _write_file(relpath, packed)
@@ -389,6 +419,30 @@ def restore(actor: str = "", facts: bool = True, tables: bool = True) -> dict:
 # What the card prints
 # ---------------------------------------------------------------------------
 
+def _live() -> dict:
+    """Which database the tables are bound to, and the live row counts --
+    a reading of the engine, never of the environment."""
+    try:
+        url = store.engine.url
+        where = (os.path.basename(url.database or "") if url.get_backend_name() == "sqlite"
+                 else f"{url.host or '?'}/{url.database or '?'}")
+    except Exception:                                   # noqa: BLE001
+        where = "?"
+    try:
+        facts = store.fact_count()
+    except Exception:                                   # noqa: BLE001
+        facts = 0
+    try:
+        db = store.SessionLocal()
+        try:
+            mapped = db.query(store.CampaignMap).count()
+        finally:
+            db.close()
+    except Exception:                                   # noqa: BLE001
+        mapped = 0
+    return {"binding": store.binding(), "where": where, "facts": facts, "map": mapped}
+
+
 def status() -> dict:
     data = manifest()
     last = data.get("last") or {}
@@ -418,8 +472,17 @@ def status() -> dict:
         except ValueError:
             running = False                 # an unparseable start is not a run
     files = list(data["facts"].values()) + list(data["tables"].values())
+    copied_facts = sum(int(f.get("rows") or 0) for f in data["facts"].values())
+    copied_map = int((data["tables"].get("campaign_map") or {}).get("rows") or 0)
+    live = _live()
     return {
         "root": root(),
+        "live": live,
+        "copied_facts": copied_facts, "copied_map": copied_map,
+        # Fewer rows on the live table than in the copy: the tables moved, or
+        # were reset, and Restore is the next thing to press.
+        "behind": bool(finished) and (live["facts"] < copied_facts or live["map"] < copied_map),
+        "refused": dict(last.get("refused") or {}),
         "ever": bool(finished),
         "started_at": started, "finished_at": finished,
         "running": running,
