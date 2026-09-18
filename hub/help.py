@@ -655,6 +655,32 @@ REGISTRY: list[Help] = [
        "— a billed call, which is why it is a button — and everything that "
        "comes back is a suggestion until you tick it and press Keep. A "
        "value typed on a campaign always beats what is confirmed here."),
+    _h("hub.client360.internal", "Smart 1 Internal row",
+       "The row beneath the client name shows Partner, Salesperson, Assigned, "
+       "Client Success and Followers in one line. The Client Warnings column "
+       "to the right flags anything that needs attention — products ending "
+       "within 21 days, missing contact information, and similar findings "
+       "from the record's own cards."),
+    _h("hub.client360.industry", "Editable business category",
+       "The category pill next to the client name is editable: click it to "
+       "pick from the agency's 30-key taxonomy or type a custom label. A "
+       "custom label like 'Winery' is filed under the nearest canonical key "
+       "(Restaurant) so the Image Picker and every keyed module still follow, "
+       "while the display reads the word the person typed. The category in "
+       "Client Info stays in step — changing either one changes both."),
+    _h("hub.client360.contacts", "Contact information and warnings",
+       "Each contact carries a role: primary, communicate, owner, accounting, "
+       "reporting, consultant, do not email, or other. QuickBooks billing "
+       "contacts are filed automatically under 'accounting' on a weekly sync. "
+       "A missing-contact warning appears when no name or email is on file."),
+    _h("hub.client360.screenshots", "Site scan screenshots",
+       "Clickable desktop and mobile thumbnails from the latest Insites scan, "
+       "with the site score. Click one to open it in a lightbox. Hidden when "
+       "no scan is on file — never a broken image."),
+    _h("hub.client360.refresh", "Refresh on error",
+       "When a card cannot load its data (a 502 or timeout), a Refresh "
+       "button appears in the error notice. Pressing it re-fetches just that "
+       "card without reloading the page."),
 
     # ---------------- Ad Assets ----------------
     _h("hub.ad_assets.intro", "Creative out of Drive, into their library",
