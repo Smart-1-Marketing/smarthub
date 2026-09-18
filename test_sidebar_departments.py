@@ -133,6 +133,26 @@ check("Escape and the clear button restore the nav",
       "si.value=''" in html and "s1hub-search-clear" in html)
 check("a no-match state is announced", 's1hub-nomatch' in html and "No tool matches." in html)
 
+# The Recent section is drawn client-side from localStorage: every real click
+# on a sidebar link is pushed to the front of `s1hub:recent`, deduped by href
+# and capped at 5. The section header and container are rendered [hidden] and
+# unhide the moment the first entry lands. Search hides the whole block, since
+# search results are the answer once the person typed.
+check("the Recent placeholder is rendered hidden",
+      's1hub-recent-head" hidden' in html and 'class="s1hub-recent"' in html)
+check("...and its active leaf is threaded in for the light-up",
+      'data-s1hub-active="reports"' in html)
+check("clicks are recorded on every nav link kind",
+      'a.s1hub-item,a.s1hub-dept-link,a.s1hub-leaf,a.s1hub-g' in html)
+check("localStorage holds five entries at most", 'RECENT_MAX=5' in html)
+check("a recent-item click does not re-record itself",
+      "getAttribute('data-s1hub-recent')==='1'" in html)
+check("during a search the Recent block hides",
+      '.s1hub-searching .s1hub-recent { display: none' in html or
+      '.s1hub-searching .s1hub-recent' in html and 'display: none' in html)
+check("recent rows are excluded from the search filter's pinned iterator",
+      ":not(.s1hub-recent-item)" in html)
+
 print("\n-- the index pages --")
 from hub import create_hub_app                                   # noqa: E402
 from hub.extensions import create_all                            # noqa: E402
