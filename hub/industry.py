@@ -618,12 +618,17 @@ def sweep(limit: int = 200) -> dict:
     except Exception:                                       # noqa: BLE001
         return {"checked": 0, "written": 0, "unchanged": 0, "errors": 1,
                 "note": "could not enumerate clients"}
+    due_names: list[str] = []
     for name in names:
+        try:
+            if due_for_resweep(name):
+                due_names.append(name)
+        except Exception:                                   # noqa: BLE001
+            pass
+    for name in due_names:
         if checked >= limit:
             break
         try:
-            if not due_for_resweep(name):
-                continue
             checked += 1
             domain = _client_domain(name)
             result = resolve_industry(client=name, domain=domain)
@@ -633,8 +638,14 @@ def sweep(limit: int = 200) -> dict:
                 unchanged += 1
         except Exception:                                   # noqa: BLE001
             errors += 1
-    return {"checked": checked, "written": written, "unchanged": unchanged,
-            "errors": errors}
+    overflow = max(0, len(due_names) - limit)
+    out: dict = {"checked": checked, "written": written, "unchanged": unchanged,
+                 "errors": errors, "universe": len(names), "due": len(due_names)}
+    if overflow:
+        out["overflow"] = overflow
+        out["note"] = (f"{overflow} clients were due but not reached — the "
+                       f"limit is {limit} per pass and {len(due_names)} were due.")
+    return out
 
 
 def diagnostics_summary(limit: int = 500) -> dict:
@@ -669,9 +680,17 @@ def diagnostics_summary(limit: int = 500) -> dict:
                               "resolved": fresh.get("key"),
                               "stored_source": stored.get("source", ""),
                               "resolved_source": fresh.get("source", "")})
-    return {"measured": True, "general_count": len(on_general),
-            "general_clients": on_general[:50],
-            "disagree_count": len(disagree), "disagree_clients": disagree[:50]}
+    total = len(names)
+    examined = min(limit, total)
+    out: dict = {"measured": True, "general_count": len(on_general),
+                 "general_clients": on_general[:50],
+                 "disagree_count": len(disagree), "disagree_clients": disagree[:50],
+                 "universe": total, "examined": examined}
+    if total > limit:
+        out["capped"] = True
+        out["capped_note"] = (f"Only {limit} of {total} clients were examined; "
+                              f"counts may understate the real numbers.")
+    return out
 
 
 def set_manual(client: str, key: str, subtype: str = "", actor: str = "",

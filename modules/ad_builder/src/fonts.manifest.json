@@ -1,0 +1,314 @@
+[
+  {
+    "family": "Montserrat",
+    "pkg": "montserrat",
+    "files": {
+      "regular": "montserrat-latin-400-normal.woff",
+      "medium": "montserrat-latin-600-normal.woff",
+      "bold": "montserrat-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "Open Sans",
+    "pkg": "open-sans",
+    "files": {
+      "regular": "open-sans-latin-400-normal.woff",
+      "medium": "open-sans-latin-600-normal.woff",
+      "bold": "open-sans-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "Poppins",
+    "pkg": "poppins",
+    "files": {
+      "regular": "poppins-latin-400-normal.woff",
+      "medium": "poppins-latin-600-normal.woff",
+      "bold": "poppins-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "Lato",
+    "pkg": "lato",
+    "files": {
+      "regular": "lato-latin-400-normal.woff",
+      "medium": "lato-latin-700-normal.woff",
+      "bold": "lato-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "Raleway",
+    "pkg": "raleway",
+    "files": {
+      "regular": "raleway-latin-400-normal.woff",
+      "medium": "raleway-latin-600-normal.woff",
+      "bold": "raleway-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "Work Sans",
+    "pkg": "work-sans",
+    "files": {
+      "regular": "work-sans-latin-400-normal.woff",
+      "medium": "work-sans-latin-600-normal.woff",
+      "bold": "work-sans-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "Barlow",
+    "pkg": "barlow",
+    "files": {
+      "regular": "barlow-latin-400-normal.woff",
+      "medium": "barlow-latin-600-normal.woff",
+      "bold": "barlow-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "Manrope",
+    "pkg": "manrope",
+    "files": {
+      "regular": "manrope-latin-400-normal.woff",
+      "medium": "manrope-latin-600-normal.woff",
+      "bold": "manrope-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "Libre Franklin",
+    "pkg": "libre-franklin",
+    "files": {
+      "regular": "libre-franklin-latin-400-normal.woff",
+      "medium": "libre-franklin-latin-600-normal.woff",
+      "bold": "libre-franklin-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "Noto Sans",
+    "pkg": "noto-sans",
+    "files": {
+      "regular": "noto-sans-latin-400-normal.woff",
+      "medium": "noto-sans-latin-600-normal.woff",
+      "bold": "noto-sans-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "Fira Sans",
+    "pkg": "fira-sans",
+    "files": {
+      "regular": "fira-sans-latin-400-normal.woff",
+      "medium": "fira-sans-latin-600-normal.woff",
+      "bold": "fira-sans-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "Cabin",
+    "pkg": "cabin",
+    "files": {
+      "regular": "cabin-latin-400-normal.woff",
+      "medium": "cabin-latin-600-normal.woff",
+      "bold": "cabin-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "Hind",
+    "pkg": "hind",
+    "files": {
+      "regular": "hind-latin-400-normal.woff",
+      "medium": "hind-latin-600-normal.woff",
+      "bold": "hind-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "Arimo",
+    "pkg": "arimo",
+    "files": {
+      "regular": "arimo-latin-400-normal.woff",
+      "medium": "arimo-latin-600-normal.woff",
+      "bold": "arimo-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "PT Sans",
+    "pkg": "pt-sans",
+    "files": {
+      "regular": "pt-sans-latin-400-normal.woff",
+      "medium": "pt-sans-latin-700-normal.woff",
+      "bold": "pt-sans-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "Ubuntu",
+    "pkg": "ubuntu",
+    "files": {
+      "regular": "ubuntu-latin-400-normal.woff",
+      "medium": "ubuntu-latin-500-normal.woff",
+      "bold": "ubuntu-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "Oxygen",
+    "pkg": "oxygen",
+    "files": {
+      "regular": "oxygen-latin-400-normal.woff",
+      "medium": "oxygen-latin-700-normal.woff",
+      "bold": "oxygen-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "Titillium Web",
+    "pkg": "titillium-web",
+    "files": {
+      "regular": "titillium-web-latin-400-normal.woff",
+      "medium": "titillium-web-latin-600-normal.woff",
+      "bold": "titillium-web-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "Exo 2",
+    "pkg": "exo-2",
+    "files": {
+      "regular": "exo-2-latin-400-normal.woff",
+      "medium": "exo-2-latin-600-normal.woff",
+      "bold": "exo-2-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "Kanit",
+    "pkg": "kanit",
+    "files": {
+      "regular": "kanit-latin-400-normal.woff",
+      "medium": "kanit-latin-600-normal.woff",
+      "bold": "kanit-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "Josefin Sans",
+    "pkg": "josefin-sans",
+    "files": {
+      "regular": "josefin-sans-latin-400-normal.woff",
+      "medium": "josefin-sans-latin-600-normal.woff",
+      "bold": "josefin-sans-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "Quicksand",
+    "pkg": "quicksand",
+    "files": {
+      "regular": "quicksand-latin-400-normal.woff",
+      "medium": "quicksand-latin-600-normal.woff",
+      "bold": "quicksand-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "Dosis",
+    "pkg": "dosis",
+    "files": {
+      "regular": "dosis-latin-400-normal.woff",
+      "medium": "dosis-latin-600-normal.woff",
+      "bold": "dosis-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "Playfair Display",
+    "pkg": "playfair-display",
+    "files": {
+      "regular": "playfair-display-latin-400-normal.woff",
+      "medium": "playfair-display-latin-600-normal.woff",
+      "bold": "playfair-display-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "Libre Baskerville",
+    "pkg": "libre-baskerville",
+    "files": {
+      "regular": "libre-baskerville-latin-400-normal.woff",
+      "medium": "libre-baskerville-latin-600-normal.woff",
+      "bold": "libre-baskerville-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "PT Serif",
+    "pkg": "pt-serif",
+    "files": {
+      "regular": "pt-serif-latin-400-normal.woff",
+      "medium": "pt-serif-latin-700-normal.woff",
+      "bold": "pt-serif-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "Noto Serif",
+    "pkg": "noto-serif",
+    "files": {
+      "regular": "noto-serif-latin-400-normal.woff",
+      "medium": "noto-serif-latin-600-normal.woff",
+      "bold": "noto-serif-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "Crimson Text",
+    "pkg": "crimson-text",
+    "files": {
+      "regular": "crimson-text-latin-400-normal.woff",
+      "medium": "crimson-text-latin-600-normal.woff",
+      "bold": "crimson-text-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "EB Garamond",
+    "pkg": "eb-garamond",
+    "files": {
+      "regular": "eb-garamond-latin-400-normal.woff",
+      "medium": "eb-garamond-latin-600-normal.woff",
+      "bold": "eb-garamond-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "Cormorant Garamond",
+    "pkg": "cormorant-garamond",
+    "files": {
+      "regular": "cormorant-garamond-latin-400-normal.woff",
+      "medium": "cormorant-garamond-latin-600-normal.woff",
+      "bold": "cormorant-garamond-latin-700-normal.woff"
+    }
+  },
+  {
+    "family": "Bebas Neue",
+    "pkg": "bebas-neue",
+    "files": {
+      "regular": "bebas-neue-latin-400-normal.woff"
+    }
+  },
+  {
+    "family": "Anton",
+    "pkg": "anton",
+    "files": {
+      "regular": "anton-latin-400-normal.woff"
+    }
+  },
+  {
+    "family": "Fjalla One",
+    "pkg": "fjalla-one",
+    "files": {
+      "regular": "fjalla-one-latin-400-normal.woff"
+    }
+  },
+  {
+    "family": "Archivo Black",
+    "pkg": "archivo-black",
+    "files": {
+      "regular": "archivo-black-latin-400-normal.woff"
+    }
+  },
+  {
+    "family": "Righteous",
+    "pkg": "righteous",
+    "files": {
+      "regular": "righteous-latin-400-normal.woff"
+    }
+  },
+  {
+    "family": "Abril Fatface",
+    "pkg": "abril-fatface",
+    "files": {
+      "regular": "abril-fatface-latin-400-normal.woff"
+    }
+  }
+]

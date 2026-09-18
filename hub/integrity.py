@@ -2489,6 +2489,105 @@ def check_ghl_scope_names() -> list[dict]:
     } for name in ghl_scopes.unknown_requested()]
 
 
+def check_flask_g_in_schedulable() -> list[dict]:
+    """A scheduler job that imports flask.g will fail at runtime.
+
+    The scheduler runs jobs on a background thread with an app context but
+    no request context, so ``flask.g`` (which is request-scoped) raises a
+    ``RuntimeError``. This check catches the regression before it ships:
+    any ``.py`` file that both (a) is imported by a ``job_*`` function in
+    ``hub/scheduler.py`` and (b) imports ``g`` from ``flask``.
+    """
+    sched_path = ROOT / "hub" / "scheduler.py"
+    if not sched_path.exists():
+        return []
+    try:
+        sched_src = sched_path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return []
+
+    imported_modules: set[str] = set()
+    for m in re.finditer(r"def\s+job_\w+.*?(?=\ndef\s|\Z)", sched_src, re.S):
+        body = m.group()
+        for imp in re.finditer(r"from\s+([\w.]+)\s+import", body):
+            imported_modules.add(imp.group(1))
+        for imp in re.finditer(r"import\s+([\w.]+)", body):
+            imported_modules.add(imp.group(1))
+
+    out = []
+    for rel, src in _sources():
+        mod_path = rel.replace("/", ".").replace(".py", "")
+        if not any(mod_path == m or mod_path.startswith(m + ".")
+                   or m.startswith(mod_path + ".") for m in imported_modules):
+            continue
+        if re.search(r"from\s+flask\s+import\s+[^#\n]*\bg\b", src):
+            out.append({
+                "file": rel, "module": _module_of(rel),
+                "detail": f"{rel} imports flask.g and is reachable from a "
+                          "scheduler job. flask.g requires a request context "
+                          "that background jobs do not have — this will raise "
+                          "RuntimeError at runtime.",
+                "fix": "Pass what you need through the function arguments, or "
+                       "read it from the app config / database instead of g.",
+            })
+    return out
+
+
+def check_cross_module_url_for() -> list[dict]:
+    """A mounted module's template calling url_for for an endpoint outside it.
+
+    DispatcherMiddleware gives each mounted module its own Flask app with its
+    own route table, so a url-for call naming a hub endpoint inside a mounted
+    module's template raises BuildError at render time. This has caught three
+    features historically.
+    """
+    try:
+        wsgi_src = (ROOT / "wsgi.py").read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return []
+    mounts: dict[str, str] = {}
+    for m in re.finditer(r'"(/[a-z0-9/_-]+)":\s*_mount\(\s*(\w+)\.app', wsgi_src):
+        prefix, var = m.group(1), m.group(2)
+        mounts[prefix] = var
+
+    module_dirs: dict[str, str] = {}
+    for prefix, var in mounts.items():
+        mod_match = re.search(
+            rf"\b{re.escape(var)}\b\s*=.*?modules[./](\w+)", wsgi_src)
+        if mod_match:
+            module_dirs[prefix] = mod_match.group(1)
+
+    if not module_dirs:
+        return []
+
+    out = []
+    for prefix, mod_dir in module_dirs.items():
+        tpl_dir = ROOT / "modules" / mod_dir / "templates"
+        if not tpl_dir.is_dir():
+            continue
+        for tpl in tpl_dir.rglob("*.html"):
+            try:
+                html = tpl.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            for call in re.finditer(r"url_for\(\s*['\"]([^'\"]+)['\"]", html):
+                endpoint = call.group(1)
+                if "." in endpoint:
+                    bp = endpoint.split(".")[0]
+                    if bp == mod_dir or bp == "static":
+                        continue
+                    out.append({
+                        "file": tpl.relative_to(ROOT).as_posix(),
+                        "module": mod_dir,
+                        "detail": f"url_for('{endpoint}') references blueprint "
+                                  f"'{bp}', which is not part of the mounted "
+                                  f"module at {prefix}. This will raise "
+                                  f"BuildError at render time.",
+                        "fix": f"Use a hard-coded path or move the route into "
+                               f"the {mod_dir} module.",
+                    })
+    return out
+
 
 CHECKS = [
     ("ghl_scope_names", "A GHL scope name the console does not list", "medium",
@@ -2635,6 +2734,12 @@ CHECKS = [
                      "under that name next"),
           "fix": f"Drop {m!r} from NOT_WORK."}
          for m in _client_brand.stale_work_exemptions()]),
+    ("flask_g_in_schedulable",
+     "A scheduler job imports flask.g (no request context)", "high",
+     check_flask_g_in_schedulable),
+    ("cross_module_url_for",
+     "A mounted module's template calls url_for outside its app", "high",
+     check_cross_module_url_for),
 ]
 
 

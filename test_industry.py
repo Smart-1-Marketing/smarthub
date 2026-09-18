@@ -447,6 +447,79 @@ check("...and one run settles it instead of picking a side",
       (industry._mirror_picker("Marco Island Rental", "tourism"),  # noqa: SLF001
        _keys("Marco Island Rental"))[1], ["tourism", "tourism"])
 
+
+# ---------------------------------------------------------------------------
+section("Sweep reports universe, due, and overflow")
+
+_fresh_client("Fixture Overflow A")
+_fresh_client("Fixture Overflow B")
+_fresh_client("Fixture Overflow C")
+with mock.patch.object(industry, "_client_universe",
+                       return_value=["Fixture Overflow A",
+                                     "Fixture Overflow B",
+                                     "Fixture Overflow C"]):
+    with mock.patch("hub.scan_facts.latest_report", return_value=({}, {}, "")):
+        out_full = industry.sweep(limit=10)
+check("sweep returns universe count",
+      out_full.get("universe") == 3, out_full)
+check("sweep returns due count",
+      isinstance(out_full.get("due"), int), out_full)
+check("no overflow when limit exceeds due",
+      "overflow" not in out_full, out_full)
+
+with mock.patch.object(industry, "_client_universe",
+                       return_value=["Fixture Overflow A",
+                                     "Fixture Overflow B",
+                                     "Fixture Overflow C"]):
+    with mock.patch("hub.scan_facts.latest_report", return_value=({}, {}, "")):
+        out_capped = industry.sweep(limit=1)
+check("sweep reports overflow when limit < due",
+      out_capped.get("overflow", 0) > 0, out_capped)
+check("overflow note mentions the limit",
+      "limit" in str(out_capped.get("note") or "").lower(), out_capped)
+
+# ---------------------------------------------------------------------------
+section("Diagnostics summary reports universe and capping")
+
+with mock.patch.object(industry, "_client_universe",
+                       return_value=["Fixture Overflow A",
+                                     "Fixture Overflow B"]):
+    diag = industry.diagnostics_summary(limit=500)
+check("diagnostics returns universe",
+      diag.get("universe") == 2, diag)
+check("diagnostics returns examined",
+      diag.get("examined") == 2, diag)
+check("diagnostics not capped when under limit",
+      not diag.get("capped"), diag)
+
+with mock.patch.object(industry, "_client_universe",
+                       return_value=["Fixture Overflow A",
+                                     "Fixture Overflow B"]):
+    diag_cap = industry.diagnostics_summary(limit=1)
+check("diagnostics reports capped when universe > limit",
+      diag_cap.get("capped") is True, diag_cap)
+check("capped_note mentions the limit",
+      "1" in str(diag_cap.get("capped_note") or ""), diag_cap)
+
+
+# ---------------------------------------------------------------------------
+section("Integrity checks for scheduler and cross-module safety")
+
+from hub import integrity
+findings_g = integrity.check_flask_g_in_schedulable()
+check("flask_g_in_schedulable starts green (no flask.g in job code)",
+      len(findings_g) == 0, findings_g)
+
+findings_url = integrity.check_cross_module_url_for()
+check("cross_module_url_for starts green (no cross-module url_for)",
+      len(findings_url) == 0, findings_url)
+
+check("flask_g_in_schedulable is registered in CHECKS",
+      any(k == "flask_g_in_schedulable" for k, *_ in integrity.CHECKS))
+check("cross_module_url_for is registered in CHECKS",
+      any(k == "cross_module_url_for" for k, *_ in integrity.CHECKS))
+
+
 shutil.rmtree(TMP, ignore_errors=True)
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

@@ -20,6 +20,8 @@
  */
 
 import * as crypto from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 export interface AuthResult {
@@ -133,6 +135,55 @@ export function sessionCookie(token: string): string {
 interface Bucket { count: number; resetAt: number }
 const buckets = new Map<string, Bucket>();
 
+/**
+ * The buckets used to be lost on every deploy, which drops the ceiling for
+ * anyone who was climbing it in the ninety minutes before -- the whole point
+ * of a per-hour budget on the public proof routes. loadBuckets() rehydrates
+ * the map from OUTPUT_DIR/limits.json at boot (dropping every entry that has
+ * already expired), and flushBuckets() writes it back on a timer when it has
+ * changed. Atomic write, so a torn file is impossible even on a hard kill.
+ */
+let bucketsDirty = false;
+const bucketsFileFor = (outDir: string) => path.join(outDir, 'limits.json');
+export function loadBuckets(outDir: string): { loaded: number; dropped: number } {
+  const file = bucketsFileFor(outDir);
+  let loaded = 0, dropped = 0;
+  try {
+    const raw = fs.readFileSync(file, 'utf8');
+    const parsed = JSON.parse(raw) as Record<string, Bucket>;
+    const now = Date.now();
+    for (const [k, b] of Object.entries(parsed || {})) {
+      if (!b || typeof b.count !== 'number' || typeof b.resetAt !== 'number') { dropped++; continue; }
+      if (b.resetAt <= now) { dropped++; continue; }
+      buckets.set(k, { count: b.count, resetAt: b.resetAt });
+      loaded++;
+    }
+  } catch (e: any) {
+    // A missing file is the ordinary case on a fresh disk. A corrupt file is
+    // logged and the ceiling starts empty rather than crashing the process.
+    if (e?.code !== 'ENOENT') console.error('rate-limit buckets unreadable, starting empty:', e?.message ?? e);
+  }
+  bucketsDirty = false;
+  return { loaded, dropped };
+}
+export function flushBuckets(outDir: string): boolean {
+  if (!bucketsDirty) return false;
+  const file = bucketsFileFor(outDir);
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const payload = JSON.stringify(Object.fromEntries(buckets));
+    const tmp = file + '.' + crypto.randomUUID() + '.tmp';
+    fs.writeFileSync(tmp, payload);
+    fs.renameSync(tmp, file);
+    bucketsDirty = false;
+    return true;
+  } catch (e: any) {
+    console.error('rate-limit buckets flush failed:', e?.message ?? e);
+    return false;
+  }
+}
+export function bucketsDirtyForTest(): boolean { return bucketsDirty; }
+
 export interface Budget { limit: number; windowMs: number }
 
 /**
@@ -198,10 +249,12 @@ export function rateLimit(route: string, req: IncomingMessage): LimitResult {
 
   if (!bucket || now >= bucket.resetAt) {
     buckets.set(key, { count: 1, resetAt: now + budget.windowMs });
+    bucketsDirty = true;
     return { allowed: true, remaining: budget.limit - 1, retryAfterSec: 0 };
   }
 
   bucket.count++;
+  bucketsDirty = true;
   if (bucket.count > budget.limit) {
     return { allowed: false, remaining: 0, retryAfterSec: Math.ceil((bucket.resetAt - now) / 1000) };
   }
@@ -213,11 +266,12 @@ export function sweepBuckets(): number {
   const now = Date.now();
   let dropped = 0;
   for (const [k, b] of buckets) if (now >= b.resetAt) { buckets.delete(k); dropped++; }
+  if (dropped) bucketsDirty = true;
   return dropped;
 }
 
 export function bucketCount(): number { return buckets.size; }
-export function resetBuckets(): void { buckets.clear(); }
+export function resetBuckets(): void { buckets.clear(); bucketsDirty = true; }
 
 /** Writes the 401/429 and returns true, so handlers can `return denied(...)`. */
 export function denied(
