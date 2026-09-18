@@ -146,14 +146,33 @@ check("the changed file went off-site", (res["written"], res["offsite"]), (1, 1)
 check("...with its URL in the manifest", backup.manifest()["facts"]["ttd/2026-09"]["offsite_url"], "https://res.example/facts/ttd/2026-09.jsonl.gz")
 backup._offsite, backup._offsite_available = _real_offsite, _real_avail
 
-# ------------------------------------------------------------- restore
-section("A restore puts the rows back and deletes nothing")
+# ---------------------------------------------------- never less
+section("A copy is never overwritten by less")
 
+st = backup.status()
+check("status reads the binding and the live counts beside the copy's",
+      (st["live"]["binding"], bool(st["live"]["where"]), st["live"]["facts"] > 0, st["live"]["map"], st["copied_map"], st["behind"]),
+      ("reports", True, True, 1, 1, False), note=st["live"])
 db = store.SessionLocal()
 db.query(store.AdPerfDaily).delete()
 db.query(store.CampaignMap).delete()
 db.commit(); db.close()
 check("the tables are empty", (store.fact_count(), len(backup.table_rows("campaign_map"))), (0, 0))
+before = backup.manifest()
+res = backup.run(offsite=False)
+check("a run against emptied tables refuses rather than writing the emptiness",
+      (sorted(res["refused"]), res["written"]), (["campaign_map", "facts"], 0), note=res["refused"])
+check("...saying restore first", "restore first" in res["refused"]["campaign_map"] and "restore first" in res["refused"]["facts"])
+after = backup.manifest()
+check("...and the copy is as it was", (after["facts"], after["tables"]["campaign_map"]["rows"]),
+      (before["facts"], before["tables"]["campaign_map"]["rows"]))
+st = backup.status()
+check("status says the live tables are behind the copy, naming the refusals",
+      (st["behind"], sorted(st["refused"])), (True, ["campaign_map", "facts"]))
+
+# ------------------------------------------------------------- restore
+section("A restore puts the rows back and deletes nothing")
+
 store.upsert_rows([_row("bing", date(2026, 9, 5))], screen=False)
 res = backup.restore(actor="Todd")
 check("the restore answers with counts, through the screen (nothing held here)",
@@ -171,6 +190,7 @@ st = backup.status()
 check("status says a restore happened", (st["last_restore"]["facts"], st["last_restore"]["actor"]), (5, "Todd"))
 check("...and the backup is current (bing's month is not in it yet: a restore is not a backup)",
       (st["ever"], st["stale"], st["running"], st["files"]), (True, False, False, 3 + len(backup.TABLES)))
+check("...and the live tables are no longer behind", st["behind"], False)
 
 # ---------------------------------------------------------- scheduler
 section("The scheduler job and the buttons")
@@ -222,6 +242,8 @@ check("...saying the backup is current, with its files and rows", "current" in p
 check("...that only the stand-in's file is off this disk, and why the rest are not",
       "1 of" in page and "also in Cloudinary" in page and "Cloudinary is not configured" in page)
 check("...and the index reading from the live table", "date on (date): present" in page and "platform_date on (platform, date): present" in page)
+check("...and which database, with the live counts beside the copy's",
+      "The dedicated reports database (" in page and "mapped campaigns live; the copy holds" in page)
 r = c.post("/backup", environ_base={"s1hub.user": "Todd"})
 check("Back up now answers at once with a redirect to the card", (r.status_code, "#backups" in r.headers.get("Location", "")), (302, True))
 t = scheduler._background.get("reports_backup")

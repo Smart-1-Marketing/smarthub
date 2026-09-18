@@ -766,6 +766,12 @@ def map_campaign():
         return redirect(back + "?error=" + str(exc).replace(" ", "+"))
     moved = before is not None and before.get("client") != row.client
     automap.forget_likely()
+    if moved and before.get("pending"):
+        # Moving a proposal off a client is Not theirs and a filing in one
+        # press: whatever the name taught for the client it was moved off
+        # is forgotten, as a refusal would forget it.
+        automap.forget(f.get("campaign_name") or before.get("campaign_name") or "",
+                       client=before["client"], client_name=before.get("client_name") or "")
     # A person's filing teaches what this campaign calls the client.
     automap.learn(f.get("campaign_name") or row.display_name or "", client=row.client,
                   client_name=client_name or row.client_name or "", by=actor_name())
@@ -832,9 +838,10 @@ def confirm_many():
     campaign, and the record says so per campaign. A key that is not
     mapped or cannot be read is counted and named, never a stop for the
     rest."""
+    from urllib.parse import quote as _quote
     f = request.form
     keys = [k for k in f.getlist("keys") if k]
-    back = url_for("unmapped") + (("?client=" + f.get("client", "")) if f.get("client") else "")
+    back = url_for("unmapped") + (("?client=" + _quote(f.get("client", "")[:200], safe="")) if f.get("client") else "")
     if not keys:
         return redirect(back + ("&" if "?" in back else "?") + "error=Tick+at+least+one+campaign+first.")
     done, skipped = 0, []

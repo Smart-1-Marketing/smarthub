@@ -276,6 +276,12 @@ class MapRefusal(Base):
     rule = Column(String(120), nullable=True)
     refused_by = Column(String(160), default="")
     refused_at = Column(DateTime(timezone=True), default=now)
+    # The refusals before this one, oldest first, each the same fields:
+    # the row is one per campaign (its key), and a campaign refused under
+    # Acme and then, re-filed, refused under Beta must remember both, or
+    # the next run files it under Acme again from the same name. A LATE
+    # column -- _LATE_COLUMNS adds it to a live table.
+    others_json = Column(JSON, nullable=True)
 
 
 class CampaignAlias(Base):
@@ -625,6 +631,7 @@ _LATE_COLUMNS = (
     ("reports_campaign_map", "confirmed_by", "VARCHAR(160)"),
     ("reports_campaign_map", "confirmed_at", "TIMESTAMP WITH TIME ZONE"),
     ("reports_links", "exec_summary_json", "JSON"),
+    ("reports_map_refusals", "others_json", "JSON"),
 )
 
 
@@ -1621,13 +1628,23 @@ def unmapped_campaigns(days: int = 30, limit: int = 200) -> list[dict]:
                             AdPerfDaily.campaign_id).all()):
             recent[(p, a, c)] = Decimal(spend or 0)
         out = {}
-        # Latest name per campaign: the rows come newest-first, so the first
-        # one seen wins.
-        for p, a, c, name, when, extras in (
-                db.query(AdPerfDaily.platform, AdPerfDaily.account_id,
-                         AdPerfDaily.campaign_id, AdPerfDaily.campaign_name,
-                         AdPerfDaily.date, AdPerfDaily.extras_json)
-                  .order_by(AdPerfDaily.date.desc()).all()):
+        # The newest row per campaign, found in the database: the day per
+        # (platform, account, campaign) as a grouped subquery, joined back
+        # for that day's name and extras. The first version ordered the
+        # WHOLE fact table newest-first and walked it in Python until every
+        # campaign had been seen once -- every campaign-day ever synced,
+        # on every queue load, every board load and every hourly run.
+        latest = (db.query(AdPerfDaily.platform.label("p"), AdPerfDaily.account_id.label("a"),
+                           AdPerfDaily.campaign_id.label("c"), func.max(AdPerfDaily.date).label("d"))
+                    .group_by(AdPerfDaily.platform, AdPerfDaily.account_id, AdPerfDaily.campaign_id)
+                    .subquery())
+        newest = (db.query(AdPerfDaily.platform, AdPerfDaily.account_id, AdPerfDaily.campaign_id,
+                           AdPerfDaily.campaign_name, AdPerfDaily.date, AdPerfDaily.extras_json)
+                    .join(latest, and_(AdPerfDaily.platform == latest.c.p,
+                                       AdPerfDaily.account_id == latest.c.a,
+                                       AdPerfDaily.campaign_id == latest.c.c,
+                                       AdPerfDaily.date == latest.c.d)))
+        for p, a, c, name, when, extras in newest.all():
             key = (p, a, c)
             if key in mapped or key in out:
                 continue
@@ -1650,6 +1667,7 @@ def unmapped_campaigns(days: int = 30, limit: int = 200) -> list[dict]:
                 "last_seen": when.isoformat() if when else None,
                 "spend_30d": recent.get(key, Decimal(0)),
                 "refused": None,
+                "refused_clients": [],
                 "channel_type": channel,
                 "default_product": _default_product(p, channel),
                 "product_hint": _product_hint(name or ""),
@@ -1663,8 +1681,16 @@ def unmapped_campaigns(days: int = 30, limit: int = 200) -> list[dict]:
     # refused under: renamed, it is a new decision.
     for key, ref in refusals().items():
         row = out.get(key)
-        if row is not None and (row["campaign_name"] or "").strip() == (ref["campaign_name"] or "").strip():
+        if row is None:
+            continue
+        current = (row["campaign_name"] or "").strip()
+        if current == (ref["campaign_name"] or "").strip():
             row["refused"] = ref
+        # Every client a filing of this campaign was refused under while it
+        # carried its present name -- the newest refusal and the ones before
+        # it -- so the suggestions never offer any of them again.
+        row["refused_clients"] = sorted({r["client"] for r in [ref] + list(ref.get("others") or ())
+                                         if r.get("client") and (r.get("campaign_name") or "").strip() == current})
     rows = sorted(out.values(), key=lambda r: (-r["spend_30d"], r["platform"],
                                                r["campaign_name"]))
     return rows[:limit]
@@ -1816,6 +1842,15 @@ def refuse_mapping(platform: str, account_id: str, campaign_id: str, *,
         if ref is None:
             ref = MapRefusal(platform=platform, account_id=account_id, campaign_id=campaign_id)
             db.add(ref)
+        elif ref.client and ref.client != row.client:
+            # A second refusal of the same campaign under another client:
+            # the first is kept beside it, not overwritten.
+            others = list(ref.others_json) if isinstance(ref.others_json, list) else []
+            others = [o for o in others if o.get("client") != ref.client]
+            others.append({"campaign_name": ref.campaign_name or "", "client": ref.client,
+                           "client_name": ref.client_name or "", "rule": ref.rule,
+                           "refused_by": ref.refused_by or "", "refused_at": iso(ref.refused_at)})
+            ref.others_json = others[-20:]
         ref.campaign_name = name[:400]
         ref.client = row.client
         ref.client_name = row.client_name or ""
@@ -1885,7 +1920,9 @@ def refusals() -> dict[tuple, dict]:
         return {(r.platform, r.account_id, r.campaign_id): {
                     "campaign_name": r.campaign_name or "", "client": r.client or "",
                     "client_name": r.client_name or "", "refused_by": r.refused_by or "",
-                    "refused_at": iso(r.refused_at)}
+                    "refused_at": iso(r.refused_at),
+                    "others": [o for o in (r.others_json if isinstance(r.others_json, list) else [])
+                               if isinstance(o, dict) and o.get("client") != r.client]}
                 for r in db.query(MapRefusal).all()}
     except Exception:                  # noqa: BLE001 - no table yet
         return {}
