@@ -17,6 +17,12 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
+# The one client identity, derived on read from the name and the business
+# URL the page holds -- never stored, for the reasons hub/client_key.py
+# gives. It is what lets a cam page's refresh land on the same Client 360
+# record as the client's proposals and audits.
+from hub.client_key import client_key as _client_key
+
 from . import adapters
 from .models import CamPage, CamSource, ConditionsCache, session
 
@@ -43,7 +49,7 @@ def _loads(text, default):
 # ----------------------------------------------------------------- pages
 
 def page_dict(row: CamPage) -> dict:
-    return {
+    out = {
         "id": row.id, "slug": row.slug, "title": row.title,
         "client_name": row.client_name, "business_name": row.business_name,
         "location_name": row.location_name, "address": row.address,
@@ -54,6 +60,12 @@ def page_dict(row: CamPage) -> dict:
         "config": _loads(row.config, {}), "status": row.status or "live",
         "created_at": _aware(row.created_at), "updated_at": _aware(row.updated_at),
     }
+    biz = (out["config"].get("business") or {}) if isinstance(out["config"], dict) else {}
+    try:
+        out["client_key"] = _client_key(row.client_name or "", biz.get("url") or "")
+    except Exception:  # noqa: BLE001 -- identity must never break a read
+        out["client_key"] = ""
+    return out
 
 
 def list_pages() -> list[dict]:
