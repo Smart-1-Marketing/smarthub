@@ -485,6 +485,19 @@ jobs:
           python test_page_image_bytes.py
           env -u PAGE_IMAGE_TEST_DATABASE_URL python test_page_image_bytes.py
 
+      - name: The optimizer's routes across the instance boundary
+        if: matrix.group == 2
+        # The same claim one level up, where a person stands: api_save with
+        # the save routed to a second instance. The store test proves
+        # get_bytes; this proves the route that reaches it through a job
+        # record, an item id and a filename convention. Run on both backends
+        # for the reason the step above gives.
+        env:
+          PAGE_IMAGE_TEST_DATABASE_URL: postgresql://smarthub:smarthub@localhost:5432/smarthub_ci
+        run: |
+          python test_page_image_routes.py
+          env -u PAGE_IMAGE_TEST_DATABASE_URL python test_page_image_routes.py
+
       - name: Nothing is lost across two restarts
         if: matrix.group == 2
         # The acceptance criterion for taking this service off the Render

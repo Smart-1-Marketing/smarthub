@@ -110,6 +110,13 @@ python3 test_page_image_bytes.py   # the optimizer's scratch bytes, in the datab
                                    #   that bytes written against one data directory
                                    #   read back against a different one, which is a
                                    #   second instance in the only form a test has it
+python3 test_page_image_routes.py  # the same claim where a person stands: api_save
+                                   #   with the save routed to a second instance,
+                                   #   plus the preview. A second instance here is
+                                   #   the SAME configured path with an emptied
+                                   #   disk, not a different path -- a different one
+                                   #   moves the jsonstore mirror key too and the
+                                   #   route 404s before it reaches the bytes
 python3 test_disk_free_restart.py  # the acceptance criterion as a gate: two real
                                    #   interpreters, a brand new empty HUB_DATA_DIR
                                    #   each, one database between them -- so a store
