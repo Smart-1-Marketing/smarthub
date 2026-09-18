@@ -49,3 +49,23 @@ def job_rollup(app=None) -> dict:
         return tracking.rollup_recent()
     except Exception as exc:  # noqa: BLE001
         return {"error": f"{type(exc).__name__}: {exc}"}
+
+
+def job_reports(app=None) -> dict:
+    """Monthly PDF and staff-handoff run: once an hour, only acts on
+    the 1st and only after the second UTC hour of the day, so the
+    prior month is closed and this hasn't raced the rollup. Idempotent
+    -- a row already sent is left alone. See `outbox.run_monthly()`."""
+    try:
+        from . import outbox
+        from .models import boot_error, init_db
+    except Exception as exc:  # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    init_db()
+    err = boot_error()
+    if err:
+        return {"skipped": f"database: {err[:120]}"}
+    try:
+        return outbox.run_monthly()
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"{type(exc).__name__}: {exc}"}

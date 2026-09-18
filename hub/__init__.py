@@ -977,6 +977,24 @@ def create_hub_app() -> Flask:
             return jsonify({"ok": False, "error": "A client is required."}), 400
         return jsonify(record_health.client360(name))
 
+    @app.route("/api/client/camhub")
+    def api_client_camhub():
+        """The Client 360 CamHub card -- one row per CamHub page a client
+        owns, this month's pageviews, top placements and source health.
+        Reads modules/camhub/hub_card.py, which reads only the rollup and
+        the source table."""
+        gate = _require_api()
+        if gate:
+            return gate
+        name = request.args.get("name", "").strip()
+        if not name:
+            return jsonify({"measured": False, "error": "A client is required."}), 400
+        try:
+            from modules.camhub import hub_card
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"measured": False, "reason": f"unavailable: {type(exc).__name__}"})
+        return jsonify(hub_card.for_client(name))
+
     @app.route("/api/client/next-action")
     def api_client_next_action():
         """The one-sentence line at the top of Client 360 -- hub/next_action.py.

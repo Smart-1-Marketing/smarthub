@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head><title>CamHub reports</title>{% include "_staff_head.html" %}</head>
+<body>
+<div class="wrap">
+  <h1>Reports <span class="dot help-dot" data-help="camhub.reports">?</span></h1>
+  <p class="lede">Monthly PDF per sponsor, run on the 1st for the prior month. Every row is
+    <b>rendered</b> when the PDF is on file, and <b>sent</b> once it has gone out. Sponsors without
+    an email on file stay <i>rendered</i> for hand-off from here.</p>
+
+  <div class="card">
+    <form method="post" action="{{ mount }}/reports/run" class="row" style="align-items:flex-end">
+      <div>
+        <label class="muted" style="font-size:11.5px;text-transform:uppercase;letter-spacing:.05em">Period</label><br>
+        <select name="period" style="padding:7px 8px;border:1px solid var(--line);border-radius:6px">
+          {% for p in periods %}<option value="{{ p.value }}" {% if p.value == active_period %}selected{% endif %}>{{ p.label }}</option>{% endfor %}
+        </select>
+      </div>
+      <button class="btn" type="submit" name="action" value="enqueue">Enqueue for month</button>
+      <button class="btn sec" type="submit" name="action" value="render">Render pending</button>
+      <span class="muted" style="font-size:12px">Running this by hand is safe -- rows keep their state on re-run.</span>
+    </form>
+    {% if flash %}<div class="muted" style="font-size:12.5px;margin-top:10px">{{ flash }}</div>{% endif %}
+  </div>
+
+  <div class="card">
+    {% if rows %}
+    <table>
+      <thead><tr>
+        <th>Sponsor</th><th>Period</th><th>Status</th>
+        <th style="text-align:right">Impressions</th><th style="text-align:right">Clicks</th>
+        <th>Recipient</th><th>PDF</th><th></th>
+      </tr></thead>
+      <tbody>
+      {% for r in rows %}
+      <tr>
+        <td><b>{{ r.sponsor_name }}</b>{% if r.last_error %}<br><span class="err">{{ r.last_error }}</span>{% endif %}</td>
+        <td class="mono">{{ r.period }}</td>
+        <td><span class="pill {{ 'green' if r.status=='sent' else ('amber' if r.status=='rendered' else ('red' if r.status=='failed' else 'off')) }}">{{ r.status }}</span></td>
+        <td style="text-align:right">{{ '{:,}'.format(r.impressions) }}</td>
+        <td style="text-align:right">{{ '{:,}'.format(r.clicks) }}</td>
+        <td>{{ r.recipient or '—' }}</td>
+        <td>{% if r.pdf_url %}<a href="{{ r.pdf_url }}" class="mono">PDF</a>{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td>
+          <form method="post" action="{{ mount }}/reports/{{ r.id }}" style="display:inline">
+            <button class="btn sec" name="action" value="render" title="Regenerate the PDF">Render</button>
+            <button class="btn sec" name="action" value="send" title="Try the send step; without a linked ESP this just files the reason">Send</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No rows for this period yet.</p>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">Portal links <span class="dot help-dot" data-help="camhub.portal">?</span></h2>
+    <p class="lede" style="margin-bottom:6px">A sponsor's read-only view -- their placements, their numbers, a date-range picker and a CSV.</p>
+    <table>
+      <thead><tr><th>Sponsor</th><th>Placements</th><th>Portal URL</th></tr></thead>
+      <tbody>
+      {% for sp in sponsors_list %}
+      <tr>
+        <td><b>{{ sp.name }}</b>{% if sp.email %}<br><span class="muted">{{ sp.email }}</span>{% endif %}</td>
+        <td>{{ sp.placement_count }}</td>
+        <td><input class="mono" value="{{ sp.portal_url }}" readonly style="width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px" onclick="this.select()"></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+</body></html>

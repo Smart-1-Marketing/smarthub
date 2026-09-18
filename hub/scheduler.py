@@ -995,6 +995,24 @@ def job_camhub_rollup(app) -> dict:
     return cron.job_rollup(app)
 
 
+def job_camhub_reports(app) -> dict:
+    """Once an hour, on the 1st of the month, ship every sponsor's PDF.
+
+    The job itself is idempotent: it enqueues a row per sponsor whose
+    flights ran the prior month, renders the PDF into Cloudinary, and
+    attempts to send. A row already sent is left alone, so a job that
+    fires twice at 03:00 and 04:00 does not double-mail anyone. Rows
+    without a linked ESP stay `rendered` and appear on the reports
+    screen for staff hand-off -- the schedule is the source, not the
+    only route.
+    """
+    try:
+        from modules.camhub import cron
+    except Exception as exc:                              # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    return cron.job_reports(app)
+
+
 def job_ads_optimization_scan(app) -> dict:
     """Sweep every live Google Ads account we deployed, twice a day.
 
@@ -1701,6 +1719,8 @@ JOBS = {
                           "Pull every CamHub conditions feed that is due (each on its own cadence)."),
     "camhub_rollup":     (60, job_camhub_rollup,
                           "Roll CamHub impressions and clicks into per-day rows; purge raw rows past 90 days."),
+    "camhub_reports":    (60, job_camhub_reports,
+                          "Send every CamHub sponsor's monthly PDF on the 1st of the month."),
     "creative_studio":   (5, job_creative_studio_sweep,
                           "Advance queued Creative Studio jobs (Media Library backfill, "
                           "concept/script/image generation)."),

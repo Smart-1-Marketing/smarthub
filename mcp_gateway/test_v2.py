@@ -224,6 +224,7 @@ class ToolMetadataTests(unittest.TestCase):
                 "get_client_insertion_orders",
                 "get_client_performance",
                 "get_client_ads_findings",
+                "get_cam_performance",
             },
         )
         for tool in tools:

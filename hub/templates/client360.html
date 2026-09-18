@@ -622,6 +622,14 @@ function render(g,q){
     <div class="right" style="display:flex;gap:10px;align-items:center" id="c-social-ideas-acts"><a class="open-link" href="/tools/social/?client=${encodeURIComponent(name)}">Open the planner →</a></div></div>
     <div class="card-b" id="c-social-ideas"><div class="empty">Loading ideas… <span class="spin"></span></div></div></div>`;
 
+  // ---------- CamHub live cam ----------
+  // Every client with a live cam page contributes one card here: this
+  // month's pageviews, the top placements' numbers, source health and
+  // a link into the module. A client without a CamHub page renders an
+  // empty state rather than being absent from the section, so a person
+  // reading the record knows the pipeline was checked.
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-web" style="background:#dbeafe;color:#1d4ed8">CamHub</span><h3>CamHub live cam</h3><a class="open-link" id="c-camhub-open" href="/tools/camhub/" style="display:none">Open in CamHub →</a></div><div class="card-b" id="c-camhub"><div class="empty">Reading pages for this client… <span class="spin"></span></div></div></div>`;
+
   // ---------- Traffic Summary (GA4: last month vs previous) ----------
   html+=`<div class="card" style="grid-column:1 / -1"><div class="card-h"><span class="src-tag src-google">Google</span><h3>Traffic Summary</h3><span class="muted" id="c-traffic-meta" style="font-size:12px"></span><button type="button" class="open-link" id="c-traffic-ask" style="display:none">✨ Ask AI about this data</button></div><div class="card-b"><div id="c-traffic-range" style="margin-bottom:14px"></div><div id="c-traffic-askbox" style="display:none;margin-bottom:14px"></div><div id="c-traffic"><div class="empty">Looking for this client's Analytics property… <span class="spin"></span></div></div></div></div>`;
 
@@ -829,6 +837,7 @@ function render(g,q){
   }).catch(()=>{if(youtubeTarget.isConnected)youtubeTarget.textContent='YouTube accounts could not be loaded. Open YouTube Studio to retry.';});
   loadHealth(name);
   loadNextAction(name);
+  loadCamhubCard(name);
   if(skillsOn.indexOf('ecwid')>-1) loadEcwid(name);
   if(skillsOn.indexOf('email')>-1) loadEmailCreator(name);
 

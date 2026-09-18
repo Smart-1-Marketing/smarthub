@@ -2617,6 +2617,19 @@ REGISTRY: list[Help] = [
        "stale but still served with its timestamp, red has collapsed off the "
        "page. A source that is red here is why a tile is missing there; "
        "Refresh now pulls every feed at once."),
+    _h("camhub.reports", "One PDF a sponsor could audit",
+       "One row per sponsor per month, run automatically on the 1st for the "
+       "prior month. Rendered files the PDF on Cloudinary; sent tries to "
+       "email it. Sponsors without an email on file stay rendered so their "
+       "PDF can be hand-forwarded. Regenerate reads the current rollup, so "
+       "the download is always up to date; the outbox row is only the "
+       "delivery record."),
+    _h("camhub.portal", "The sponsor's own read of their numbers",
+       "One signed URL per sponsor, no password, indexable by nothing. Shows "
+       "the current month at the top and a date-range picker below, with "
+       "the same rules the report uses. The CSV is one row per placement "
+       "per day plus a totals footer. Read-only: creative changes go through "
+       "the placement screen, not here."),
 
     # ---------------- SmartForecast ----------------
     _h("smartforecast.dashboard.status", "What the live status means",

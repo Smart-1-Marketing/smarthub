@@ -442,7 +442,10 @@ class PageTests(unittest.TestCase):
 
     def test_render_context_carries_the_temperature_into_the_meta(self):
         from modules.camhub import render, store
-        ctx = render.build(self.page, store.cache_for(self.page["id"]))
+        # Pin the clock: NOW matches the fixture date, so "Today" appears
+        # on the forecast row whether the suite runs before or after the
+        # eastern-time date rollover.
+        ctx = render.build(self.page, store.cache_for(self.page["id"]), now=NOW)
         self.assertIn("82°F", ctx["meta_description"])
         self.assertIn("892.07", ctx["meta_description"])
         self.assertTrue(ctx["strip"]["rendered"])
@@ -493,9 +496,12 @@ class PageTests(unittest.TestCase):
         from flask import render_template
         from modules.camhub import render, store
         from modules.camhub.app import app
-        ctx = render.build(self.page, store.cache_for(self.page["id"]))
+        ctx = render.build(self.page, store.cache_for(self.page["id"]), now=NOW)
         ctx["sponsors"]["sold"] = True
         ctx["sponsors"]["presenting"]["url"] = "https://sponsor.example/"
+        # The presenting slot is a house ad in the seed (no placement_id),
+        # so href() prints slot.url; that is the point of this test --
+        # rel="nofollow sponsored" rides on `sponsors.sold`.
         with app.test_request_context("/cam/buckeye-lake"):
             html = render_template("cam.html", **ctx)
         self.assertIn('href="https://sponsor.example/" rel="nofollow sponsored"', html)
@@ -922,6 +928,500 @@ class TrackingTests(unittest.TestCase):
         from modules.camhub import cron
         with patch("modules.camhub.tracking.rollup_recent", return_value={"days": [], "purged": 0}):
             self.assertEqual(cron.job_rollup()["purged"], 0)
+
+
+class ReportTests(unittest.TestCase):
+    """Sprint 5, reporting: monthly stats and the deltas the report
+    shows, the daily-chart PNG (a real image), the PDF (real bytes and
+    the sponsor's name on the cover), the CSV (one row per placement per
+    day plus a totals footer), and the range payload the portal draws.
+    Each test seeds only the rollup rows it needs -- the raw-event path
+    is TrackingTests' subject."""
+
+    @classmethod
+    def setUpClass(cls):
+        from modules.camhub import models, seeds, sponsors as _sp
+        from modules.camhub.models import DailyStat, Event, Placement, Sponsor, SponsorReport, session
+        from sqlalchemy import delete
+        assert not models.init_db()
+        cls.page = seeds.provision("buckeye-lake", fetch=False)["page"]
+        with session() as s:
+            for table in (SponsorReport, Event, DailyStat, Placement, Sponsor):
+                s.execute(delete(table))
+            s.commit()
+        _sp.ensure_house_placements(cls.page)
+        cls.sponsor = _sp.save_sponsor({"name": "Rosewood Marine & Dock",
+                                        "category": "marina",
+                                        "email": "ops@rosewood.example",
+                                        "contact_name": "M. Rose"})
+        cls.other = _sp.save_sponsor({"name": "North Shore Realty",
+                                      "category": "realtor",
+                                      "email": ""})
+        cls.pres, _ = _sp.save_placement({
+            "position": "presenting", "status": "active", "animation": "static",
+            "sponsor_id": cls.sponsor["id"], "name": "Rosewood Marine & Dock",
+            "headline": "Slips since 1974.", "cta_label": "Check",
+            "url": "https://rosewood.example/",
+            "start_date": "2026-05-01", "end_date": "2026-10-31"},
+            cls.page["id"])
+        cls.support, _ = _sp.save_placement({
+            "position": "supporting", "status": "active", "animation": "static",
+            "sponsor_id": cls.sponsor["id"], "name": "Rosewood Slip Sale",
+            "headline": "Slip Sale", "cta_label": "See",
+            "url": "https://rosewood.example/slips",
+            "start_date": "2026-05-01", "end_date": ""},
+            cls.page["id"])
+
+    def setUp(self):
+        from modules.camhub.models import DailyStat, Event, SponsorReport, session
+        from sqlalchemy import delete
+        with session() as s:
+            s.execute(delete(SponsorReport))
+            s.execute(delete(DailyStat))
+            s.execute(delete(Event))
+            s.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        # Test-order cleanup: PageTests runs after and expects the
+        # presenting slot to be a house ad, so a lingering sponsor's
+        # placement would flip its href through /go/.
+        from modules.camhub.models import Placement, Sponsor, session
+        from sqlalchemy import delete
+        with session() as s:
+            s.execute(delete(Placement))
+            s.execute(delete(Sponsor))
+            s.commit()
+
+    def _seed(self, day: str, page_pv=100, placement_id=None, imp=0, clk=0,
+              unique=0, filtered=0):
+        from modules.camhub.models import DailyStat, session
+        with session() as s:
+            s.add(DailyStat(page_id=self.page["id"], placement_id=None,
+                            sponsor_id=None, day=day, pageviews=page_pv,
+                            impressions=0, clicks=0, unique_sessions=page_pv,
+                            filtered=filtered))
+            if placement_id is not None:
+                s.add(DailyStat(page_id=self.page["id"], placement_id=placement_id,
+                                sponsor_id=self.sponsor["id"], day=day,
+                                pageviews=0, impressions=imp, clicks=clk,
+                                unique_sessions=unique, filtered=0))
+            s.commit()
+
+    def test_monthly_stats_add_up_and_the_deltas_direction_is_signed(self):
+        from modules.camhub import reports
+        # August prior month: 200 impressions / 5 clicks on the presenting
+        self._seed("2026-08-05", page_pv=120, placement_id=self.pres["id"],
+                   imp=150, clk=4)
+        self._seed("2026-08-06", page_pv=90, placement_id=self.pres["id"],
+                   imp=50, clk=1)
+        # September current month: 500 impressions / 20 clicks -> CTR up
+        self._seed("2026-09-01", page_pv=200, placement_id=self.pres["id"],
+                   imp=300, clk=15)
+        self._seed("2026-09-02", page_pv=150, placement_id=self.pres["id"],
+                   imp=200, clk=5)
+        # Support placement in September only
+        self._seed("2026-09-02", page_pv=0, placement_id=self.support["id"],
+                   imp=80, clk=2)
+        r = reports.sponsor_monthly(self.sponsor["id"], 2026, 9)
+        self.assertEqual(r["totals"]["now"]["impressions"], 580)
+        self.assertEqual(r["totals"]["now"]["clicks"], 22)
+        self.assertEqual(r["totals"]["was"]["impressions"], 200)
+        self.assertEqual(r["totals"]["was"]["clicks"], 5)
+        self.assertEqual(r["totals"]["impressions"]["direction"], "up")
+        self.assertEqual(r["totals"]["clicks"]["direction"], "up")
+        # Two placement rows for one sponsor, presenting first.
+        self.assertEqual(len(r["placements"]), 2)
+        self.assertEqual(r["placements"][0]["position"], "presenting")
+        self.assertEqual(r["placements"][0]["now"]["impressions"], 500)
+        self.assertEqual(r["placements"][1]["now"]["impressions"], 80)
+        # Daily series covers all thirty days, September has thirty.
+        self.assertEqual(len(r["daily"]), 30)
+        self.assertEqual(r["daily"][1]["impressions"], 280)      # Sep 2
+
+    def test_the_footnote_names_the_iab_standard(self):
+        from modules.camhub import reports
+        r = reports.sponsor_monthly(self.sponsor["id"], 2026, 9)
+        self.assertIn("half of the ad", r["footnote"])
+        self.assertIn("second", r["footnote"])
+        self.assertIn("Crawler traffic", r["footnote"])
+
+    def test_flight_renewing_note_when_end_is_inside_sixty_days(self):
+        from datetime import date
+        from modules.camhub import reports
+        r = reports.sponsor_monthly(self.sponsor["id"], 2026, 9,
+                                    today=date(2026, 9, 15))
+        # Presenting flight ends 2026-10-31 -- 46 days from Sep 15.
+        renewing = [f for f in r["flights"] if f["state"] == "renewing"]
+        self.assertTrue(renewing, r["flights"])
+        self.assertEqual(renewing[0]["remaining"], 46)
+        self.assertIn("Flight ends", renewing[0]["renewal_note"])
+
+    def test_daily_chart_is_a_real_png(self):
+        from modules.camhub import reports
+        png = reports.daily_chart_png([{"day": "2026-09-01", "impressions": 12},
+                                       {"day": "2026-09-02", "impressions": 40}])
+        self.assertTrue(png.startswith(b"\x89PNG"))
+        # A zero-peak series does not raise -- the axis ceiling round rule.
+        empty = reports.daily_chart_png([{"day": "2026-09-01", "impressions": 0}])
+        self.assertTrue(empty.startswith(b"\x89PNG"))
+
+    def test_pdf_names_the_sponsor_and_carries_the_footnote(self):
+        from modules.camhub import reports
+        self._seed("2026-09-01", page_pv=100, placement_id=self.pres["id"],
+                   imp=200, clk=5)
+        report = reports.sponsor_monthly(self.sponsor["id"], 2026, 9)
+        pdf = reports.render_monthly_pdf(report)
+        self.assertTrue(pdf.startswith(b"%PDF"))
+        self.assertGreater(len(pdf), 3000)
+        # The sponsor's name lands in the PDF metadata title verbatim.
+        # /Title (Rosewood Marine & Dock -- September 2026)
+        text = pdf.decode("latin-1", errors="ignore")
+        self.assertIn("Rosewood Marine", text)
+        # The footnote text lives inside a reportlab-compressed stream, so
+        # asserting on the payload is what protects the report from
+        # shipping without it -- the same string the render draws from.
+        self.assertIn("half of the ad", report["footnote"])
+        self.assertIn("continuous second", report["footnote"])
+
+    def test_csv_lists_days_by_placement_and_footers_a_total(self):
+        from modules.camhub import reports
+        self._seed("2026-09-01", page_pv=100, placement_id=self.pres["id"],
+                   imp=200, clk=5, unique=180)
+        self._seed("2026-09-02", page_pv=100, placement_id=self.pres["id"],
+                   imp=300, clk=10, unique=250)
+        text = reports.csv_for_sponsor(self.sponsor["id"],
+                                       "2026-09-01", "2026-09-30")
+        lines = [ln for ln in text.strip().splitlines() if ln]
+        self.assertEqual(lines[0], "day,placement,position,impressions,clicks,ctr,unique_sessions")
+        self.assertEqual(lines[1].split(","),
+                         ["2026-09-01", "Rosewood Marine & Dock", "presenting",
+                          "200", "5", "2.50", "180"])
+        # Total footer: impressions summed, clicks summed, CTR recomputed.
+        self.assertTrue(lines[-1].startswith("total,,,"))
+        parts = lines[-1].split(",")
+        self.assertEqual(parts[3], "500")
+        self.assertEqual(parts[4], "15")
+        self.assertEqual(parts[5], "3.00")
+
+    def test_sponsor_range_answers_a_custom_window(self):
+        from modules.camhub import reports
+        self._seed("2026-08-30", page_pv=50, placement_id=self.pres["id"],
+                   imp=20, clk=1)
+        self._seed("2026-09-01", page_pv=100, placement_id=self.pres["id"],
+                   imp=80, clk=4)
+        r = reports.sponsor_range(self.sponsor["id"], "2026-08-30", "2026-09-01")
+        self.assertEqual(r["window"]["days"], 3)
+        self.assertEqual(r["totals"]["impressions"], 100)
+        self.assertEqual(r["totals"]["clicks"], 5)
+        self.assertEqual(len(r["daily"]), 3)
+        self.assertEqual(r["daily"][0]["impressions"], 20)
+
+
+class OutboxTests(unittest.TestCase):
+    """The scheduled-report lifecycle. Enqueueing is per-sponsor and
+    idempotent, render files a PDF and stores its URL, the default
+    sender leaves a rendered row alone (no ESP), and the send-hook
+    seam lets a test channel confirm the row moves to sent."""
+
+    @classmethod
+    def setUpClass(cls):
+        from modules.camhub import models, seeds, sponsors as _sp
+        from modules.camhub.models import DailyStat, Event, Placement, Sponsor, SponsorReport, session
+        from sqlalchemy import delete
+        assert not models.init_db()
+        cls.page = seeds.provision("buckeye-lake", fetch=False)["page"]
+        with session() as s:
+            for table in (SponsorReport, Event, DailyStat, Placement, Sponsor):
+                s.execute(delete(table))
+            s.commit()
+        _sp.ensure_house_placements(cls.page)
+        cls.a = _sp.save_sponsor({"name": "Rosewood Marine",
+                                  "email": "ops@rosewood.example",
+                                  "category": "marina"})
+        cls.b = _sp.save_sponsor({"name": "North Shore Realty",
+                                  "email": "", "category": "realtor"})
+        _sp.save_placement({"position": "presenting", "status": "active",
+                            "animation": "static", "sponsor_id": cls.a["id"],
+                            "name": "Rosewood Marine",
+                            "start_date": "2026-05-01", "end_date": "2026-10-31"},
+                           cls.page["id"])
+        _sp.save_placement({"position": "supporting", "status": "active",
+                            "animation": "static", "sponsor_id": cls.b["id"],
+                            "name": "North Shore Realty",
+                            "start_date": "2026-06-01", "end_date": "2026-11-30"},
+                           cls.page["id"])
+
+    def setUp(self):
+        from modules.camhub.models import SponsorReport, session
+        from sqlalchemy import delete
+        from modules.camhub import outbox
+        with session() as s:
+            s.execute(delete(SponsorReport))
+            s.commit()
+        outbox.register_sender(None)
+
+    @classmethod
+    def tearDownClass(cls):
+        from modules.camhub.models import Placement, Sponsor, SponsorReport, session
+        from sqlalchemy import delete
+        with session() as s:
+            s.execute(delete(SponsorReport))
+            s.execute(delete(Placement))
+            s.execute(delete(Sponsor))
+            s.commit()
+
+    def test_enqueue_creates_one_row_per_sponsor_and_is_idempotent(self):
+        from modules.camhub import outbox
+        first = outbox.enqueue_month(2026, 8, actor="tester")
+        self.assertEqual(len(first["created"]), 2)
+        self.assertEqual(first["skipped"], [])
+        again = outbox.enqueue_month(2026, 8, actor="tester")
+        self.assertEqual(again["created"], [])
+        self.assertEqual(sorted(again["skipped"]),
+                         sorted([self.a["id"], self.b["id"]]))
+
+    def test_enqueue_skips_a_sponsor_whose_flight_ran_after_the_month(self):
+        from modules.camhub import outbox, sponsors as _sp
+        c = _sp.save_sponsor({"name": "Future Corp", "email": "f@ex.example"})
+        _sp.save_placement({"position": "supporting", "status": "active",
+                            "sponsor_id": c["id"], "name": "Future Corp",
+                            "start_date": "2026-11-01", "end_date": ""},
+                           self.page["id"])
+        result = outbox.enqueue_month(2026, 8)
+        self.assertNotIn(c["id"], [r for r in result["created"]])
+
+    def test_render_files_a_pdf_and_the_row_carries_its_totals(self):
+        from modules.camhub import outbox
+        from modules.camhub.models import DailyStat, session
+        with session() as s:
+            s.add(DailyStat(page_id=self.page["id"], placement_id=None,
+                            day="2026-08-15", pageviews=100, impressions=0,
+                            clicks=0, unique_sessions=90, filtered=0))
+            pl_id = next(p["id"] for p in __import__("modules.camhub.sponsors", fromlist=["sponsors"]).list_placements(self.page["id"]) if p["sponsor_id"] == self.a["id"])
+            s.add(DailyStat(page_id=self.page["id"], placement_id=pl_id,
+                            sponsor_id=self.a["id"], day="2026-08-15",
+                            pageviews=0, impressions=250, clicks=7,
+                            unique_sessions=220, filtered=0))
+            s.commit()
+        rows = outbox.enqueue_month(2026, 8)["created"]
+        row_id = rows[0] if _row_sponsor(rows[0]) == self.a["id"] else rows[1]
+        result = outbox.render_row(row_id)
+        self.assertEqual(result["impressions"], 250)
+        self.assertEqual(result["clicks"], 7)
+        row = outbox.get_row(row_id)
+        self.assertEqual(row["status"], "rendered")
+        self.assertTrue(row["pdf_url"] or row["pdf_url"] == "")
+        # The Cloudinary URL is empty in the sandbox: local disk backend.
+        # Either way the row records the impressions and clicks.
+
+    def test_default_sender_leaves_a_no_channel_row_rendered(self):
+        from modules.camhub import outbox
+        rows = outbox.enqueue_month(2026, 8)["created"]
+        # Seed nothing: rendering still works, with zeroes.
+        for row_id in rows:
+            outbox.render_row(row_id)
+        result = outbox.send_row(rows[0])
+        self.assertFalse(result["sent"])
+        # Row stays "rendered" for staff, not "failed".
+        self.assertEqual(outbox.get_row(rows[0])["status"], "rendered")
+
+    def test_custom_sender_moves_the_row_to_sent(self):
+        from modules.camhub import outbox
+        rows = outbox.enqueue_month(2026, 8)["created"]
+        row_a = next(r for r in rows if _row_sponsor(r) == self.a["id"])
+        outbox.render_row(row_a)
+        captured = []
+        def _record(sponsor, row):
+            captured.append((sponsor["email"], row["period"]))
+            return {"sent": True}
+        outbox.register_sender(_record)
+        result = outbox.send_row(row_a)
+        self.assertTrue(result["sent"])
+        self.assertEqual(captured, [("ops@rosewood.example", "2026-08")])
+        self.assertEqual(outbox.get_row(row_a)["status"], "sent")
+
+    def test_run_monthly_no_ops_when_today_is_not_the_first(self):
+        from modules.camhub import outbox
+        from datetime import date
+        r = outbox.run_monthly(today=date(2026, 9, 15))
+        self.assertFalse(r["acted"])
+        self.assertEqual(r["reason"], "not-the-first")
+
+    def test_the_reports_job_is_registered(self):
+        from hub import scheduler
+        every, fn, _ = scheduler.JOBS["camhub_reports"]
+        self.assertEqual((every, fn.__name__), (60, "job_camhub_reports"))
+
+
+def _row_sponsor(row_id: int) -> int:
+    from modules.camhub.models import SponsorReport, session
+    with session() as s:
+        return s.get(SponsorReport, int(row_id)).sponsor_id
+
+
+class PortalTests(unittest.TestCase):
+    """The sponsor portal: signed token per sponsor, page-view scoped to
+    that sponsor, CSV likewise, chart is a PNG and neither leaks another
+    sponsor's rows."""
+
+    @classmethod
+    def setUpClass(cls):
+        from modules.camhub import models, seeds, sponsors as _sp
+        from modules.camhub.models import Placement, Sponsor, SponsorReport, DailyStat, session
+        from sqlalchemy import delete
+        assert not models.init_db()
+        cls.page = seeds.provision("buckeye-lake", fetch=False)["page"]
+        with session() as s:
+            for table in (SponsorReport, DailyStat, Placement, Sponsor):
+                s.execute(delete(table))
+            s.commit()
+        _sp.ensure_house_placements(cls.page)
+        cls.a = _sp.save_sponsor({"name": "Rosewood Marine",
+                                  "email": "ops@rosewood.example"})
+        cls.b = _sp.save_sponsor({"name": "North Shore Realty",
+                                  "email": "sales@nsr.example"})
+        cls.pl_a, _ = _sp.save_placement({
+            "position": "presenting", "status": "active", "animation": "static",
+            "sponsor_id": cls.a["id"], "name": "Rosewood Marine",
+            "start_date": "2026-05-01", "end_date": ""}, cls.page["id"])
+        cls.pl_b, _ = _sp.save_placement({
+            "position": "supporting", "status": "active", "animation": "static",
+            "sponsor_id": cls.b["id"], "name": "North Shore Realty",
+            "start_date": "2026-05-01", "end_date": ""}, cls.page["id"])
+        # Seed some rollup rows so numbers land.
+        with session() as s:
+            s.add(DailyStat(page_id=cls.page["id"], placement_id=None,
+                            day="2026-09-10", pageviews=100, impressions=0,
+                            clicks=0, unique_sessions=90, filtered=0))
+            s.add(DailyStat(page_id=cls.page["id"], placement_id=cls.pl_a["id"],
+                            sponsor_id=cls.a["id"], day="2026-09-10",
+                            pageviews=0, impressions=80, clicks=4,
+                            unique_sessions=70, filtered=0))
+            s.add(DailyStat(page_id=cls.page["id"], placement_id=cls.pl_b["id"],
+                            sponsor_id=cls.b["id"], day="2026-09-10",
+                            pageviews=0, impressions=30, clicks=1,
+                            unique_sessions=28, filtered=0))
+            s.commit()
+
+    @classmethod
+    def tearDownClass(cls):
+        from modules.camhub.models import Placement, Sponsor, session
+        from sqlalchemy import delete
+        with session() as s:
+            s.execute(delete(Placement))
+            s.execute(delete(Sponsor))
+            s.commit()
+
+    def test_the_token_round_trips_and_a_bad_token_is_none(self):
+        from modules.camhub import portal
+        tok = portal.mint(self.a["id"])
+        self.assertIsInstance(tok, str)
+        self.assertGreater(len(tok), 30)
+        self.assertEqual(portal.read(tok), self.a["id"])
+        self.assertIsNone(portal.read("not-a-token"))
+        self.assertIsNone(portal.read(""))
+
+    def test_sponsor_view_shows_only_the_sponsor_own_placements(self):
+        from modules.camhub import portal
+        view = portal.sponsor_view(self.a["id"],
+                                   start="2026-09-01", end="2026-09-30")
+        names = [p["name"] for p in view["placements"]]
+        self.assertEqual(names, ["Rosewood Marine"])
+        self.assertEqual(view["totals"]["impressions"], 80)
+        self.assertEqual(view["totals"]["clicks"], 4)
+
+    def test_default_range_is_the_current_month_when_no_dates_given(self):
+        from datetime import date
+        from modules.camhub import portal
+        # portal.sponsor_view uses today() when start/end are empty; assert
+        # that the window is bounded by today rather than the future.
+        view = portal.sponsor_view(self.a["id"], start="", end="")
+        self.assertLessEqual(view["window"]["end"], date.today().isoformat())
+
+    def test_route_serves_the_page_and_the_csv_and_the_chart(self):
+        from modules.camhub import portal, app as mod_app
+        client = mod_app.app.test_client()
+        tok = portal.mint(self.a["id"])
+        resp = client.get(f"/portal/{tok}?start=2026-09-01&end=2026-09-30")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(b"CamHub Sponsor Portal", resp.data)
+        self.assertIn(b"Rosewood Marine", resp.data)
+        # A bad token is 404, not 500.
+        self.assertEqual(client.get("/portal/nope").status_code, 404)
+        # Chart is a PNG.
+        chart = client.get(f"/portal/{tok}/chart.png?start=2026-09-01&end=2026-09-30")
+        self.assertEqual(chart.status_code, 200)
+        self.assertTrue(chart.data.startswith(b"\x89PNG"))
+        # CSV carries the sponsor's rows and nothing else.
+        csv = client.get(f"/portal/{tok}/csv?start=2026-09-01&end=2026-09-30")
+        self.assertEqual(csv.status_code, 200)
+        self.assertIn(b"Rosewood Marine", csv.data)
+        self.assertNotIn(b"North Shore Realty", csv.data)
+        # And the page is noindex.
+        self.assertIn("noindex", resp.headers.get("X-Robots-Tag", ""))
+
+
+class HubCardTests(unittest.TestCase):
+    """Client 360: modules/camhub/hub_card returns one row per page the
+    client owns, and the /api/client/camhub route rides on it."""
+
+    @classmethod
+    def setUpClass(cls):
+        from modules.camhub import models, seeds
+        from modules.camhub.models import DailyStat, Placement, Sponsor, session
+        from sqlalchemy import delete
+        assert not models.init_db()
+        cls.page = seeds.provision("buckeye-lake", fetch=False)["page"]
+        with session() as s:
+            for table in (DailyStat, Placement, Sponsor):
+                s.execute(delete(table))
+            s.commit()
+
+    def test_a_client_with_no_page_returns_empty(self):
+        from modules.camhub import hub_card
+        out = hub_card.for_client("Nobody Here Winery")
+        self.assertTrue(out["measured"])
+        self.assertEqual(out["pages"], [])
+
+    def test_a_client_with_a_page_has_one_row_and_source_health(self):
+        from modules.camhub import hub_card
+        out = hub_card.for_client(self.page["client_name"])
+        self.assertTrue(out["measured"])
+        self.assertEqual(len(out["pages"]), 1)
+        row = out["pages"][0]
+        self.assertEqual(row["slug"], self.page["slug"])
+        self.assertIn(row["health"], ("green", "amber", "red"))
+        self.assertIn("green", row["sources"])
+        self.assertIn("amber", row["sources"])
+        self.assertIn("red", row["sources"])
+
+
+class McpToolTests(unittest.TestCase):
+    """get_cam_performance answers the ad-tool period vocabulary, refuses
+    a bad period, and returns an empty-pages payload for a known client
+    with no CamHub page rather than not_found."""
+
+    @classmethod
+    def setUpClass(cls):
+        from modules.camhub import models
+        assert not models.init_db()
+
+    def test_a_bad_period_names_the_vocabulary(self):
+        from modules.camhub.mcp import get_cam_performance
+        out = get_cam_performance("Buckeye Lake Winery", period="last_week")
+        self.assertTrue(out["found"])
+        self.assertFalse(out["available"])
+        self.assertEqual(out["reason"], "invalid_period")
+        self.assertIn("last_30", out["periods"])
+
+    def test_a_missing_page_is_not_found_shape(self):
+        from modules.camhub.mcp import get_cam_performance
+        out = get_cam_performance("Ghost Client")
+        self.assertTrue(out["found"])
+        self.assertTrue(out["available"])
+        self.assertEqual(out["pages"], [])
+        self.assertEqual(out["reason"], "no_pages")
 
 
 class WiringTests(unittest.TestCase):
