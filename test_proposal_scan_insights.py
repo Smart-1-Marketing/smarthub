@@ -132,19 +132,25 @@ check("never raises on a broken brief",
 
 
 # ---------------------------------------------------------------------------
-section("The seo_aeo rate-card entry exists, is placeholder-priced, and is "
-        "in sync between the two copies")
+section("The seo_aeo rate-card entries exist, are really priced (three "
+        "tiers, not a placeholder), and are in sync between the two copies")
 from hub import rate_card
 rate_card.products.cache_clear()
-seo_aeo = next((p for p in rate_card.products()
-               if "SEO & AEO" in p.get("label", "")), None)
-check("a SEO & AEO product exists on the rate card", seo_aeo is not None)
-check("it carries no rate type -- it is a custom quote, never CPM math",
-      seo_aeo is not None and seo_aeo.get("rate_type") is None, seo_aeo)
-check("it is clearly marked as a placeholder, not yet priced",
-      seo_aeo is not None and "PLACEHOLDER" in seo_aeo.get("listed_rate", "").upper(), seo_aeo)
+seo_aeo_rows = [p for p in rate_card.products()
+                if "SEO & AEO" in p.get("label", "")]
+check("all three tiers exist on the rate card",
+      {p["product"] for p in seo_aeo_rows}
+      == {"SEO & AEO Scope Package (Small)", "SEO & AEO Scope Package (Medium)",
+          "SEO & AEO Scope Package (Large)"},
+      [p["product"] for p in seo_aeo_rows])
+check("none carries a rate type -- each is a flat monthly figure, never CPM math",
+      all(p.get("rate_type") is None for p in seo_aeo_rows), seo_aeo_rows)
+check("the placeholder is gone -- every tier is really priced now",
+      all("PLACEHOLDER" not in (p.get("listed_rate") or "").upper()
+          for p in seo_aeo_rows),
+      seo_aeo_rows)
 drift = rate_card.check_drift()
-check("the IO template's embedded copy carries the same product",
+check("the IO template's embedded copy carries the same three products",
       drift.get("in_sync") is True, drift)
 
 

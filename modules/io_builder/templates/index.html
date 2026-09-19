@@ -599,7 +599,7 @@ const objectiveKPIs={
    ============================================================ */
 const MIN_MONTHLY_DEFAULT=500;
 const MIN_BY_CATEGORY={"DIGITAL RADIO": 1000, "IP TARGETS": 1000, "OTT": 1500, "SEARCH ENGINE MARKETING / PAY PER CLICK": 400, "SEARCH ENGINE OPTIMIZATION": 500};
-const MIN_BY_PRODUCT={};
+const MIN_BY_PRODUCT={"seo & aeo scope package (small)": 400};
 function minimumFor(product,category){
  const n=String(product||"").trim().toLowerCase();
  if(MIN_BY_PRODUCT[n]!==undefined)return MIN_BY_PRODUCT[n];
