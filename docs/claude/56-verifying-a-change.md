@@ -407,6 +407,22 @@ python3 test_client360_layout.py   # the record's cards land in their rail
                                    #   every card into Overview with the page
                                    #   still looking complete — and the four
                                    #   actions the accordion's toolbar carried
+python3 test_client360_upcoming.py # the Coming up card and the Last activity
+                                   #   pill: dates read never guessed, exact
+                                   #   client match, soonest first
+python3 test_next_action.py        # the one-sentence line: worst of three
+                                   #   already-computed sources, no new
+                                   #   severity invented, a real "nothing
+                                   #   urgent" sentence rather than silence
+python3 test_client_money.py       # the Account value card: the group's own
+                                   #   already-merged billing total beside the
+                                   #   Invoices card's own QuickBooks lookup —
+                                   #   absent never reads as zero owed
+python3 test_client_snapshot_pdf.py # the one-page snapshot download: the
+                                   #   same four sources laid out on paper,
+                                   #   any one raising costs its own section,
+                                   #   and the route redirects a stranger
+                                   #   rather than answering a JSON 401
 python3 test_commercial_dashboard_layout.py
                                    #   the Commercial Builder dashboard's own
                                    #   sections, and the rail label assistive
