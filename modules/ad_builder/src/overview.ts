@@ -66,9 +66,16 @@ function briefForm(d: OverviewData): string {
       : `<input name="${key}" type="${kind === 'url' ? 'url' : 'text'}" value="${v}">`;
     return `<label><span>${esc(label)}</span>${control}</label>`;
   }).join('');
+  // The endpoint rides on a data attribute rather than being interpolated
+  // into the script below. esc() escapes & < > " -- which is exactly right
+  // for a double-quoted attribute and wrong for a single-quoted JS string,
+  // where an apostrophe in the value closes the literal and whatever follows
+  // is parsed as code. Putting it here removes the JS-string context rather
+  // than escaping around it; proof.ts reaches for jsonScript() where a value
+  // genuinely has to land in a script.
   return `<section id="brief"><h2>The brief</h2>
     <p class="sub">What was asked for. Change anything here and the build screen, the copy drafts and the proof read the new version.</p>
-    <form id="briefForm">${rows}
+    <form id="briefForm" data-endpoint="/api/campaign/${esc(d.requestId)}/brief">${rows}
       <div class="briefacts"><button type="submit">Save the brief</button><span id="briefNote" role="status" aria-live="polite"></span></div>
     </form></section>
   <script>
@@ -80,7 +87,7 @@ function briefForm(d: OverviewData): string {
       var body = {};
       Array.prototype.forEach.call(form.querySelectorAll('[name]'), function (el) { body[el.name] = el.value; });
       note.textContent = 'Saving\u2026';
-      fetch('/api/campaign/${esc(d.requestId)}/brief', {
+      fetch(form.dataset.endpoint, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
       }).then(function (r) { return r.json().then(function (b) { return { ok: r.ok, b: b }; }); })
         .then(function (res) {

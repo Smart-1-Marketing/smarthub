@@ -38,13 +38,22 @@ function jobsSection(jobs: JobRow[]): string {
     const m = Math.round((Date.now() - Date.parse(iso)) / 60000);
     return m < 1 ? 'just now' : m < 60 ? `${m}m ago` : `${Math.round(m / 60)}h ago`;
   };
+  // Every one of these is escaped, for the reason row() escapes its own: a
+  // job's error is `err.message` from the render pipeline, and several of
+  // those interpolate a value somebody outside this process chose -- the
+  // asset URL a rep pasted (`Fetching background failed: 404 <url>`), the
+  // first 150 bytes of a provider's own response body. assetUrlIsSafe()
+  // vouches for a URL's scheme and host, which is all an SSRF guard should
+  // do; the path and query are still whatever was typed. Unescaped, that
+  // reaches this page as markup -- on the screen somebody opens *because*
+  // a job has already failed, which is exactly when the row is there.
   const rows = jobs.slice(-12).reverse().map((j) => `
     <tr>
-      <td class="mono">${j.id}</td>
-      <td><span class="lvl ${j.status === 'complete' ? 'ok' : j.status === 'failed' ? 'fail' : 'warn'}">${j.status.toUpperCase()}</span></td>
-      <td class="mono">${j.progress.done}/${j.progress.total}</td>
-      <td>${age(j.startedAt)}</td>
-      <td>${j.error ? `<span class="detail">${j.error.slice(0, 140)}</span>` : ''}</td>
+      <td class="mono">${esc(j.id)}</td>
+      <td><span class="lvl ${j.status === 'complete' ? 'ok' : j.status === 'failed' ? 'fail' : 'warn'}">${esc(String(j.status ?? '').toUpperCase())}</span></td>
+      <td class="mono">${esc(j.progress?.done)}/${esc(j.progress?.total)}</td>
+      <td>${esc(age(j.startedAt))}</td>
+      <td>${j.error ? `<span class="detail">${esc(String(j.error).slice(0, 140))}</span>` : ''}</td>
     </tr>`).join('');
   return `
   <h2>Render jobs (this instance)</h2>

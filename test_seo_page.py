@@ -66,6 +66,7 @@ Every failure below is one where a screen would go on looking healthy:
      `check_work_kinds()` cannot see it: it only flags a module in *neither*
      table, and `hub` is in one.
 """
+import atexit
 import os
 import shutil
 import sys
@@ -397,10 +398,37 @@ LIVE_ROW = {"client": "Zeta Live Only", "product": "Website SEO and Blogs",
             "monthly": "900", "partner": "Smart 1 Marketing", "sales": "Todd"}
 # Seed a products.json so the export fallback has rows to return. Without
 # this the fallback returns [] and "with the export's rows still on it" fails.
+#
+# Restored on the way out. knack_data.BASE is CLIENTS_DATA_DIR, which under
+# CI and in a checkout is tests/fixtures/clients -- a COMMITTED fixture, not
+# a scratch directory. Writing it and walking away left an eight-record
+# product book replaced by this one row, so every later file in the same run
+# read a book with one client in it and passed: the confident empty answer
+# this repo keeps having to undo, inside the suite that exists to catch it.
 _export_dir = os.path.join(knack_data.BASE)
 os.makedirs(_export_dir, exist_ok=True)
 import json as _json
-with open(os.path.join(_export_dir, "products.json"), "w") as _f:
+_products_path = os.path.join(_export_dir, "products.json")
+_products_before = None
+if os.path.exists(_products_path):
+    with open(_products_path) as _f:
+        _products_before = _f.read()
+
+
+@atexit.register
+def _restore_products_fixture():
+    # atexit rather than a try/finally: this file is a linear script and a
+    # check failing part-way through must not leave the fixture gutted for
+    # whatever runs next.
+    if _products_before is None:
+        if os.path.exists(_products_path):
+            os.remove(_products_path)
+    else:
+        with open(_products_path, "w") as _f:
+            _f.write(_products_before)
+
+
+with open(_products_path, "w") as _f:
     _json.dump({"records": [LIVE_ROW]}, _f)
 knack_data._cache.clear()
 _real_rows = knack_products.rows
