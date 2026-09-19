@@ -122,22 +122,36 @@ allowed = sc.authorized_text(request_row)
 check("what they typed reaches the allowed set", "$50 off" in allowed)
 check("so does what they put in the notes", "555-0142" in allowed)
 
-facts = sc.request_facts(request_row, {"notes": "Never mention the old brand."})
-blocked = [f for f in sp.validate_copy("$50 off any tune-up through Friday.",
-                                       channels=["facebook"], facts=facts)
-           if f["level"] == "block"]
-check("their own offer is not blocked as invented", not blocked, blocked)
-check("the standing brief survives beside it",
-      "old brand" in facts.get("notes", ""))
-
-invented = [f for f in sp.validate_copy("$300 off, this week only!",
-                                        channels=["facebook"], facts=facts)
-            if f["level"] == "block"]
-check("a price nobody supplied is still blocked", invented)
-
+# Through `validate_slot`, which is the one reading: the merge of a client's
+# own words into the facts lives there, in the function every caller passes
+# through. `social_content.request_facts()` was a second merge of exactly the
+# same rule, and these three properties used to be asserted against it -- so
+# they proved the DUPLICATE worked while the live path was tested separately
+# below. Asked of the live one, they also stop being about an intermediate
+# dict and start being about what a client actually sees blocked.
+# A figure the BRIEF authorizes and the client's own words do not. If the
+# merge replaced the brief instead of adding to it, this price would read as
+# invented and be blocked -- which is the property, said as an outcome.
+BRIEF = {"notes": "Winter service is $89."}
 slot = {"channels": ["facebook"], "image_url": "https://example.com/photo.jpg",
         "copy": "$50 off any tune-up through Friday.",
         "supplied": allowed}
+
+blocked = [f for f in sp.validate_slot(slot, BRIEF) if f["level"] == "block"]
+check("their own offer is not blocked as invented", not blocked, blocked)
+
+# The standing brief is added to, not replaced -- asserted as the OUTCOME
+# rather than by reading the merged dict, because the dict is an
+# implementation detail and what matters is what a client sees blocked.
+kept = [f for f in sp.validate_slot(dict(slot, copy="Winter service is $89."),
+                                    BRIEF)
+        if f["level"] == "block"]
+check("the standing brief survives beside it", not kept, kept)
+
+invented = [f for f in sp.validate_slot(dict(slot, copy="$300 off, this week only!"),
+                                        BRIEF)
+            if f["level"] == "block"]
+check("a price nobody supplied is still blocked", invented)
 check("validate_slot reads the slot's own supplied text",
       not [f for f in sp.validate_slot(slot, {}) if f["level"] == "block"],
       sp.validate_slot(slot, {}))

@@ -1722,13 +1722,16 @@ def check_tested_but_unwired() -> list[dict]:
     without it the old key can never be dropped, so the rotation survives
     forever instead of ending. The test was green the whole time.
 
-    **Low severity, and it must stay low.** This went in with 21 findings
-    behind it, and this repo's own rule is that a check red on the day it is
-    switched on is a check people learn to ignore. A function here is not a
-    defect on its own -- several are a named reading of a table, kept
-    deliberately, and `test_unwired.ALLOW` already carries that argument for
-    35 of them. What this gives is the number, visible and shrinking, rather
-    than a shape nobody can see at all.
+    **The list is empty, and that is what raised it to medium.** It went in
+    at low with 21 findings behind it, on this repo's rule that a check red on
+    the day it is switched on is a check people learn to ignore. A function
+    here is not a defect on its own -- several are a named reading of a table,
+    kept deliberately -- so the backlog was worked one at a time: three
+    deleted as a second reading of something live, one wired to the diagnostic
+    its own docstring named, and the rest declared in
+    `test_unwired.TEST_ONLY_ALLOW` under the categories `ALLOW` already
+    argues. At zero the next finding is the only finding rather than the
+    twenty-third, which is where low would bury it.
     """
     import collections
     prod, tests = collections.Counter(), collections.Counter()
@@ -1747,7 +1750,10 @@ def check_tested_but_unwired() -> list[dict]:
             continue
         (tests if rel.name.startswith("test_") else prod).update(found)
 
-    allow = _unwired_allow()
+    # Both: a name in `ALLOW` is referenced nowhere at all and is that
+    # check's finding rather than this one's, so reporting it here would be
+    # two checks naming one function.
+    allow = _unwired_allow() | _test_only_allow()
     defined: dict[str, list[str]] = {}
     for rel, src in _sources():
         base = os.path.basename(rel)
@@ -1784,11 +1790,29 @@ def check_tested_but_unwired() -> list[dict]:
                           f"caller reaches proves the function works and not "
                           f"that anything uses it.",
                 "fix": "Wire it where it belongs, delete it, or add "
-                       f"'{rel}:{name}' to test_unwired.ALLOW with the reason "
-                       "it is kept — the allowlist that already carries that "
-                       "argument for the ones held on purpose.",
+                       f"'{rel}:{name}' to test_unwired.TEST_ONLY_ALLOW with "
+                       "the reason it is kept — the allowlist for THIS "
+                       "question, which is not ALLOW: everything here is "
+                       "referenced by its own test, so an entry in ALLOW "
+                       "reads to that check as one that has outlived what it "
+                       "exempted.",
             })
     return out
+
+
+def _test_only_allow() -> set:
+    """`test_unwired.TEST_ONLY_ALLOW`'s keys.
+
+    A SECOND dict rather than more entries in `ALLOW`, and this function
+    exists because that distinction is load-bearing: `ALLOW` is for a name
+    referenced nowhere in the repo at all, and every function *this* check
+    finds is referenced -- by its own test. Sharing one dict satisfied this
+    check and turned `test_unwired.py`'s own stale half red on all of them,
+    which is why this backlog sat at twenty-two with the fix text pointing at
+    the wrong list. One list answering two questions can be stale-checked on
+    neither.
+    """
+    return _allow_keys("TEST_ONLY_ALLOW")
 
 
 def _unwired_allow() -> set:
@@ -1798,6 +1822,11 @@ def _unwired_allow() -> set:
     drifts silently is the one in the checker -- `check_unbacked_json` says
     the same about keeping its rule in `hub/jsonstore.py`.
     """
+    return _allow_keys("ALLOW")
+
+
+def _allow_keys(dict_name: str) -> set:
+    """The keys of one dict in `test_unwired.py`, read rather than copied."""
     path = ROOT / "test_unwired.py"
     try:
         tree = ast.parse(path.read_text(encoding="utf-8", errors="ignore"))
@@ -1806,7 +1835,7 @@ def _unwired_allow() -> set:
     for node in ast.walk(tree):
         if not isinstance(node, ast.Assign):
             continue
-        if not any(getattr(t, "id", "") == "ALLOW" for t in node.targets):
+        if not any(getattr(t, "id", "") == dict_name for t in node.targets):
             continue
         keys = set()
         for key in getattr(node.value, "keys", []):
@@ -2647,10 +2676,17 @@ CHECKS = [
     # exactly as it always has. What it cannot do is survive a key rotation.
     ("own_fernet", "A module sealing with its own single key", "low",
      check_own_fernet),
-    # Low, and it must stay low: it went in with 21 findings behind it, and a
-    # check red on the day it is switched on is a check people learn to
-    # ignore. What it buys is the number being visible at all.
-    ("tested_but_unwired", "A function only its own tests call", "low",
+    # Medium now, and the sentence it replaces said "low, and it must stay
+    # low: it went in with 21 findings behind it, and a check red on the day
+    # it is switched on is a check people learn to ignore." That argument was
+    # right and its premise is gone -- the list is empty, so the next finding
+    # is the only finding rather than the twenty-third, and low is where it
+    # would be buried. Deliberately NOT high: high fails the run, and the
+    # correct answer to several of these is an allowlist entry with a reason,
+    # which is a judgment somebody makes rather than a build somebody unblocks
+    # at speed. The `provider_key_drift` note asked for exactly this raise
+    # once its own list was empty.
+    ("tested_but_unwired", "A function only its own tests call", "medium",
      check_tested_but_unwired),
     ("stale_sqlite_exemptions", "Disk-SQLite exemption names a missing file",
      "medium", check_stale_sqlite_exemptions),

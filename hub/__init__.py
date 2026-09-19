@@ -7261,6 +7261,24 @@ def create_hub_app() -> Flask:
             pass
 
         out["db_boot_error"] = app.config.get("HUB_DB_BOOT_ERROR") or None
+        # How much of the process-wide boot-wait budget this worker burned on a
+        # database that was not answering yet. `boot_wait_spent()` said "For
+        # diagnostics" in its docstring and reached no diagnostic -- and this is
+        # the one it was written for: a slow boot and a failed one are the same
+        # sentence in `db_boot_error`, and the difference between them is
+        # whether the budget ran out. Nothing here may raise: a figure that
+        # cannot be read must not cost the page that reports why sign-in is
+        # broken, so it answers None and the reader sees "not measured".
+        try:
+            from .extensions import _BOOT_WAIT_BUDGET, boot_wait_spent
+            _spent = round(float(boot_wait_spent()), 2)
+            out["db_boot_wait_seconds"] = _spent
+            out["db_boot_wait_budget"] = float(_BOOT_WAIT_BUDGET)
+            out["db_boot_wait_exhausted"] = _spent >= float(_BOOT_WAIT_BUDGET)
+        except Exception:  # noqa: BLE001
+            out["db_boot_wait_seconds"] = None
+            out["db_boot_wait_budget"] = None
+            out["db_boot_wait_exhausted"] = None
         out["users_registered"] = app.config.get("HUB_USERS_REGISTERED", None)
         if out["users_registered"] is False:
             out["signup_available"] = False

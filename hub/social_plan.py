@@ -685,7 +685,10 @@ def validate_slot(slot: dict, facts: dict | None = None) -> list[dict]:
     # client's own offer on the client's own request and reads as broken
     # rather than as careful. It is merged here, in the one place both
     # validate_batch and every direct caller pass through — a rule two of
-    # three callers keep is not a rule.
+    # three callers keep is not a rule. `social_content.request_facts()` was a
+    # second merge of exactly this, uncalled, so there is deliberately no
+    # helper to reach for: a shared rule that nothing shares is how the two
+    # come to disagree about what authorizes a client's own offer.
     supplied = str(slot.get("supplied") or "").strip()
     if supplied:
         facts = dict(facts or {})
