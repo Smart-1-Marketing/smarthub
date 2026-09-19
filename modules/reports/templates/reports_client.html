@@ -312,6 +312,9 @@
       {% if youtube.why %}<span class="s1d-muted">{{ youtube.why|join('; ') }}.</span>{% endif %}
       {% if youtube.read_note %}<span class="s1d-muted">{{ youtube.read_note }}</span>{% endif %}
       {% if youtube.errors %}<span class="s1d-pill bad">not measured</span> <span class="s1d-muted">{{ youtube.errors|join('; ') }}</span>{% endif %}
+      {% if youtube.gated %}<br>Watch time / subscribers gained / traffic sources:
+      {% if youtube.analytics_state == 'ok' %}<span class="s1d-pill ok">on</span>{% elif youtube.analytics_state == 'not_connected' %}<span class="s1d-pill warn">no YouTube Studio connection</span>{% else %}<span class="s1d-pill warn">{{ youtube.analytics_state or 'not read' }}</span>{% endif %}
+      <span class="s1d-muted">{{ youtube.analytics_note }}</span>{% endif %}
     </span></div>
   {% if email is defined %}
   <div class="s1d-kv" style="margin-top:8px"><b>Email campaigns</b>

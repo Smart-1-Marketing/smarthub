@@ -37,6 +37,17 @@ subscriber count reads as hidden, never as zero. "YouTube" is named,
 because it is the client's own channel and not a vendor Smart 1 buys
 from -- ``products.ALLOWED`` carries the reason -- and the labels are what
 a client reads.
+
+**Watch time, subscribers gained and traffic sources ride beside it, when
+they exist.** That is the OAuth half, ``hub/youtube_analytics.py`` --
+read through a ``modules/youtube_studio`` connection for a channel we
+actively manage, which most confirmed channels are not. It is never part
+of the gate: a client with the keyed counts and no Studio connection gets
+the section with that half simply absent, the same way Search Console is
+optional inside the organic section. ``analytics.public_view()`` is what
+decides whether it reaches the client at all -- ``not_connected`` and
+every other kind of nothing stay staff-only, the rule this whole module
+follows one level up.
 """
 from __future__ import annotations
 
@@ -52,6 +63,10 @@ LABELS = {
     "videos": "Videos on the channel",
     "change": "Over the last 30 days",
     "hidden": "hidden by the channel",
+    "watch_minutes": "Minutes watched",
+    "subscribers_net": "Subscribers gained",
+    "period_views": "Views in the period",
+    "sources": "Where views came from",
 }
 
 # The mediums whose work touches the channel. creative_needs.VIDEO covers
@@ -96,6 +111,16 @@ def _reading(name: str, today: date) -> dict:
 def _public(r: dict) -> dict | None:
     from hub import youtube as hub_youtube
     return hub_youtube.public_view(r)
+
+
+def _analytics_reading(name: str, today: date) -> dict:
+    from hub import youtube_analytics
+    return youtube_analytics.reading(name, today=today)
+
+
+def _analytics_public(r: dict) -> dict | None:
+    from hub import youtube_analytics
+    return youtube_analytics.public_view(r)
 
 
 def _norm(name: str) -> str:
@@ -186,6 +211,16 @@ def section(link, today: date | None = None, gate_: dict | None = None) -> dict 
     out.update(card)
     out["staff_note"] = r.get("staff_note") or ""
     out["state"] = "ok"
+    # The OAuth half rides beside the keyed one, never gating it: most
+    # confirmed channels have no youtube_studio connection, and that is the
+    # ordinary answer rather than a reason to withhold the counts above.
+    try:
+        ar = _analytics_reading(g["name"], today)
+        out["analytics"] = _analytics_public(ar)
+        out["analytics_staff_note"] = ar.get("staff_note") or ar.get("error") or ""
+    except Exception as exc:                            # noqa: BLE001
+        out["analytics"] = None
+        out["analytics_staff_note"] = f"The Analytics reading could not be taken ({type(exc).__name__})."
     return out
 
 
@@ -196,7 +231,10 @@ def public_view(block: dict | None) -> dict | None:
         return None
     out = {k: v for k, v in block.items()}
     out.pop("staff_note", None)
+    out.pop("analytics_staff_note", None)
     out.pop("state", None)
+    if not out.get("analytics"):
+        out.pop("analytics", None)
     return out
 
 
@@ -218,4 +256,10 @@ def staff_gate(client: str, name: str) -> dict:
             g["as_of"] = r.get("as_of") or ""
         except Exception as exc:                        # noqa: BLE001
             g["errors"].append(f"the reading could not be taken ({type(exc).__name__})")
+        try:
+            ar = _analytics_reading(g.get("name") or name, date.today())
+            g["analytics_state"] = ar.get("state") or ""
+            g["analytics_note"] = ar.get("staff_note") or ar.get("error") or ""
+        except Exception as exc:                        # noqa: BLE001
+            g["errors"].append(f"the Analytics reading could not be taken ({type(exc).__name__})")
     return g

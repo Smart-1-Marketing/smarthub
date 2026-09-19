@@ -358,6 +358,23 @@ def _youtube(d: "_Doc", y: dict | None):
             d.text(f"{L.get('change', 'Over the last 30 days')}: " + ", ".join(parts)
                    + f" (since {ch.get('since', '')}).", size=9, color=MUTED)
     d.text(f"Read {y.get('as_of', '')}", size=9, color=MUTED)
+    ya = y.get("analytics") or {}
+    if ya:
+        net = ya.get("subscribers_net")
+        d.tiles([
+            {"label": L.get("watch_minutes", "Minutes watched"),
+             "display": f"{ya['watch_minutes']:,.0f}" if ya.get("watch_minutes") is not None else "—"},
+            {"label": L.get("subscribers_net", "Subscribers gained"),
+             "display": (f"{net:+,}" if net else "no change") if net is not None else "—"},
+            {"label": L.get("period_views", "Views in the period"),
+             "display": f"{ya['views']:,}" if ya.get("views") is not None else "—"},
+        ])
+        sources = ya.get("sources") or []
+        if sources:
+            line = ", ".join(f"{s.get('label')} ({s['views']:,})" for s in sources[:3] if s.get("views") is not None)
+            if line:
+                d.text(f"{L.get('sources', 'Where views came from')}: {line}.", size=9, color=MUTED)
+        d.text(f"{ya.get('start', '')} to {ya.get('end', '')}, read {ya.get('as_of', '')}", size=8.5, color=MUTED)
     d.space(10)
 
 

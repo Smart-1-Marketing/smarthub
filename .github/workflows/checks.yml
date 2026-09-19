@@ -3989,6 +3989,16 @@ jobs:
       - name: The YouTube channel reading
         if: matrix.group == 8
         run: python3 test_youtube.py
+      # The OAuth half: watch time, subscribers gained and traffic sources,
+      # read through a youtube_studio connection for the same channel id
+      # rather than a second OAuth flow of its own. The join is the channel
+      # id, never the client's name; not_connected is the ordinary answer
+      # for a channel we do not manage, never a failure; the nightly sweep
+      # reads only connected channels; and the section rides beside the
+      # keyed gate on modules/reports/youtube.py without gating on it.
+      - name: The YouTube Analytics reading
+        if: matrix.group == 8
+        run: python3 test_youtube_analytics.py
       # A client's email campaigns read from their own Suite sub-account: the
       # two email read scopes requested, the campaign list as the source with
       # the per-campaign statistics endpoint filling gaps under a cap, five

@@ -325,9 +325,14 @@ open the check page, paste the real names into the map.
 7. ~~YouTube organic section.~~ Done, for the keyed half: `hub/youtube.py`,
    the Client 360 card, the nightly reading on the same key as Places, and
    the client's page and PDF gated on a video or social product and a
-   confirmed channel. The Analytics API half (watch time, subscribers
-   gained per day, traffic sources) is not built; it is a scope on Google
-   Finder's list and every connected login re-consents for it.
+   confirmed channel. ~~The Analytics API half~~ Done too, in
+   `hub/youtube_analytics.py` -- not through a new scope on Google
+   Finder's list as first proposed here, but through the OAuth connection
+   `modules/youtube_studio` already holds for a channel we manage, joined
+   on the channel id rather than the client's name. Watch time,
+   subscribers gained and traffic sources ride beside the keyed section on
+   the client's page and PDF when a connection exists; `not_connected` is
+   the ordinary, staff-only answer when one does not.
 8. ~~File the proposal adapter's link and lines under the module's own key.~~
    Done, with the bounded pricing rule, the pacing alerts on `/my-clients`
    and the cached PDF.

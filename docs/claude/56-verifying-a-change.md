@@ -831,6 +831,16 @@ python3 test_youtube.py            # a client's YouTube channel: a link read
                                    #   saying which variable answered, and the
                                    #   client's page gated on a video or social
                                    #   product AND a confirmed, read channel
+python3 test_youtube_analytics.py  # the Analytics half: watch time, subscribers
+                                   #   gained and traffic sources, read through
+                                   #   a youtube_studio OAuth connection for the
+                                   #   same channel id -- never a second OAuth
+                                   #   flow of its own -- joined on the channel
+                                   #   id and never the client's name, not_connected
+                                   #   read as the ordinary answer rather than a
+                                   #   failure, and riding beside the keyed gate
+                                   #   on modules/reports/youtube.py without
+                                   #   gating on it
 python3 test_suite_email_stats.py   # a client's email campaigns read from their
                                    #   own Suite sub-account: two scopes, the
                                    #   campaign list with the statistics

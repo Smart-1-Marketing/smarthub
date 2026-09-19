@@ -283,6 +283,15 @@
         <div class="delta">{% if y.change and y.change.measured and y.change.videos_delta is not none %}{{ '{:+,}'.format(y.change.videos_delta) if y.change.videos_delta else 'no new videos' }} over {{ y.change.days }} days{% else %}30-day change not yet measured{% endif %}</div></div>
     </div>
     <p class="hint">Read {{ y.as_of }}{% if y.change and y.change.measured %} &middot; change since {{ y.change.since }}{% endif %}</p>
+    {% if y.analytics %}{% set ya = y.analytics %}
+    <div class="tiles" style="margin-top:10px">
+      <div class="tile"><div class="k">{{ Y.watch_minutes }}</div><div class="v">{% if ya.watch_minutes is not none %}{{ '{:,.0f}'.format(ya.watch_minutes) }}{% else %}&mdash;{% endif %}</div></div>
+      <div class="tile"><div class="k">{{ Y.subscribers_net }}</div><div class="v">{% if ya.subscribers_net is not none %}{{ '{:+,}'.format(ya.subscribers_net) if ya.subscribers_net else 'no change' }}{% else %}&mdash;{% endif %}</div></div>
+      <div class="tile"><div class="k">{{ Y.period_views }}</div><div class="v">{% if ya.views is not none %}{{ '{:,}'.format(ya.views) }}{% else %}&mdash;{% endif %}</div></div>
+    </div>
+    {% if ya.sources %}<p class="hint">{{ Y.sources }}: {% for s in ya.sources[:3] %}{{ s.label }} ({{ '{:,}'.format(s.views) if s.views is not none else '—' }}){% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+    <p class="hint">{{ ya.start }} to {{ ya.end }}, read {{ ya.as_of }}</p>
+    {% endif %}
   </section>
   {% endif %}
 

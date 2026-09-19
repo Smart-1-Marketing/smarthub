@@ -587,7 +587,11 @@ function render(g,q){
   html+='</div></div>';
 
   // ---------- Google card ----------
-  html+=`<div class="card"><div class="card-h"><span class="src-tag src-google">Video</span><h3>YouTube accounts</h3><a class="open-link" href="${'/tools/youtube/?client='+encodeURIComponent(name)}">Add account &amp; manage access →</a></div><div class="card-b" id="c-youtube"><div class="empty">Loading YouTube accounts…</div></div></div>`;
+  // A different id from the "YouTube channel" card above: both used to be
+  // c-youtube, so getElementById always found the first one and this card's
+  // own fetch (loadYtStudio, below) wrote into it instead -- this card's box
+  // never updated past "Loading…", and the card above raced two writers.
+  html+=`<div class="card"><div class="card-h"><span class="src-tag src-google">Video</span><h3>YouTube Studio</h3><a class="open-link" href="${'/tools/youtube/?client='+encodeURIComponent(name)}">Add account &amp; manage access →</a></div><div class="card-b" id="c-youtube-studio"><div class="empty">Loading YouTube accounts…</div></div></div>`;
   html+=`<div class="card"><div class="card-h"><span class="src-tag src-google">Google</span><h3>GA4, GTM &amp; more</h3><a class="open-link" href="${'/google/?q='+encodeURIComponent(name)}">Open Google Finder →</a></div><div class="card-b" id="c-google"><div id="c-analytics-ids" style="margin-bottom:10px"></div><div class="empty">Searching… <span class="spin"></span></div></div></div>`;
 
   // ---------- GTM Containers (replaces the old Simvoly box) ----------
@@ -839,12 +843,12 @@ function render(g,q){
   html+='</div></div>';               // close the staging grid and its wrapper
   $('results').innerHTML=html;
   sectionize();                       // move every card into its section
-  const youtubeTarget=$('c-youtube');
+  const youtubeStudioTarget=$('c-youtube-studio');
   fetch('/tools/youtube/api/client?client='+encodeURIComponent(name)).then(r=>{if(!r.ok)throw new Error();return r.json();}).then(d=>{
-    if(!youtubeTarget.isConnected)return;
+    if(!youtubeStudioTarget.isConnected)return;
     const channels=(d.client||{}).channels||[];
-    youtubeTarget.innerHTML=channels.length?channels.map(c=>'<div style="padding:8px 0"><b>'+esc(c.title)+'</b><div class="muted">'+esc(c.connection_error?'Reconnect required':c.connected?'Connected for management':'Linked — owner access needed')+'</div></div>').join(''):'<p>No YouTube account linked yet. Add a channel or create an owner access link.</p>';
-  }).catch(()=>{if(youtubeTarget.isConnected)youtubeTarget.textContent='YouTube accounts could not be loaded. Open YouTube Studio to retry.';});
+    youtubeStudioTarget.innerHTML=channels.length?channels.map(c=>'<div style="padding:8px 0"><b>'+esc(c.title)+'</b><div class="muted">'+esc(c.connection_error?'Reconnect required':c.connected?'Connected for management':'Linked — owner access needed')+'</div></div>').join(''):'<p>No YouTube account linked yet. Add a channel or create an owner access link.</p>';
+  }).catch(()=>{if(youtubeStudioTarget.isConnected)youtubeStudioTarget.textContent='YouTube accounts could not be loaded. Open YouTube Studio to retry.';});
   loadHealth(name);
   loadNextAction(name);
   loadCamhubCard(name);
