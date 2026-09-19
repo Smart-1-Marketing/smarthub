@@ -376,7 +376,7 @@ section("...and the sibling list, held to the same rule on its own question")
 import hub.integrity as _integ                                  # noqa: E402
 
 _real_allow = _integ._test_only_allow
-_integ._test_only_allow = lambda: set()                         # noqa: E731
+_integ._test_only_allow = set          # set() with no arguments is the empty set
 try:
     _RAW = {f"{r['file']}:{(r['detail'] or '').split('(')[0]}"
             for r in _integ.check_tested_but_unwired()}
