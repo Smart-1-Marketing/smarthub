@@ -153,7 +153,8 @@ def summary_for(slugs) -> dict:
     """
     wanted = [str(s or "").strip() for s in (slugs or []) if str(s or "").strip()]
     if not wanted:
-        return {"measured": True, "pages": {}}
+        return {"measured": True, "pages": {}, "recent_days": RECENT_DAYS,
+                "counting_note": COUNTING_NOTE}
     try:
         cutoff = _now() - timedelta(days=RECENT_DAYS)
         rows = (LandingView.query
@@ -163,7 +164,12 @@ def summary_for(slugs) -> dict:
             db.session.rollback()
         except Exception:                                   # noqa: BLE001
             pass
-        return {"measured": False, "pages": {},
+        # Every branch answers with the same keys. A caller reading
+        # `counting_note` on the day the table refuses would otherwise raise
+        # or silently lose the caveat -- the `kit_coverage()` rule, one
+        # payload over.
+        return {"measured": False, "pages": {}, "recent_days": RECENT_DAYS,
+                "counting_note": COUNTING_NOTE,
                 "error": "The visit counts could not be read."
                          f" ({type(exc).__name__})"}
 
@@ -184,7 +190,20 @@ def summary_for(slugs) -> dict:
             p["first"] = stamp
         if stamp and (not p["last"] or stamp > p["last"]):
             p["last"] = stamp
-    return {"measured": True, "pages": pages, "recent_days": RECENT_DAYS}
+    # The wording rides on the counts rather than being asked for, because a
+    # screen that has to remember to call `line_for()` is a screen that words
+    # it itself instead -- which is what both of them were doing.
+    for p in pages.values():
+        p["line"] = line_for(p)
+    return {"measured": True, "pages": pages, "recent_days": RECENT_DAYS,
+            "counting_note": COUNTING_NOTE}
+
+
+# What the number leaves out, said once. Kept apart from `line_for()` because
+# they are two different sentences: the line says what WAS counted and this
+# says what was not, so a screen that already carries the caveat under its
+# table does not print it again inside every row.
+COUNTING_NOTE = "Staff previews, link scanners and reloads are not counted."
 
 
 def line_for(counts: dict) -> str:
@@ -194,6 +213,15 @@ def line_for(counts: dict) -> str:
     to three colleagues is three, which is arguably right, and one with
     JavaScript off is none, which is not. A number whose definition is on the
     screen beside it can be argued with; one that is merely displayed cannot.
+
+    This shipped with **no caller** while three screens worded the same count
+    three ways: `opensTitle()` in `landing_maker.html` said "0 opens" where
+    this says "No opens recorded yet." and carried a last-seen stamp this did
+    not, the Client 360 cell said "N (M recent)" and defined nothing at all,
+    and the one function claiming to prevent exactly that was the dead one. A
+    shared rule that nothing shares is worse than no shared rule, because the
+    next reader believes it. `counts_for()` attaches it to every row now, so a
+    screen gets the wording without having to remember to ask for it.
     """
     if not counts:
         return ""
@@ -207,6 +235,11 @@ def line_for(counts: dict) -> str:
         out += f", {recent} in the last {RECENT_DAYS} days"
     if phone:
         out += f" · {phone} on a phone"
+    # The last-seen stamp was only ever on the landing maker's tooltip.
+    # Carried here so adopting the shared line costs that screen nothing.
+    last = str(counts.get("last") or "")
+    if last:
+        out += " · last " + last[:16].replace("T", " ")
     return out + "."
 
 

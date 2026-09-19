@@ -609,7 +609,7 @@ function lpLoad(){
                visits and a catastrophe off four thousand. "not measured" is a
                different answer from nought and is drawn as one. */
             '<td style="padding:7px 6px;border-bottom:1px solid #f4f7fa;white-space:nowrap"'+
-              (p.views ? ' title="'+esc(opensTitle(p.views, d.views_recent_days))+'"' : '')+'>'+
+              (p.views ? ' title="'+esc(opensTitle(p.views, d.views_counting_note))+'"' : '')+'>'+
               (d.views_measured === false
                  ? '<span class="muted" style="font-size:11px">not measured</span>'
                  : (p.views && p.views.views
@@ -690,19 +690,20 @@ function lpRevise(id, name){
     });
 }
 
-/* One wording of what an open is, said where the number is. It counts
-   opens rather than visitors: somebody who forwards the link to three
-   colleagues is three, which is arguably right, and somebody with
-   JavaScript off is none, which is not. A number whose definition is on
-   the screen beside it can be argued with; one that is merely displayed
-   cannot. hub/landing_views.py carries the rest of the rules. */
-function opensTitle(v, days){
-  var out = Number(v.views||0) + ' open' + (Number(v.views) === 1 ? '' : 's');
-  if(days && Number(v.recent) !== Number(v.views)){
-    out += ', ' + Number(v.recent||0) + ' in the last ' + Number(days) + ' days';
-  }
-  if(v.last) out += ' · last ' + String(v.last).replace('T',' ').slice(0,16);
-  return out + '. Staff previews, link scanners and reloads are not counted.';
+/* One wording of what an open is, said where the number is -- and the
+   wording is the SERVER's. This function used to compose it here, which
+   made it the second of three screens saying the same count in its own
+   words: hub/landing_views.line_for() existed to be the one reading and
+   had no caller at all, so it said "No opens recorded yet." where this
+   said "0 opens" and neither knew about the other. It reads v.line now,
+   and the caveat rides on the payload beside it rather than being typed
+   into markup. Falls back to the bare number where an older payload
+   carries no line -- a missing sentence should cost the tooltip, never
+   the cell it is on. */
+function opensTitle(v, note){
+  var line = (v && v.line) ? String(v.line)
+           : (Number(v && v.views || 0) + ' opens.');
+  return note ? line + ' ' + String(note) : line;
 }
 
 /* Five states, one of them a percentage. Drawn apart because they are five
