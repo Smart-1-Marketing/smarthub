@@ -55,11 +55,14 @@ def _h(*a, **kw) -> Help:
 
 
 REGISTRY: list[Help] = [
+    _h("hub.client360.account_value", "Read Account value and outstanding balance",
+       "Client 360's Account value card puts monthly billing from the live product book beside the outstanding QuickBooks balance. Open the underlying Products or Invoices details when following up. Outstanding balance is not the same as overdue invoices. If either source cannot be read, that part is unmeasured rather than zero. Unmatched QuickBooks customers are named separately; a partial match is not proof the whole client group owes nothing.",
+       link="/client360", link_text="Open Client 360", ask_only=True),
     _h("display_ads.workflow.review", "Review display ads and accept warnings",
        "Work through Brief, Design, Review and Send. Save the design before continuing and inspect each size on the review sheet. Fix failures in the editor. Sizes with warnings can be approved only after reviewing their findings and selecting the sizes whose warnings you accept; use Approve these, accepting their warnings. Read any remaining failures before continuing to Send. Client notes belong to individual ads. A saved design or completed preview is not client approval.",
        link="/tools/display-ads", link_text="Open Display Ad Builder", ask_only=True),
     _h("radio_promo.workflow.reuse", "Reuse a radio read or fit an uploaded recording",
-       "Radio Ad Creator and Fan Radio share a reusable-read library. Save as a reusable read keeps a named recording available to the other builder; choose a saved read deliberately and listen before using it for a client. For generated reads, Tighten to fit revises an overlong script. For an overlong uploaded recording, review the offered speed adjustment on the mix, listen to the new playback and check its duration before filing. Back to the original pace undoes the speed adjustment. Do not assume the original recording changed or that a saved read is approved for every campaign.",
+       "Radio Ad Creator and Fan Radio share reusable script reads. Saving replaces the current client's name with a placeholder; inserting fills it for the new client. Insertion happens at the cursor, so select existing copy first if replacing it. In Fan Radio, settle read length on Step 5 before adding music: remove dead air first, then review an offered speed adjustment if needed. Uploaded recordings played faster can change pitch; listen before accepting. Use the original instead restores the original file. Radio Ad Creator retains its own script-tightening and mix-speed controls. Reuse is not approval for another campaign.",
        link="/tools/radio-promo/", link_text="Open Radio Ad Creator", ask_only=True),
     _h("seo.wordpress.workflow", "Send blog drafts, alt text and schema to WordPress",
        "On the client's SEO page, open WordPress connection and connect the intended site using a WordPress Application Password. Blog posts are sent as drafts for review, not published live; flagged copy and unapproved images need attention first. Read each result and open the draft in WordPress. Sending again updates the recorded post. Image alt text writes to the site's media records. Schema needs the Smart 1 Hub plugin and a live-page verification; stored is not the same as visible. FAQs still need the visible accordion placed on the page through the guided handoff.",
@@ -1000,10 +1003,8 @@ REGISTRY: list[Help] = [
        "against the same edges; sizes that are a different shape are laid out "
        "from a fixed house template instead, because a square squeezed into a "
        "leaderboard is eight thin elements rather than a leaderboard."),
-    _h("magic_resize.source", "It starts from an Image Creator project",
-       "Paste the id of the design you want the set built from. The objects "
-       "come across as objects — text stays text and a logo stays a logo — "
-       "so every frame it produces can still be opened and edited."),
+    _h("magic_resize.source", "Choose a project or upload a design for Magic Resize",
+       'Choose an Image Creator project from the source picker, or upload a finished JPG, PNG or WebP design. A project keeps its objects editable, including text and logos. An uploaded image becomes one full-size background layer: its words remain part of the picture rather than editable text. Review each resized output for cropping and readability before using it.'),
     _h("magic_resize.bundle", "Pick the buy, not the sizes",
        "Display Standard is the IAB set most display inventory is sold in. "
        "Google adds the two Responsive Display asset sizes, which are an "
@@ -2713,18 +2714,9 @@ REGISTRY: list[Help] = [
        "the page and runs a first fetch. Idempotent by slug -- a second "
        "submit for the same slug updates in place."),
     _h("camhub.reports", "One PDF a sponsor could audit",
-       "One row per sponsor per month, run automatically on the 1st for the "
-       "prior month. Rendered files the PDF on Cloudinary; sent tries to "
-       "email it. Sponsors without an email on file stay rendered so their "
-       "PDF can be hand-forwarded. Regenerate reads the current rollup, so "
-       "the download is always up to date; the outbox row is only the "
-       "delivery record."),
+       'Monthly sponsor reports are generated on the 1st for the prior month. Rendered means the PDF is prepared; it does not mean the sponsor received an email. Send attempts delivery through the configured mail channel. A missing recipient or mail setup leaves a reason for staff handoff, and failed delivery remains visible. Read the outbox result before assuming delivery. Regenerate reads the current rollup; the outbox row records delivery history.'),
     _h("camhub.portal", "The sponsor's own read of their numbers",
-       "One signed URL per sponsor, no password, indexable by nothing. Shows "
-       "the current month at the top and a date-range picker below, with "
-       "the same rules the report uses. The CSV is one row per placement "
-       "per day plus a totals footer. Read-only: creative changes go through "
-       "the placement screen, not here."),
+       'The sponsor portal is a signed link without a Hub login. It shows the current month, a date-range picker and a CSV of placement-day results. Creative changes stay on the staff placement screen. If an old link must stop working, use Rotate portal link on the sponsor record, then copy the new link from Reports. Rotation disables older links for that sponsor; send the replacement to the intended recipient.'),
 
     # ---------------- SmartForecast ----------------
     _h("smartforecast.dashboard.status", "What the live status means",
@@ -2931,7 +2923,7 @@ REGISTRY: list[Help] = [
        'Client 360 can retain multiple links for a platform and multiple Smart 1 Suite sub-accounts for one client. Check the specific destination before opening or disconnecting a link. Uploaded proposal PDFs keep their original filenames, making the intended file easier to identify when several proposals are on the client record.',
        link='/client360', link_text="Open tool"),
     _h('hub.account.notifications', 'Account menu and QA notifications',
-       'Use the initials circle in the upper-right corner to open the account dropdown and Log out. The bell includes radio, video and display processing plus personal QA assignments and updates on tasks you raised. Task links open the QA record; due dates and overdue status help prioritize it. New activity can become unread even when the task status is unchanged. Help stays beside the bell. In the sidebar, hover over a department to find its tools, or click a named group heading to open that section of the department page.',
+       "Use the initials circle in the upper-right corner for the account dropdown and Log out. Help stays beside the notification bell, which includes radio, video and display processing plus personal QA tasks and updates. Search the sidebar by tool name; Ctrl+K or Command+K focuses search, and Escape clears it. Recent shows up to five destinations used in this browser. The active department expands to show your current tool. Click a named group heading to open that section's page.",
        link='/help', link_text="Open tool"),
     _h('landing_ads.prospects.import', 'Preview a prospect import before activating outreach',
        'In Industry Prospect Builder, upload the list and choose Preview & clean list. Review usable contacts before choosing the GHL sub-account and tags. Leave Activate outreach after import off while checking the first import. Enabling it adds the trigger tag and may start a GHL workflow. Read the imported and failed counts; a partially completed contact may still need its tags retried.', link='/tools/landing-ads/prospects', link_text="Open tool"),
