@@ -1350,7 +1350,13 @@ def create_hub_app() -> Flask:
         """The channel confirmed for this client and its latest reading --
         subscribers, views, videos, the 30-day change -- with which kind of
         nothing it is when there is none, and the link on their record as a
-        hint for the lookup. Never a YouTube call."""
+        hint for the lookup. Never a YouTube call.
+
+        ``analytics`` carries the OAuth half (watch time, subscribers
+        gained, traffic sources), read through a youtube_studio connection
+        for the same channel where one exists -- ``not_connected`` is the
+        ordinary answer for a channel we do not manage, not a failure. A
+        failure reading it costs only that key, never the card above it."""
         gate = _require_api()
         if gate:
             return gate
@@ -1366,6 +1372,12 @@ def create_hub_app() -> Flask:
                    "record": None, "configured": youtube.configured()}
         out["hint"] = _youtube_hint(name)
         out["sweep"] = youtube.sweep_state()
+        try:
+            from . import youtube_analytics
+            out["analytics"] = youtube_analytics.reading(name)
+        except Exception as exc:  # noqa: BLE001
+            out["analytics"] = {"measured": False, "state": "unread",
+                                "error": f"Could not be read ({type(exc).__name__})."}
         return jsonify(out)
 
     @app.route("/api/client/youtube/lookup", methods=["POST"])
@@ -1403,7 +1415,10 @@ def create_hub_app() -> Flask:
 
     @app.route("/api/client/youtube/refresh", methods=["POST"])
     def api_client_youtube_refresh():
-        """Read the confirmed channel now: one unit, behind a button."""
+        """Read the confirmed channel now: one unit, behind a button. Also
+        refreshes the Analytics half where a youtube_studio connection
+        exists, under ``analytics`` -- one button for both halves of the
+        same card, rather than a second one nobody presses."""
         gate = _require_api()
         if gate:
             return gate
@@ -1413,6 +1428,12 @@ def create_hub_app() -> Flask:
         if not name:
             return jsonify({"error": "No client was named."}), 400
         out = youtube.snapshot(name)
+        try:
+            from . import youtube_analytics
+            out["analytics"] = youtube_analytics.snapshot(name)
+        except Exception as exc:  # noqa: BLE001
+            out["analytics"] = {"ok": False, "error": f"Could not be read ({type(exc).__name__}).",
+                                "reading": None}
         return jsonify(out), (200 if out.get("ok") else 502 if out.get("reading") else 400)
 
     @app.route("/api/client/youtube/clear", methods=["POST"])

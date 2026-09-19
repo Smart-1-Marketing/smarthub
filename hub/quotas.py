@@ -1181,6 +1181,13 @@ GOOGLE_APIS: dict[str, tuple[str, int, str, str]] = {
                "each confirmed client listing once a night (the Pro SKU) and a "
                "Confirm or Refresh press is one more. Counted here so the usage "
                "page can name it; no ceiling until GOOGLE_PLACES_DAILY_QUOTA is set."),
+    "youtube_analytics": ("YouTube Analytics API", 0, "YOUTUBE_ANALYTICS_DAILY_QUOTA",
+                          "Read through a youtube_studio OAuth connection for a channel we "
+                          "manage -- watch time, subscribers gained and traffic sources for "
+                          "the client's report page (hub/youtube_analytics.py). A separate "
+                          "quota from the Data API v3 above; Google publishes no flat daily "
+                          "ceiling worth citing, so this is counted and not capped unless "
+                          "YOUTUBE_ANALYTICS_DAILY_QUOTA is set."),
     "other": ("Other Google APIs", 0, "", "Anything not matched above."),
 }
 
@@ -1191,6 +1198,7 @@ _GOOGLE_HOSTS = (
     ("analyticsdata.googleapis.com", "ga4"),
     ("mybusiness", "gbp"),
     ("places.googleapis.com", "places"),
+    ("youtubeanalytics.googleapis.com", "youtube_analytics"),
     ("youtube.googleapis.com", "youtube"),
     ("oauth2.googleapis.com", "oauth"),
     ("openidconnect.googleapis.com", "oauth"),

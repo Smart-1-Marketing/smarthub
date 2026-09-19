@@ -8,11 +8,40 @@ the rate card, and Social Media Management, which posts to the channel --
 and knew nothing about the channel: the SEO record holds a link somebody
 typed, and no screen had ever read past it. This is the keyed half, the
 Data API v3, and it is the Places module one channel over: propose, a
-person confirms, a reading a night, four kinds of nothing kept apart. The
-Analytics API half -- watch time, subscribers gained per day, traffic
-sources -- is behind OAuth and is not built, because it is a scope on
-Google Finder's list and every login connected before it keeps its old
-grant and has to re-consent.
+person confirms, a reading a night, four kinds of nothing kept apart.
+
+**The Analytics API half is `hub/youtube_analytics.py`, and it is not a
+second OAuth flow.** Watch time, subscribers gained and traffic sources
+need OAuth, and this paragraph originally proposed a new scope on Google
+Finder's list -- the only path this Hub had for a YouTube login at the
+time it was written. `modules/youtube_studio` has since grown its own,
+independent OAuth connection for a channel Smart 1 actively manages
+(uploads, drafts, launch scheduling), already requesting
+`yt-analytics.readonly`, already calling this exact API for its own
+internal "which channel is active" pick. Building a second OAuth flow
+through Google Finder would have been the two-systems-answering-one-
+question failure this file counts a dozen times over, so `hub/youtube_
+analytics.py` reads through the connection that already exists instead.
+
+**The join is the channel id, never the client's name.** Each tool spells
+a client's name its own way -- `hub/client_key.py`'s derived key in
+`hub/youtube.py`, a raw casefolded hash in `modules/youtube_studio/
+store.py` -- so `connection_for(channel_id)` looks a confirmed channel up
+in youtube_studio's own store by the one identifier both tools agree on,
+never by re-deriving or comparing a name. Most confirmed channels have no
+youtube_studio connection at all -- that tool is for a channel we manage,
+and plenty of clients' channels are simply theirs -- and that reads
+`not_connected`, staff-only, never a failure and never a card on the
+client's own page saying so.
+
+A reading rides alongside the keyed one: one button (Refresh reading)
+calls both, the nightly sweep is its own scheduler job
+(`youtube_analytics_snapshot`) reading only channels with a connection,
+and `youtubeanalytics.googleapis.com` is its own bucket in
+`hub/quotas.GOOGLE_APIS`, apart from the Data API v3's. It never gates the
+keyed section: a client with the three counts and no Studio connection
+still gets the section, with the Analytics figures simply absent.
+`test_youtube_analytics.py` asserts all of it.
 
 **The key is shared and says which variable answered.** The API is
 enabled on the same Cloud project as the Places key, so `YOUTUBE_API_KEY`

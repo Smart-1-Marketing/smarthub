@@ -474,11 +474,45 @@ function renderYouTube(d,name,cands){
   }
   h+='<div class="muted" style="font-size:12px;margin-top:4px">Read '+esc(d.as_of||'')+' from YouTube.'+(d.note?' '+esc(d.note):'')+'</div>';
   if(d.staff_note) h+='<div class="muted" style="font-size:12px;color:#a15c00">'+esc(d.staff_note)+'</div>';
+  h+=renderYtAnalytics(d.analytics);
   h+=recLine;
   h+='<div class="row" style="margin-top:8px;gap:6px">'
     + '<button class="btn small" data-act="refresh">Refresh reading</button>'
     + '<button class="btn small ghost" data-act="clear">Not this channel</button></div>';
   return h;
+}
+/* Draws the Analytics half (d.analytics from /api/client/youtube): watch
+   time, subscribers gained and traffic sources, read through a
+   youtube_studio OAuth connection when one exists for this channel.
+   not_connected is the ordinary answer for a channel we do not manage --
+   drawn as a quiet staff-only line, never a warning -- and nothing at all
+   is drawn once the reading is stripped for the client's own page. */
+function renderYtAnalytics(a){
+  a=a||{}; var st=a.state||'';
+  if(st==='not_connected'){
+    return '<div class="muted" style="font-size:12px;margin-top:8px;border-top:1px solid #eef1f5;padding-top:8px">'
+      + 'Watch time, subscribers gained and traffic sources need a <a href="/tools/youtube/">YouTube Studio</a> '
+      + 'connection for this channel; none exists yet.</div>';
+  }
+  if(st==='no_reading'){
+    return '<div class="muted" style="font-size:12px;margin-top:8px;border-top:1px solid #eef1f5;padding-top:8px">'
+      + 'The YouTube Studio connection is live and has not been read yet.</div>';
+  }
+  if(st==='unread'){
+    return '<div class="muted" style="font-size:12px;margin-top:8px;border-top:1px solid #eef1f5;padding-top:8px;color:#a15c00">'
+      + 'The last watch-time read failed: '+esc(a.error||a.staff_note||'')+'</div>';
+  }
+  if(st!=='ok') return '';
+  var srcLine=(a.sources||[]).slice(0,3).map(function(s){return esc(s.label||s.source)+' ('+ytInt(s.views)+')';}).join(', ');
+  return '<div style="margin-top:8px;border-top:1px solid #eef1f5;padding-top:8px">'
+    + '<div class="row" style="gap:18px;flex-wrap:wrap">'
+    + '<div><div style="font-size:20px;font-weight:600;line-height:1.1">'+ytInt(a.watch_minutes!==null&&a.watch_minutes!==undefined?Math.round(a.watch_minutes):null)+'</div><div class="muted" style="font-size:12px">minutes watched</div></div>'
+    + '<div><div style="font-size:20px;font-weight:600;line-height:1.1">'+(a.subscribers_net===null||a.subscribers_net===undefined?'—':((a.subscribers_net>0?'+':'')+ytInt(a.subscribers_net)))+'</div><div class="muted" style="font-size:12px">subscribers, net</div></div>'
+    + '<div><div style="font-size:20px;font-weight:600;line-height:1.1">'+ytInt(a.views)+'</div><div class="muted" style="font-size:12px">views in the period</div></div>'
+    + '</div>'
+    + (srcLine?'<div class="muted" style="font-size:12px;margin-top:4px">Top traffic sources: '+srcLine+'</div>':'')
+    + '<div class="muted" style="font-size:12px;margin-top:4px">'+esc(a.start||'')+' to '+esc(a.end||'')+', read '+esc(a.as_of||'')+' via YouTube Studio.</div>'
+    + '</div>';
 }
 /* ---- end c360 youtube channel ---- */
 /* ---- c360 email campaigns (lifted and driven in node by test_suite_email_stats.py) ---- */

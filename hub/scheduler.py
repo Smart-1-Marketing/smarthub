@@ -641,6 +641,26 @@ def job_youtube_snapshot(app) -> dict:
         return youtube.sweep(force=False)
 
 
+def job_youtube_analytics_snapshot(app) -> dict:
+    """Read watch time, subscribers gained and traffic sources for every
+    confirmed YouTube channel that has a youtube_studio OAuth connection,
+    once a night (hub/youtube_analytics.py).
+
+    The places_snapshot shape: ticks hourly, the module decides inside the
+    nightly window, a channel already read today is skipped, and the run
+    is under a wall-clock budget with what it did not reach named. A
+    confirmed channel with no youtube_studio connection is not in the set
+    this sweep reads at all -- there is nothing for it to fetch, and that
+    is not a failure.
+    """
+    try:
+        from hub import youtube_analytics
+    except Exception as exc:                            # noqa: BLE001
+        return {"skipped": f"unavailable ({type(exc).__name__})"}
+    with app.app_context():
+        return youtube_analytics.sweep(force=False)
+
+
 def job_suite_email_snapshot(app) -> dict:
     """Read every linked client's sent email campaigns once a night
     (hub/suite_email_stats.py).
@@ -1689,6 +1709,9 @@ JOBS = {
                           "Read every confirmed Google Business Profile listing once a night."),
     "youtube_snapshot":  (60, job_youtube_snapshot,
                           "Read every confirmed YouTube channel once a night."),
+    "youtube_analytics_snapshot": (60, job_youtube_analytics_snapshot,
+                          "Read watch time, subscribers gained and traffic sources for "
+                          "every confirmed channel connected in YouTube Studio, once a night."),
     "suite_email_snapshot": (60, job_suite_email_snapshot,
                           "Read every linked client's sent email campaigns once a night."),
     "video_backlog":     (60, job_index_video_backlog,
