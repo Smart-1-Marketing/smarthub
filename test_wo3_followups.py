@@ -18,6 +18,7 @@ frontend wiring reads.
 
     python3 test_wo3_followups.py
 """
+import json
 import os
 import sys
 import tempfile
@@ -243,23 +244,55 @@ check("editLoaded() reads it off the quote payload by name",
 
 
 # =====================================================================
-section("The SEO & AEO scope's derivation rides in its own media-plan row")
+section("The SEO & AEO scope: three priced tiers, and the derivation still "
+        "rides in the media-plan row")
 # =====================================================================
 
-SEO_AEO_PRODUCT = "SEO & AEO Scope Package"
-check("the rate card's placeholder product string is exactly what the join reads",
-      sb.SEO_AEO_SCOPE_PRODUCT == SEO_AEO_PRODUCT, sb.SEO_AEO_SCOPE_PRODUCT)
-check("is_seo_aeo_scope() keys on the product string, never a substring",
-      sb.is_seo_aeo_scope({"product": SEO_AEO_PRODUCT})
-      and not sb.is_seo_aeo_scope({"product": "SEO & AEO Scope Package Plus"})
+SEO_AEO_SMALL = "SEO & AEO Scope Package (Small)"
+SEO_AEO_MEDIUM = "SEO & AEO Scope Package (Medium)"
+SEO_AEO_LARGE = "SEO & AEO Scope Package (Large)"
+
+check("all three tiers are on the rate card, byte-for-byte what the join reads",
+      set(sb.SEO_AEO_SCOPE_PRODUCTS)
+      == {SEO_AEO_SMALL, SEO_AEO_MEDIUM, SEO_AEO_LARGE},
+      sb.SEO_AEO_SCOPE_PRODUCTS)
+check("each maps to its own tier key, matching scope_for()'s own vocabulary",
+      sb.SEO_AEO_SCOPE_PRODUCTS[SEO_AEO_SMALL] == "small"
+      and sb.SEO_AEO_SCOPE_PRODUCTS[SEO_AEO_MEDIUM] == "medium"
+      and sb.SEO_AEO_SCOPE_PRODUCTS[SEO_AEO_LARGE] == "large",
+      sb.SEO_AEO_SCOPE_PRODUCTS)
+check("is_seo_aeo_scope() keys on the exact product string, never a substring",
+      sb.is_seo_aeo_scope({"product": SEO_AEO_SMALL})
+      and sb.is_seo_aeo_scope({"product": SEO_AEO_MEDIUM})
+      and sb.is_seo_aeo_scope({"product": SEO_AEO_LARGE})
+      and not sb.is_seo_aeo_scope({"product": "SEO & AEO Scope Package"})
+      and not sb.is_seo_aeo_scope({"product": "SEO & AEO Scope Package (Small) Plus"})
       and not sb.is_seo_aeo_scope({"product": "SEO"})
       and not sb.is_seo_aeo_scope({}), True)
 
+RATE_CARD = json.loads(Path(ROOT, "hub", "data", "rate_card.json").read_text())
+_SEO_AEO_ROWS = {r["product"]: r for r in RATE_CARD["products"]
+                 if r["product"] in sb.SEO_AEO_SCOPE_PRODUCTS}
+check("all three tiers are real, priced rows -- no PLACEHOLDER left on the card",
+      len(_SEO_AEO_ROWS) == 3
+      and all("PLACEHOLDER" not in (r.get("listedRate") or "")
+              for r in _SEO_AEO_ROWS.values()),
+      _SEO_AEO_ROWS)
+check("small < medium < large, and every rate is a real dollar figure",
+      float(_SEO_AEO_ROWS[SEO_AEO_SMALL]["listedRate"].lstrip("$"))
+      < float(_SEO_AEO_ROWS[SEO_AEO_MEDIUM]["listedRate"].lstrip("$"))
+      < float(_SEO_AEO_ROWS[SEO_AEO_LARGE]["listedRate"].lstrip("$")),
+      {k: v["listedRate"] for k, v in _SEO_AEO_ROWS.items()})
 
-def _scope_item(**over):
-    row = {"product": SEO_AEO_PRODUCT, "category": "SEARCH ENGINE OPTIMIZATION",
-           "label": "SEARCH ENGINE OPTIMIZATION — " + SEO_AEO_PRODUCT,
-           "basis": "monthly", "termMonths": 6, "dollars": 1200,
+from hub import rate_card as hub_rate_card                          # noqa: E402
+check("hub.rate_card.check_drift() says the IO template's own copy agrees",
+      hub_rate_card.check_drift()["in_sync"] is True, hub_rate_card.check_drift())
+
+
+def _scope_item(product, **over):
+    row = {"product": product, "category": "SEARCH ENGINE OPTIMIZATION",
+           "label": "SEARCH ENGINE OPTIMIZATION — " + product,
+           "basis": "monthly", "termMonths": 6, "dollars": 400,
            "rate": "Managed"}
     row.update(over)
     return row
@@ -272,11 +305,12 @@ MEASURED_SCOPE_BRIEF = {
         "missing_schema_items": _fact(1),
     },
 }
+# 3 + 2 + 1 = 6 fixes, which is small (<= SCOPE_SMALL_MAX).
 
 with mock.patch("hub.client_brief.build", return_value=MEASURED_SCOPE_BRIEF), \
      mock.patch("hub.seo_queue.broken_link_count", return_value=0):
     state = {"months": 6, "client": "Acme Plumbing", "url": "acme.com",
-             "items": [_scope_item()]}
+             "items": [_scope_item(SEO_AEO_SMALL)]}
     plan = sb.media_plan_rows(state)
 
 row = plan["rows"][0]
@@ -284,10 +318,27 @@ check("the row's description carries the scope's own derivation",
       row["description"] and "small scope" in row["description"], row)
 check("and the same figures scope_for() itself would have produced",
       "3 pages missing a title" in row["description"], row["description"])
+check("quoted at the tier the audit itself found -- no mismatch sentence",
+      "is quoted at" not in row["description"], row["description"])
+
+with mock.patch("hub.client_brief.build", return_value=MEASURED_SCOPE_BRIEF), \
+     mock.patch("hub.seo_queue.broken_link_count", return_value=0):
+    state_mismatch = {"months": 6, "client": "Acme Plumbing", "url": "acme.com",
+                      "items": [_scope_item(SEO_AEO_LARGE, dollars=950)]}
+    plan_mismatch = sb.media_plan_rows(state_mismatch)
+
+row_mismatch = plan_mismatch["rows"][0]
+check("a line quoted at the wrong tier still carries the real derivation",
+      "small scope" in row_mismatch["description"], row_mismatch)
+check("and says so, rather than printing a number beside a silently "
+      "disagreeing derivation",
+      "quoted at the large tier" in row_mismatch["description"]
+      and "measures small" in row_mismatch["description"],
+      row_mismatch["description"])
 
 with mock.patch("hub.client_brief.build", side_effect=RuntimeError("no scan")):
     state_unmeasured = {"months": 6, "client": "Never Scanned", "url": "",
-                        "items": [_scope_item()]}
+                        "items": [_scope_item(SEO_AEO_MEDIUM)]}
     plan_unmeasured = sb.media_plan_rows(state_unmeasured)
 check("an unmeasured scope leaves the description blank -- never a placeholder "
       "line invented to fill the space",

@@ -64,7 +64,14 @@ MIN_BY_CATEGORY = {
 }
 
 # Per product, where the product's own floor differs from its category's.
-MIN_BY_PRODUCT: dict[str, int] = {}
+# The SEM/PPC precedent above, one product rather than a whole category: the
+# Small tier of the SEO & AEO Scope Package is genuinely priced at $400, under
+# the SEARCH ENGINE OPTIMIZATION category's $500 default. Holding it to that
+# default would guardrail-block the exact tier the audit sizes for a small
+# site -- the smallest fix count, on the cheapest of the three real prices.
+MIN_BY_PRODUCT: dict[str, int] = {
+    "seo & aeo scope package (small)": 400,
+}
 
 
 def minimum_for(product: str = "", category: str = "") -> int:

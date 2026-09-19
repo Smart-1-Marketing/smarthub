@@ -1081,14 +1081,38 @@
    "rateValue": null
   },
   {
-   "label": "SEARCH ENGINE OPTIMIZATION — SEO & AEO Scope Package",
+   "label": "SEARCH ENGINE OPTIMIZATION — SEO & AEO Scope Package (Small)",
    "category": "SEARCH ENGINE OPTIMIZATION",
-   "product": "SEO & AEO Scope Package",
-   "listedRate": "PLACEHOLDER — not yet priced",
+   "product": "SEO & AEO Scope Package (Small)",
+   "listedRate": "$400.00",
    "retail": "",
-   "description": "Scope-based SEO/AEO engagement, sized small, medium or large from the client's own site-audit fix counts (pages missing a title, description or H1; missing schema items; images missing alt text; broken links). PLACEHOLDER TIERS -- Small: TBD/mo, Medium: TBD/mo, Large: TBD/mo. Not yet priced -- for Todd to set.",
+   "description": "Scope-based SEO/AEO engagement, sized small, medium or large from the client's own site-audit fix counts (pages missing a title, description or H1; missing schema items; images missing alt text; broken links). This is the small tier -- 10 or fewer fixes found.",
    "requirements": "Scope is computed from the client's own audit; shown as the fix count behind it.",
-   "timeline": "TBD",
+   "timeline": "Ongoing",
+   "rateType": null,
+   "rateValue": null
+  },
+  {
+   "label": "SEARCH ENGINE OPTIMIZATION — SEO & AEO Scope Package (Medium)",
+   "category": "SEARCH ENGINE OPTIMIZATION",
+   "product": "SEO & AEO Scope Package (Medium)",
+   "listedRate": "$700.00",
+   "retail": "",
+   "description": "Scope-based SEO/AEO engagement, sized small, medium or large from the client's own site-audit fix counts (pages missing a title, description or H1; missing schema items; images missing alt text; broken links). This is the medium tier -- 11 to 30 fixes found.",
+   "requirements": "Scope is computed from the client's own audit; shown as the fix count behind it.",
+   "timeline": "Ongoing",
+   "rateType": null,
+   "rateValue": null
+  },
+  {
+   "label": "SEARCH ENGINE OPTIMIZATION — SEO & AEO Scope Package (Large)",
+   "category": "SEARCH ENGINE OPTIMIZATION",
+   "product": "SEO & AEO Scope Package (Large)",
+   "listedRate": "$950.00",
+   "retail": "",
+   "description": "Scope-based SEO/AEO engagement, sized small, medium or large from the client's own site-audit fix counts (pages missing a title, description or H1; missing schema items; images missing alt text; broken links). This is the large tier -- more than 30 fixes found.",
+   "requirements": "Scope is computed from the client's own audit; shown as the fix count behind it.",
+   "timeline": "Ongoing",
    "rateType": null,
    "rateValue": null
   }
