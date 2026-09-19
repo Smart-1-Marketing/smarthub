@@ -15,14 +15,27 @@
   <div class="s1d-kv"><b>Request</b>
     <span class="mono">{{ chk.request.method }} {{ chk.request.url }}
       {% for k, v in chk.request.params.items() %}<br>&nbsp;&nbsp;{{ k }}={{ v }}{% endfor %}</span></div>
+  {% if chk.request.json %}
+  <div class="s1d-kv"><b>Request body</b>
+    <span class="mono">{% for k, v in chk.request.json.items() %}{{ k }}: {{ v }}<br>{% endfor %}</span></div>
+  {% endif %}
   <div class="s1d-kv"><b>Auth header</b>
     <span class="mono">{{ chk.request.auth_header }}: {{ chk.map.auth_prefix }}[AUDIOGO_API_KEY]</span></div>
+  <div class="s1d-kv"><b>The URL is composed of</b>
+    <span class="mono">AUDIOGO_API_BASE = {{ chk.map.base }}<br>
+      AUDIOGO_REPORT_PATH = {{ chk.map.path or '(nothing appended)' }}</span></div>
   <div class="s1d-kv"><b>Rows expected under</b><span class="mono">{{ chk.map.rows_path or '(the body itself)' }}</span></div>
   <p class="s1d-hint">Set <span class="mono">AUDIOGO_API_KEY</span> and <span class="mono">AUDIOGO_API_BASE</span>
-    on the service. The path, header and parameter names can be overridden by environment variable
-    (<span class="mono">AUDIOGO_REPORT_PATH</span>, <span class="mono">AUDIOGO_AUTH_HEADER</span>,
+    on the service. <b>The base is called exactly as it is set</b> &mdash; set it to the whole report
+    endpoint and leave <span class="mono">AUDIOGO_REPORT_PATH</span> alone, or set it to the origin and
+    put the rest in that variable (<span class="mono">-</span> clears it again). The method, header and
+    parameter names can be overridden the same way
+    (<span class="mono">AUDIOGO_METHOD</span>, <span class="mono">AUDIOGO_BODY</span>,
+    <span class="mono">AUDIOGO_AUTH_HEADER</span>,
     <span class="mono">AUDIOGO_PARAM_START</span>, <span class="mono">AUDIOGO_FIELD_SPEND</span> ...)
-    while a correction is tried; the settled answer belongs in <span class="mono">audiogo_map.py</span>.</p>
+    while a correction is tried; the settled answer belongs in <span class="mono">audiogo_map.py</span>.
+    AudioGo describes a report as a query of filters, splitters and metrics, so if this GET is refused,
+    <span class="mono">AUDIOGO_METHOD=POST</span> sends the dates as a JSON body instead.</p>
 </div>
 
 <div class="s1d-grid">

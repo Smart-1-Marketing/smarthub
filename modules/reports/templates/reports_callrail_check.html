@@ -33,6 +33,27 @@
     (<span class="mono">CALLRAIL_CALLS_PATH</span>, <span class="mono">CALLRAIL_AUTH_FORMAT</span>,
     <span class="mono">CALLRAIL_PARAM_START</span>, <span class="mono">CALLRAIL_FIELD_DATE</span> ...)
     while a correction is tried; the settled answer belongs in <span class="mono">callrail_map.py</span>.</p>
+
+  <div class="s1d-kv"><b>Answering from the environment</b>
+    <span>{% if chk.map.overrides %}<span class="s1d-pill warn">{{ chk.map.overrides|length }} not settled</span>
+      {% else %}<span class="s1d-muted">nothing; every name below is the one in
+        <span class="mono">callrail_map.py</span></span>{% endif %}</span></div>
+  {% if chk.map.overrides %}
+  <div class="s1d-scroll">
+  <table class="s1d-t">
+    <thead><tr><th>Name</th><th>Environment variable</th><th>Answering</th></tr></thead>
+    <tbody>
+    {% for o in chk.map.overrides %}
+      <tr><td class="mono">{{ o.what }}</td><td class="mono">{{ o.env }}</td><td class="mono">{{ o.value }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <p class="s1d-hint">These are corrections being <em>tried</em>: the variable wins over
+    <span class="mono">callrail_map.py</span> for this service only, and while it does, the file and the
+    running Hub disagree with nothing but this table saying so. Once a name here is confirmed by a row
+    below, write it into <span class="mono">callrail_map.py</span> and remove the variable.</p>
+  {% endif %}
 </div>
 
 <div class="s1d-grid">
@@ -54,6 +75,10 @@
       and the counts land in extras under their own names to draw the client's <em>Phone calls</em> tile.
       Nothing here is ever folded into conversions, and outbound calls are counted and left out.</p>
     {% if chk.resolves and chk.resolves.why %}<p class="s1d-hint">{{ chk.resolves.why }}</p>{% endif %}
+    {% if chk.resolves and chk.resolves.sampled %}<p class="s1d-hint">Judged against
+      {{ chk.resolves.sampled }} call{{ '' if chk.resolves.sampled == 1 else 's' }} rather than the first
+      one: a name nobody answers to is absent from all of them, while a real field is legitimately empty on
+      some calls &mdash; an unattributed call has no source, and it files as <span class="mono">no-source</span>.</p>{% endif %}
   </div>
 
   <div class="s1d-card">

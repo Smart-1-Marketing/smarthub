@@ -443,6 +443,31 @@ DEPT_COLORS = {
     "utilities":       "#475569",   # slate
 }
 
+# Two-letter monograms rendered on the sidebar in place of a department's
+# emoji, tinted with the department's own color from DEPT_COLORS. Emoji at
+# 15px read as decorative rather than as a landmark, and they were pulling
+# from four different glyph families -- one system, one no-face, one flag,
+# one animal -- so a person could not learn "the green square is Sales" the
+# way they learn "gmail is red." The monograms are the same 18px square as
+# the old emoji so no layout moves, and they collapse cleanly onto the 56px
+# rail. The `d["ico"]` emoji stays in the dept data because the /views/<slug>
+# index page still uses it in its own header (test_sidebar_departments already
+# asserts that), so this is a rendering swap in the sidebar, not a rename.
+DEPT_MONOS = {
+    "sales":           "SL",
+    "client-success":  "CS",
+    "product-success": "PS",
+    "seo":             "SE",
+    "web-dev":         "WD",
+    "accounting":      "AC",
+    "creative":        "CR",
+    "studio":          "ST",
+    "ad-tools":        "AT",
+    "leads":           "LD",
+    "qa":              "QA",
+    "utilities":       "UT",
+}
+
 # Section headings on an index page cycle through these tints, in order,
 # so neighboring groups never share a color.
 GROUP_TINTS = ["#1a5fb4", "#1d7a46", "#c2410c", "#7a3db8", "#0e7490", "#be185d", "#8a6d00"]
@@ -459,6 +484,13 @@ def _dept(slug, label, ico, groups, level=EVERYONE, blurb=""):
             "groups": [(g, list(keys)) for g, keys in groups]}
 
 
+# One section, twelve departments. The two-section split (2026-09-14) --
+# "Departments" for the six team lanes and "Tools" for the six tool
+# categories -- read as an information hierarchy but was not one: a person
+# still wants "the calculator" whether it lives under Sales or under Ad
+# Tools, and the split doubled the visual breaks the eye had to cross. One
+# header, twelve rows in the agreed order, and the same twelve on the index
+# page. Utilities is still the last row and still General-only.
 SECTIONS = [
     ("Departments", [
         _dept("sales", "Sales", "&#128188;", [
@@ -507,8 +539,6 @@ SECTIONS = [
                          "io_not_in_knack"]),
             ("Web Issues", ["domains", "ghl_billing_none", "ghl_billing_month", *_MODULES]),
         ], blurb="Where invoicing and the client record disagree."),
-    ]),
-    ("Tools", [
         _dept("creative", "Creative", "&#127912;", [
             ("Audio", _AUDIO),
             ("Videos", _VIDEOS),
@@ -745,6 +775,63 @@ body.s1hub-collapsed .s1hub-toggle { right: 4px; }
 .s1hub-sb .s1hub-mark { width: 34px; height: 34px; border-radius: 10px; background: rgba(255,255,255,.12);
   color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 14px; }
 .s1hub-sb .s1hub-name { font-weight: 700; font-size: 16px; color: #fff; }
+/* ---- search: filters the nav in place. Keyboard shortcut Cmd/Ctrl-K, and
+   Escape clears. Wraps its own container rather than sitting bare because the
+   host page's <input> styles can be anything: hub.css paints inputs white and
+   pill-shaped, other modules put a red border on :invalid. Explicit resets
+   below carry the input across all 20 mounted modules. */
+.s1hub-sb .s1hub-search-wrap { padding: 10px 12px 4px; position: relative; }
+.s1hub-sb .s1hub-search-input {
+  width: 100% !important; box-sizing: border-box;
+  background: rgba(255,255,255,.06) !important;
+  border: 1px solid rgba(255,255,255,.14) !important;
+  border-radius: 6px !important;
+  color: #fff !important; font: 12.5px 'Segoe UI', system-ui, sans-serif !important;
+  padding: 6px 26px 6px 26px !important;
+  outline: none !important; box-shadow: none !important;
+  height: auto !important; min-height: 0 !important; text-transform: none !important;
+}
+.s1hub-sb .s1hub-search-input::placeholder { color: #7d8db2; }
+.s1hub-sb .s1hub-search-input:focus { border-color: rgba(91,139,255,.55) !important;
+  background: rgba(255,255,255,.10) !important; }
+.s1hub-sb .s1hub-search-ico { position: absolute; left: 20px; top: 50%; transform: translateY(-50%);
+  color: #7d8db2; font-size: 12px; pointer-events: none; }
+.s1hub-sb .s1hub-search-kbd { position: absolute; right: 20px; top: 50%; transform: translateY(-50%);
+  font: 9.5px 'JetBrains Mono', ui-monospace, monospace; color: #7d8db2;
+  background: rgba(255,255,255,.06); padding: 1px 4px; border-radius: 3px; pointer-events: none; }
+.s1hub-sb.s1hub-searching .s1hub-search-kbd { display: none; }
+.s1hub-sb .s1hub-search-clear { position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
+  width: 20px; height: 20px; border: 0 !important; border-radius: 4px !important;
+  background: transparent !important; box-shadow: none !important;
+  color: #7d8db2 !important; cursor: pointer;
+  font: 13px/1 'Segoe UI', system-ui, sans-serif !important; padding: 0 !important;
+  display: none; align-items: center; justify-content: center; }
+.s1hub-sb.s1hub-searching .s1hub-search-clear { display: flex; }
+.s1hub-sb .s1hub-search-clear:hover { background: rgba(255,255,255,.14) !important; color: #fff !important; }
+/* When a search is active: department flyouts stay hidden, chevrons hide,
+   and the pinned-open inline list is forced open so matches are visible in
+   place. Non-matching rows and sections are hidden by [hidden] on the row. */
+.s1hub-sb.s1hub-searching .s1hub-fly { display: none !important; }
+.s1hub-sb.s1hub-searching .s1hub-dept .s1hub-inline { display: block !important; }
+.s1hub-sb.s1hub-searching .s1hub-dept .s1hub-chev { visibility: hidden; }
+.s1hub-sb .s1hub-nomatch { display: none; padding: 14px 18px; font-size: 12px; color: #7d8db2; }
+.s1hub-sb.s1hub-searching.s1hub-nohits .s1hub-nomatch { display: block; }
+/* Recent section: filled client-side from localStorage. The row shape is
+   identical to a pinned row so the eye reads the two blocks as one system;
+   the section header (.s1hub-recent-head) is the whole differentiator. Both
+   header and container start [hidden] and reveal only when the first click
+   lands. During a search, the whole Recent block hides -- it is a shortcut
+   for the person who did not want to type, and the search results ARE the
+   answer once they did. */
+.s1hub-sb.s1hub-searching .s1hub-recent-head,
+.s1hub-sb.s1hub-searching .s1hub-recent { display: none !important; }
+/* Collapsed rail hides the search input, since there is no room to type in
+   56px. The keyboard shortcut still opens the drawer and focuses it. */
+body.s1hub-collapsed .s1hub-sb .s1hub-search-wrap { display: none; }
+@media (min-width: 950px) and (hover: hover) {
+  body.s1hub-collapsed:not(.s1hub-nopeek) .s1hub-sb:hover .s1hub-search-wrap,
+  body.s1hub-collapsed:not(.s1hub-nopeek) .s1hub-sb:focus-within .s1hub-search-wrap { display: block; }
+}
 .s1hub-sb .s1hub-sec { display: block !important; padding: 14px 18px 4px;
   font-size: 10.5px; font-weight: 700;
   text-transform: uppercase; letter-spacing: 1px; color: #7d8db2; }
@@ -756,6 +843,15 @@ body.s1hub-collapsed .s1hub-toggle { right: 4px; }
 .s1hub-sb a.s1hub-item.s1hub-on { background: rgba(255,255,255,.1); color: #fff;
   border-left-color: #5b8bff; font-weight: 600; }
 .s1hub-sb .s1hub-ico { width: 18px; text-align: center; font-size: 15px; }
+/* Department monogram: two letters on a colored square, one per department,
+   in place of an emoji. 18px matches the .s1hub-ico slot so the rail's
+   layout is unchanged, and the flex-centering keeps the letters honest at
+   every zoom level. The color is inlined per row from DEPT_COLORS -- no
+   twelve-color CSS to keep in step with the Python. */
+.s1hub-sb .s1hub-mono { display: inline-flex !important; align-items: center;
+  justify-content: center; width: 18px; height: 18px; border-radius: 4px;
+  color: #fff; font: 700 9.5px 'JetBrains Mono', ui-monospace,
+  Menlo, Consolas, monospace; letter-spacing: 0; text-align: center; }
 .s1hub-chip { position: fixed; bottom: 14px; left: 14px; z-index: 99999; background: #1a2e58;
   color: #fff; padding: 8px 14px; border-radius: 20px; font: 600 12.5px 'Segoe UI', system-ui, sans-serif;
   text-decoration: none; box-shadow: 0 6px 18px rgba(0,0,0,.3); }
@@ -947,6 +1043,24 @@ def _department_html(d: dict, active: str, lit: str) -> str:
     count = len({href for _g, leaves in tiles for _k, href, *_ in leaves})
     on = " s1hub-on" if d["key"] == lit else ""
     admin = ' data-s1hub-admin="1"' if d["level"] == ADMIN_ONLY else ""
+    # Auto-expand the active department: it is what the person came in on,
+    # so its tree is what they want to see the moment the page renders --
+    # before any JS runs, before any hover, and without them chasing the
+    # chevron. Rendered directly on the outer .s1hub-dept so the CSS rule
+    # that shows the inline list on .s1hub-pinned already covers it.
+    # A stored preference in localStorage[s1hub:open] still wins in both
+    # directions, so somebody who explicitly closed an auto-expanded row
+    # keeps it closed on the next visit -- see the JS `slug in open` guard.
+    is_active = d["key"] == lit
+    pinned = " s1hub-pinned" if is_active else ""
+    aria_expanded = "true" if is_active else "false"
+    # The department icon is now a colored monogram tinted with the
+    # department's own color, in place of the emoji. `d["ico"]` is still in
+    # the dept data because the /views/<slug> index page reads it in its own
+    # header -- this is a rendering swap in the sidebar only.
+    mono = DEPT_MONOS.get(d["slug"], (d["slug"][:2] or "??").upper())
+    ico_html = (f'<span class="s1hub-ico s1hub-mono" '
+                f'style="background:{d["color"]}" aria-hidden="true">{mono}</span>')
     # The flyout: one column per group, up to four across. A named group's
     # heading is a link to that same group on the department's index page --
     # the mega-menu still lists every tool under it on hover, and clicking
@@ -975,12 +1089,12 @@ def _department_html(d: dict, active: str, lit: str) -> str:
     # inside an anchor is not HTML a browser has to honour, and a chevron
     # that also navigated would make "pin open" and "open the page" the
     # same click.
-    return (f'<div class="s1hub-dept" data-s1hub-dept="{d["slug"]}"{admin}>'
+    return (f'<div class="s1hub-dept{pinned}" data-s1hub-dept="{d["slug"]}"{admin}>'
             f'<div class="s1hub-dept-row{on}">'
             f'<a class="s1hub-dept-link" href="{d["href"]}" title="{d["label"]}">'
-            f'<span class="s1hub-ico">{d["ico"]}</span>'
+            f'{ico_html}'
             f'<span class="s1hub-label"> {d["label"]}</span></a>'
-            f'<button class="s1hub-chev" type="button" aria-expanded="false" '
+            f'<button class="s1hub-chev" type="button" aria-expanded="{aria_expanded}" '
             f'aria-label="Pin {d["label"]} open" title="Pin open">&#9656;</button></div>'
             f'<div class="s1hub-inline">{"".join(inline)}</div>'
             + fly + "</div>")
@@ -1007,12 +1121,40 @@ def render_sidebar(active: str = "", is_admin: bool = True,
     lit = _active_department(active, is_admin)
     rows = []
     rows.append('<div class="s1hub-logo"><div class="s1hub-mark">S1</div><span class="s1hub-name">Smart 1 Hub</span></div>')
+    # Search: filters the whole nav in place. The keyboard shortcut lands
+    # focus here from anywhere on the page; typing filters as you go. The
+    # element carries the label its own way -- no <label> wrapping it because
+    # the placeholder is the affordance in a nav this narrow, and the
+    # aria-label keeps it announced for screen readers.
+    rows.append(
+        '<div class="s1hub-search-wrap">'
+        '<span class="s1hub-search-ico" aria-hidden="true">&#128269;</span>'
+        '<input class="s1hub-search-input" type="search" '
+        'aria-label="Search the menu" placeholder="Search tools..." '
+        'autocomplete="off" spellcheck="false" />'
+        '<span class="s1hub-search-kbd" aria-hidden="true">&#8984;K</span>'
+        '<button class="s1hub-search-clear" type="button" '
+        'aria-label="Clear search" title="Clear">&times;</button>'
+        '</div>'
+        '<div class="s1hub-nomatch" role="status">No tool matches.</div>'
+    )
     rows.append('<div class="s1hub-sec">Overview</div>')
     for key, href, ico, label in PINNED:
         on = " s1hub-on" if key == active else ""
         rows.append(f'<a class="s1hub-item{on}" href="{href}" title="{label}">'
                     f'<span class="s1hub-ico">{ico}</span>'
                     f'<span class="s1hub-label"> {label}</span></a>')
+    # Recent: five slots reshuffled by use. The section is rendered empty and
+    # filled from localStorage on load -- per-browser rather than per-server,
+    # because a person's laptop is where their working set lives and the audit
+    # log records deliverables produced, not tools opened. A person with no
+    # history sees no section; the header appears when the first entry lands.
+    # The JS below also writes entries as clicks happen, deduped by href and
+    # capped at RECENT_MAX. Every entry is a row of the same shape as PINNED,
+    # so the styling matches without a second rule.
+    rows.append('<div class="s1hub-sec s1hub-recent-head" hidden>Recent</div>'
+                '<div class="s1hub-recent" data-s1hub-active="'
+                + (active or "") + '"></div>')
     for title, depts in SECTIONS:
         shown = [d for d in depts if is_admin or d["level"] != ADMIN_ONLY]
         if not shown:
@@ -1055,7 +1197,7 @@ def render_sidebar(active: str = "", is_admin: bool = True,
         "chev=d.querySelector('.s1hub-chev'),fly=d.querySelector('.s1hub-fly');"
         "function pin(on){d.classList.toggle('s1hub-pinned',on);"
         "if(chev)chev.setAttribute('aria-expanded',on?'true':'false');}"
-        "if(open[slug])pin(true);"
+        "if(slug in open)pin(open[slug]);"
         "if(chev)chev.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();"
         "var on=!d.classList.contains('s1hub-pinned');pin(on);open[slug]=on;"
         "try{localStorage.setItem('s1hub:open',JSON.stringify(open));}catch(x){}});"
@@ -1119,6 +1261,140 @@ def render_sidebar(active: str = "", is_admin: bool = True,
         "document.body.classList.remove('s1hub-nopeek');});"
         "n.addEventListener('focusout',function(){"
         "document.body.classList.remove('s1hub-nopeek');});"
+        # ---- recent. Every real click on a leaf, pinned row or department
+        # name is pushed to the front of s1hub:recent -- deduped by href,
+        # capped at 5. On load the box renders those five rows above the
+        # pinned block so the eye reads the working set before the tree.
+        # A leaf that is the department's own index page (/views/<slug>)
+        # counts; the chevron, the burger and the search box do not, since
+        # they are controls rather than destinations.
+        "var RECENT_MAX=5,recentKey='s1hub:recent',rec=[];"
+        "try{rec=JSON.parse(localStorage.getItem(recentKey)||'[]')||[];}"
+        "catch(e){rec=[];}"
+        "if(!Array.isArray(rec))rec=[];"
+        "var recentBox=n.querySelector('.s1hub-recent'),"
+        "recentHead=n.querySelector('.s1hub-recent-head');"
+        "function drawRecent(){"
+        "if(!recentBox||!recentHead)return;"
+        "recentBox.innerHTML='';"
+        "var active=recentBox.getAttribute('data-s1hub-active')||'',shown=0;"
+        "rec.forEach(function(r){"
+        "if(!r||!r.href||!r.label)return;"
+        "if(shown>=RECENT_MAX)return;"
+        "shown++;"
+        "var a=document.createElement('a');"
+        "a.className='s1hub-item s1hub-recent-item';"
+        "if(r.key&&r.key===active)a.className+=' s1hub-on';"
+        "a.href=r.href;a.title=r.label;"
+        "a.setAttribute('data-s1hub-recent','1');"
+        "var ico=document.createElement('span');"
+        "ico.className='s1hub-ico';ico.innerHTML=r.ico||'&#128279;';"
+        "var lab=document.createElement('span');"
+        "lab.className='s1hub-label';lab.textContent=' '+r.label;"
+        "a.appendChild(ico);a.appendChild(lab);"
+        "recentBox.appendChild(a);"
+        "});"
+        "var on=shown>0;recentHead.hidden=!on;recentBox.hidden=!on;"
+        "}"
+        "drawRecent();"
+        # Recording. Delegated on the nav so a link added later (a re-render
+        # after search, a dept expanded inline) still records. The row's
+        # icon comes from the actual span so a monogram or emoji swap
+        # is picked up whatever it becomes.
+        "function record(a){"
+        "if(!a||!a.getAttribute)return;"
+        "if(a.getAttribute('data-s1hub-recent')==='1')return;"       # already a recent row
+        "var href=a.getAttribute('href');"
+        "if(!href||href.charAt(0)==='#'||href.indexOf('javascript:')===0)return;"
+        "var labelEl=a.querySelector('.s1hub-label');"
+        "var iconEl=a.querySelector('.s1hub-ico');"
+        "var label=(labelEl?labelEl.textContent:a.textContent||'').trim();"
+        "if(!label)return;"
+        # `key` lets Recent light up when the visited tool is the active one.
+        # Read from the anchor's class or the department's data attribute.
+        "var key='';var deptEl=a.closest('.s1hub-dept');"
+        "if(deptEl)key='dept_'+(deptEl.getAttribute('data-s1hub-dept')||'').replace(/-/g,'_');"
+        "var entry={href:href,label:label,ico:iconEl?iconEl.innerHTML:'',key:key};"
+        "rec=rec.filter(function(r){return r&&r.href!==href;});"
+        "rec.unshift(entry);"
+        "if(rec.length>RECENT_MAX*2)rec=rec.slice(0,RECENT_MAX*2);"
+        "try{localStorage.setItem(recentKey,JSON.stringify(rec));}catch(e){}"
+        "}"
+        "n.addEventListener('click',function(e){"
+        "var a=e.target.closest('a.s1hub-item,a.s1hub-dept-link,a.s1hub-leaf,a.s1hub-g');"
+        "if(a)record(a);});"
+        # ---- search. Cmd/Ctrl-K from anywhere lands focus on the box;
+        # typing filters the pinned rows, the department rows and every leaf
+        # inside them, matching on the visible label text. A department with
+        # a match auto-expands its inline list; non-matching leaves inside it
+        # hide. A department with no match at all hides its row. Escape (or
+        # the &times; button) clears the filter and restores the nav.
+        "var si=n.querySelector('.s1hub-search-input'),"
+        "sc=n.querySelector('.s1hub-search-clear');"
+        "if(si){"
+        # Cache the label text of every filterable row once, on the row itself,
+        # so the filter is a simple substring test rather than a DOM walk on
+        # every keystroke. Pinned rows and department rows filter as one unit;
+        # leaves inside a department filter individually.
+        "var pinned=n.querySelectorAll('.s1hub-item:not(.s1hub-leaf):not(.s1hub-recent-item)'),"
+        "depts=n.querySelectorAll('.s1hub-dept'),"
+        "leaves=n.querySelectorAll('.s1hub-inline .s1hub-leaf'),"
+        "sections=n.querySelectorAll('.s1hub-sec');"
+        "function txt(el){return (el.textContent||'').toLowerCase();}"
+        "pinned.forEach(function(el){el.setAttribute('data-s1hub-q',txt(el));});"
+        "depts.forEach(function(d){"
+        "var name=txt(d.querySelector('.s1hub-dept-link')||d);"
+        "d.setAttribute('data-s1hub-q-name',name);"
+        "var all=name;"
+        "d.querySelectorAll('.s1hub-inline .s1hub-leaf').forEach(function(l){"
+        "var q=txt(l);l.setAttribute('data-s1hub-q',q);all+=' '+q;});"
+        "d.setAttribute('data-s1hub-q-all',all);"
+        "});"
+        "function apply(q){"
+        "q=(q||'').toLowerCase().trim();"
+        "var on=q.length>0,hits=0;"
+        "n.classList.toggle('s1hub-searching',on);"
+        "pinned.forEach(function(el){"
+        "var m=!on||el.getAttribute('data-s1hub-q').indexOf(q)>=0;"
+        "el.hidden=!m;if(m&&on)hits++;});"
+        "depts.forEach(function(d){"
+        "var m=!on||d.getAttribute('data-s1hub-q-all').indexOf(q)>=0;"
+        "d.hidden=!m;"
+        "if(on&&m){"
+        "d.querySelectorAll('.s1hub-inline .s1hub-leaf').forEach(function(l){"
+        "var lm=l.getAttribute('data-s1hub-q').indexOf(q)>=0"
+        "||d.getAttribute('data-s1hub-q-name').indexOf(q)>=0;"
+        "l.hidden=!lm;if(lm)hits++;});"
+        "d.querySelectorAll('.s1hub-inline .s1hub-g').forEach(function(g){g.hidden=on;});"
+        "}else if(!on){"
+        "d.querySelectorAll('.s1hub-inline .s1hub-leaf').forEach(function(l){l.hidden=false;});"
+        "d.querySelectorAll('.s1hub-inline .s1hub-g').forEach(function(g){g.hidden=false;});"
+        "}});"
+        # Section headers ("Departments", "Tools", "Overview") hide when a
+        # search is active: they belong to the folded structure, not the
+        # search results.
+        "sections.forEach(function(s){s.hidden=on;});"
+        "n.classList.toggle('s1hub-nohits',on&&hits===0);"
+        "if(sc)sc.style.display=on?'flex':'none';"
+        "}"
+        "si.addEventListener('input',function(){apply(si.value);});"
+        "si.addEventListener('keydown',function(e){"
+        "if(e.key==='Escape'){si.value='';apply('');si.blur();}});"
+        "if(sc)sc.addEventListener('click',function(){"
+        "si.value='';apply('');si.focus();});"
+        # Cmd/Ctrl-K from anywhere: open the drawer on phone, expand the rail
+        # on desktop if collapsed, then focus. Guard against firing when
+        # the person is already typing into a form -- if the target is
+        # another editable element and the drawer is closed, let it pass.
+        "document.addEventListener('keydown',function(e){"
+        "var k=(e.key||'').toLowerCase();"
+        "if((e.metaKey||e.ctrlKey)&&k==='k'){"
+        "e.preventDefault();"
+        "if(document.body.classList.contains('s1hub-collapsed')){"
+        "coll(false);}"
+        "if(window.innerWidth<950)set(true);"
+        "si.focus();si.select();}});"
+        "}"
         "})();</script>"
     )
     html = (

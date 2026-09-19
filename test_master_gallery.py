@@ -140,6 +140,16 @@ class MasterGalleryTests(unittest.TestCase):
         self.assertIsNone(self.db.get(ImageOptimization, queued.id))
         gone.assert_not_called()          # no public_id was stored for the copy
 
+    def test_asset_home_says_who_is_attached(self):
+        with patch("modules.image_picker.notices.attached", return_value=["owner@smart1.test"]):
+            r = self.http.get(f"/tools/image-picker/api/master-gallery?client_id={self.client.id}")
+        self.assertEqual(r.json["attached"], ["owner@smart1.test"])
+        # "Could not be read" is null, never an empty list: the card draws
+        # "nobody is attached" only for an empty list.
+        with patch("modules.image_picker.notices.attached", side_effect=RuntimeError("store down")):
+            r = self.http.get(f"/tools/image-picker/api/master-gallery?client_id={self.client.id}")
+        self.assertIsNone(r.json["attached"])
+
     def test_notices_reach_everyone_attached_and_nobody_else(self):
         from modules.image_picker import notices
         with patch("hub.client_owner.owner_of", return_value={"email": "Owner@Smart1.test"}), \

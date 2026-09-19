@@ -556,6 +556,38 @@ for name in ("ads_estimate.html", "ads_client_proposal.html"):
           '{% include "_estimate_doc.html" %}' in body)
 
 
+# ============================================================ the tier card
+section("The planning check leaves no tile behind")
+
+settings_html = (ROOT / "modules/ads_builder/templates/ads_settings.html").read_text()
+
+# The probe is stored with a stamp precisely so the reader can judge how old
+# the observation is. Undated, "observed by a planning check" reads as now.
+check("the tier card renders the probe stamp", 'id="tierstamp"' in settings_html)
+check("...from the stamp record_probe() keeps", "tier.at" in settings_html)
+
+# Every tile the check can change must be reachable from the check. The daily
+# operations tile was not, so a successful probe left the card reading
+# "Basic access / Available / -".
+for tile in ("tierlabel", "tiersource", "tierstamp", "planstate", "tierops", "tiernote"):
+    check(f"the check can update the {tile} tile", f'id="{tile}"' in settings_html)
+    check(f"...and does", f"getElementById('{tile}')" in settings_html)
+
+# The cap the card prints on load and the cap the check writes into it come
+# from two places; a tier missing from either prints a dash next to a tier
+# label that names it.
+for key, label, _ in keyword_plan.ACCESS_TIERS:
+    check(f"the daily operation cap is known for {key}",
+          f"{key}:" in settings_html.split("const DAILY_OPS")[1].split("}")[0],
+          "the check would blank this tile to a dash")
+
+# A tier somebody typed and a tier nobody recorded are different answers, and
+# the check used to report both as "not recorded".
+check("a typed tier stays a claim after a check, not 'not recorded'",
+      "a claim, not a check'" in settings_html,
+      "the JS collapsed every non-probe source to 'not recorded'")
+
+
 print("\n" + "-" * 60)
 print(f"{len(PASS)} passed, {len(FAIL)} failed")
 for name in FAIL:

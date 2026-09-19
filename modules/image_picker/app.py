@@ -483,7 +483,14 @@ def api_master_gallery():
             return jsonify(ok=False, error="More than one gallery matches this client. Choose the correct client from All clients."), 409
         if found:
             client, name = found[0], found[0].name
-    return jsonify(catalog.catalog(db, client, name))
+    out = catalog.catalog(db, client, name)
+    # Who is told when files land, so the card can say "nobody" out loud
+    # rather than notices going to no one in silence.
+    try:
+        out["attached"] = notices.attached(name)
+    except Exception:                                   # noqa: BLE001
+        out["attached"] = None
+    return jsonify(out)
 
 
 # --------------------------------------------------------------------------- #
@@ -1369,7 +1376,12 @@ def _announce_uploads(db, client, *, by: str, folder: str = "") -> None:
             .where(SavedImage.client_id == client.id,
                    SavedImage.created_at >= since.replace(tzinfo=None))
         ).scalar() or 1
-        notices.uploads_recorded(client.name, count=int(n), by=by, folder=folder)
+        # A staff upload is announced to the uploader as well: with nobody
+        # attached to the account it is otherwise announced to no one, and
+        # the person who pressed Upload is the one who can fix that.
+        me = hub_user() if by != "client" else ""
+        notices.uploads_recorded(client.name, count=int(n), by=by, folder=folder,
+                                 also=[me] if "@" in me else [])
     except Exception:                                   # noqa: BLE001
         log.warning("image_picker: could not announce uploads for %s", client.name)
 
@@ -1676,6 +1688,13 @@ def api_delete_client(client_id: int):
     # point of saying so is that somebody can go and tidy the folder.
     files_removed, files_left = 0, 0
     for row in rows:
+        # The SEO copy goes with its original, or it sits in the account
+        # under a gallery that no longer exists -- counted the same way.
+        copy_gone = optimize.forget(db, row)
+        if copy_gone is True:
+            files_removed += 1
+        elif copy_gone is False:
+            files_left += 1
         if not row.cloudinary_public_id:
             continue
         if cloudinary_sink.destroy(row.cloudinary_public_id, row.resource_type):

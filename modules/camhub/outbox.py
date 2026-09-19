@@ -192,17 +192,137 @@ def register_sender(fn: SenderFn | None) -> None:
 
 
 def _default_sender(sponsor: dict, row: dict) -> dict:
-    """The Hub has one ESP: GHL, through hub/ad_proof_email.py. A
-    sponsor is not a Hub client -- there is no linked GHL contact
-    behind them by default -- so the honest default is to leave
-    the row rendered with a note explaining why."""
+    """Attempt SMTP delivery when the settings are set, and fall back to
+    staff hand-off (a `no_channel` reason on the row) when they are not.
+
+    A sponsor is not a Hub client -- GHL's per-client-contact ESP path is
+    not the right fit here -- so the outbox routes through plain SMTP:
+    stdlib only, credentials guarded by config, no new dependency. The
+    seam remains (see `register_sender`), so a Resend/Postmark ESP can
+    still be plugged in later without touching this call site."""
     if not (sponsor.get("email") or "").strip():
         return {"sent": False, "reason": "no_recipient",
                 "detail": "The sponsor has no email on file."}
-    return {"sent": False, "reason": "no_channel",
-            "detail": ("Sponsor emails are not on a Hub ESP yet. The "
-                       "PDF is on file; forward the link from the "
-                       "reports screen.")}
+    try:
+        from hub.config import settings
+        smtp_ready = bool(settings.smtp_ready)
+    except Exception:  # noqa: BLE001 -- config missing is a channel-unavailable
+        smtp_ready = False
+    if not smtp_ready:
+        return {"sent": False, "reason": "no_channel",
+                "detail": ("SMTP is not configured. The PDF is on file; "
+                           "forward the link from the reports screen, or "
+                           "set SMTP_HOST + SMTP_FROM to mail from the "
+                           "outbox.")}
+    try:
+        return _send_via_smtp(sponsor, row)
+    except Exception as exc:  # noqa: BLE001 -- reported, never raised
+        return {"sent": False, "reason": "sender_error",
+                "detail": f"{type(exc).__name__}: {exc}"}
+
+
+def _send_via_smtp(sponsor: dict, row: dict) -> dict:
+    """Render the month's PDF, build the multipart message, ship it. The
+    render is done here rather than reading `row["pdf_url"]` off the
+    outbox row: the URL may be empty on the local-disk backend and a
+    Cloudinary fetch on send would add a second failure mode -- while the
+    render itself is cheap (rollup-only, no adapter calls) and always
+    matches what /reports/<sid>/<period>.pdf serves."""
+    import smtplib
+    from email.message import EmailMessage
+    from hub.config import settings
+
+    year, month = parse_period(row["period"])
+    report = reports.sponsor_monthly(int(sponsor["id"]), year, month)
+    pdf_bytes = reports.render_monthly_pdf(report)
+
+    conf = settings.smtp()
+    if not conf["from_addr"]:
+        return {"sent": False, "reason": "no_channel",
+                "detail": "SMTP_FROM (or SMTP_USER) is empty; the outbox "
+                          "refuses to mail from an unknown address."}
+
+    msg = EmailMessage()
+    period_label = report["period"]["label"]
+    msg["Subject"] = (f"{sponsor['name']} — CamHub monthly report "
+                      f"({period_label})")
+    msg["From"] = conf["from_addr"]
+    msg["To"] = sponsor["email"]
+    msg["X-CamHub-Period"] = row["period"]
+    msg["X-CamHub-Sponsor-Id"] = str(int(sponsor["id"]))
+    msg.set_content(_smtp_body_text(sponsor, report, row))
+    msg.add_alternative(_smtp_body_html(sponsor, report, row), subtype="html")
+    filename = f"camhub-{_slug(sponsor['name'])}-{row['period']}.pdf"
+    msg.add_attachment(pdf_bytes, maintype="application", subtype="pdf",
+                       filename=filename)
+
+    server_cls = smtplib.SMTP_SSL if conf["ssl"] else smtplib.SMTP
+    with server_cls(conf["host"], conf["port"], timeout=30) as server:
+        if conf["starttls"] and not conf["ssl"]:
+            server.starttls()
+        if conf["username"]:
+            server.login(conf["username"], conf["password"])
+        server.send_message(msg)
+    return {"sent": True, "channel": "smtp"}
+
+
+def _slug(name: str) -> str:
+    import re
+    return re.sub(r"[^A-Za-z0-9]+", "-", (name or "sponsor")).strip("-")[:60] or "sponsor"
+
+
+def _smtp_body_text(sponsor: dict, report: dict, row: dict) -> str:
+    period = report["period"]
+    totals = report["totals"]["now"]
+    return (
+        f"{sponsor['name']} -- monthly report for {period['label']}\n\n"
+        f"Viewable impressions: {totals['impressions']:,}\n"
+        f"Clicks: {totals['clicks']:,}\n"
+        f"Click-through rate: {totals['ctr']:.2f}%\n"
+        + (f"Viewable on {totals['viewable_share']:.1f}% of pageviews\n"
+           if totals.get('viewable_share') is not None else "")
+        + f"\nThe full PDF is attached. Numbers are read from the same "
+          "rollup the sponsor portal reads, so the two never disagree.\n\n"
+          "A viewable impression is what the page's script reports after "
+          "at least half of the ad has been on screen for a continuous "
+          "second (the IAB display standard). Crawler traffic, instant "
+          "clicks and clicks on unscrolled pages are excluded.\n\n"
+          "-- Smart 1 Marketing"
+    )
+
+
+def _smtp_body_html(sponsor: dict, report: dict, row: dict) -> str:
+    from html import escape
+    period = report["period"]
+    totals = report["totals"]["now"]
+    viewable = (f"<p><b>Viewable on {totals['viewable_share']:.1f}%</b> "
+                "of pageviews.</p>"
+                if totals.get("viewable_share") is not None else "")
+    return (
+        "<!doctype html><html><body style=\"font:15px/1.5 -apple-system,"
+        "'Segoe UI',system-ui,sans-serif;color:#1e293b;margin:0;padding:0\">"
+        "<div style=\"max-width:560px;margin:24px auto;padding:0 20px\">"
+        f"<h1 style=\"color:#1a2e58;font-size:22px;margin:0 0 6px\">{escape(sponsor['name'])} &mdash; "
+        f"{escape(period['label'])}</h1>"
+        "<p style=\"color:#475569;margin:0 0 18px\">CamHub monthly report</p>"
+        "<div style=\"padding:16px 18px;background:#f8fafc;border:1px solid "
+        "#e2e8f0;border-radius:10px\">"
+        "<table role=\"presentation\" style=\"width:100%;border-collapse:collapse\">"
+        f"<tr><td><b>Viewable impressions</b></td><td style=\"text-align:right;font-variant-numeric:tabular-nums\">{totals['impressions']:,}</td></tr>"
+        f"<tr><td><b>Clicks</b></td><td style=\"text-align:right;font-variant-numeric:tabular-nums\">{totals['clicks']:,}</td></tr>"
+        f"<tr><td><b>Click-through rate</b></td><td style=\"text-align:right;font-variant-numeric:tabular-nums\">{totals['ctr']:.2f}%</td></tr>"
+        "</table>"
+        f"{viewable}"
+        "</div>"
+        "<p style=\"margin:18px 0 8px\">The full PDF is attached. Numbers are read from "
+        "the same rollup the sponsor portal reads, so the two never disagree.</p>"
+        "<p style=\"color:#64748b;font-size:12.5px;margin:16px 0 0\">"
+        "A viewable impression is what the page's script reports after at least half of the ad has "
+        "been on screen for a continuous second (the IAB display standard). Crawler traffic, instant "
+        "clicks and clicks on unscrolled pages are excluded.</p>"
+        "<p style=\"color:#64748b;font-size:12.5px;margin:10px 0 0\">Smart 1 Marketing</p>"
+        "</div></body></html>"
+    )
 
 
 def send_row(row_id: int) -> dict:

@@ -425,8 +425,18 @@ def resolve_seed_template(industry: str, duration, aspect_ratio: str,
     loosely, which the caller reports by name rather than silently
     building an empty project.
     """
-    q = CsTemplate.query.filter_by(status="published", duration=duration,
-                                   aspect_ratio=aspect_ratio, creative_type=creative_type)
+    # Ordered by id, which is the template's slug and is the primary key, so
+    # each of the three picks is reproducible. None of these four fields is
+    # unique -- two published 30-second 16:9 video templates for one industry
+    # is an ordinary thing for the table to hold, and it is what Template Admin
+    # is for -- so an unordered `.first()` handed the campaign whichever row
+    # the planner returned. Two assets built from the same brief could start
+    # from different templates, with nothing on either saying why, and the
+    # local SQLite would have agreed with whichever one you saw last.
+    q = (CsTemplate.query
+         .filter_by(status="published", duration=duration,
+                    aspect_ratio=aspect_ratio, creative_type=creative_type)
+         .order_by(CsTemplate.id))
     exact = q.filter_by(industry=industry).first()
     if exact is not None:
         return exact, True

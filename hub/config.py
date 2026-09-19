@@ -78,6 +78,14 @@ def _i(name: str, default: int) -> int:
         return default
 
 
+def _f(name: str, default: float) -> float:
+    try:
+        value = float(_s(name) or default)
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
+
 def _b(name: str, default: bool = False) -> bool:
     raw = _s(name).lower()
     if not raw:
@@ -273,6 +281,12 @@ class Settings:
     # ---- image pipeline ----
     max_edge: int = field(default_factory=lambda: _i("SEO_IMAGES_MAX_EDGE", 2400))
     preview_edge: int = field(default_factory=lambda: _i("HUB_PREVIEW_EDGE", 640))
+    # The one-minute load average, as a multiple of the core count, above
+    # which the SEO-copy sweep (modules/image_picker/optimize.py) steps
+    # aside. A float so 1.25 is expressible; the reading it is held against
+    # is on the scheduler row for picker_optimize on /diagnostics.
+    image_optimize_load_factor: float = field(
+        default_factory=lambda: _f("IMAGE_OPTIMIZE_LOAD_FACTOR", 1.5))
 
     # ---- providers ----
     # Every provider credential resolves through ALIASES above, so a key set
@@ -307,6 +321,21 @@ class Settings:
     # nothing is dead when it is unset; set it to name a real mailbox.
     camhub_user_agent: str = field(default_factory=lambda: _s(
         "CAMHUB_USER_AGENT", "SmartHub-CamModule/1.0 (adops@smart1marketing.com)"))
+    # SMTP for the CamHub sponsor outbox. Kept optional; when host is unset
+    # the outbox's default sender writes a "no_channel" reason and leaves
+    # the row in `rendered` state for staff hand-off. `SMTP_FROM` is the
+    # address monthly reports are addressed from; when unset, the outbox
+    # uses `SMTP_USER` (if that reads like an address) rather than
+    # inventing one. `SMTP_STARTTLS` defaults to "1" -- most providers
+    # require it on port 587. `SMTP_SSL` overrides for port 465 or the
+    # rare "SMTPS from packet one" server.
+    smtp_host: str = field(default_factory=lambda: _s("SMTP_HOST"))
+    smtp_port: str = field(default_factory=lambda: _s("SMTP_PORT", "587"))
+    smtp_user: str = field(default_factory=lambda: _s("SMTP_USER"))
+    smtp_password: str = field(default_factory=lambda: _s("SMTP_PASSWORD"))
+    smtp_from: str = field(default_factory=lambda: _s("SMTP_FROM"))
+    smtp_starttls: str = field(default_factory=lambda: _s("SMTP_STARTTLS", "1"))
+    smtp_ssl: str = field(default_factory=lambda: _s("SMTP_SSL"))
     # Microsoft Advertising, for Smart 1 Ads' connection and the reports
     # module's native pull (modules/ads_builder/bing_ads.py reads these at
     # call time through _s() and _alias()). Exactly the spellings set on
@@ -458,6 +487,30 @@ class Settings:
     @property
     def openai_ready(self) -> bool:
         return bool(self.openai_key)
+
+    @property
+    def smtp_ready(self) -> bool:
+        """SMTP is ready to send the CamHub sponsor report on the 1st when a
+        host and a From address are both set; the outbox refuses without one
+        rather than sending mail from a made-up address."""
+        return bool(self.smtp_host and (self.smtp_from or self.smtp_user))
+
+    def smtp(self) -> dict:
+        """The dict the outbox reads. Ports and TLS flags are normalized
+        here so the sender does not have to re-parse them at send time.
+        `from_addr` falls back to `smtp_user` when `SMTP_FROM` is unset --
+        many providers require the From header to match the SASL user
+        anyway, and picking the user is a defined value where guessing
+        would not be."""
+        try:
+            port = int(self.smtp_port or "587")
+        except (TypeError, ValueError):
+            port = 587
+        return {"host": self.smtp_host, "port": port,
+                "username": self.smtp_user, "password": self.smtp_password,
+                "from_addr": (self.smtp_from or self.smtp_user).strip(),
+                "starttls": self.smtp_starttls not in ("0", "false", "False", ""),
+                "ssl": self.smtp_ssl in ("1", "true", "True", "yes")}
 
     @property
     def pickaxe_ready(self) -> bool:
@@ -704,6 +757,11 @@ class Settings:
                 "local disk, outside the backup, and get no delivery URL."),
             row("OpenAI", self.openai_ready, False,
                 "OPENAI_API_KEY — AI naming, FAQ, schema and copy fall back to templates."),
+            row("SEO copy sweep load limit", True, False,
+                f"IMAGE_OPTIMIZE_LOAD_FACTOR — {self.image_optimize_load_factor:g} × cores; "
+                "unset means 1.5. The sweep that makes web-ready copies of uploads "
+                "waits while the one-minute load average is above it. The reading "
+                "it is held against is on the picker_optimize row of /diagnostics."),
             row("Pickaxe", self.pickaxe_ready, False,
                 "PICKAXE_API_KEY — Pickaxe-backed helpers (SEM quote help) fall "
                 "back to the Hub's own AI."),
@@ -756,6 +814,12 @@ class Settings:
                 "CAMHUB_USER_AGENT — the User-Agent sent to NWS, USGS, BeachGuard and NOAA "
                 "(all keyless). Unset, the built-in default is sent; set it to name the "
                 "mailbox a provider should write to."),
+            row("CamHub sponsor mail", self.smtp_ready, False,
+                "SMTP_HOST, SMTP_PORT (587), SMTP_USER, SMTP_PASSWORD, SMTP_FROM — "
+                "sends the monthly sponsor PDF from the outbox on the 1st. Unset, "
+                "reports render and file on Cloudinary but hand off through the "
+                "reports screen instead of mailing. SMTP_STARTTLS defaults on for "
+                "587; SMTP_SSL is for 465."),
             row("Google Fonts", bool(self.google_fonts_key), False, f"{self.spellings('google_fonts_key')} — optional; curated list used without it."),
             row("Insites", bool(self.insites_key), False, f"{self.spellings('insites_key')} — Site Scans disabled without it."),
             row("HeyGen", bool(self.heygen_key), False,

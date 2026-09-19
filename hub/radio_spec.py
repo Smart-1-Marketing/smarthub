@@ -800,6 +800,92 @@ def speed_suggestion(*, vo_seconds, target_seconds, lead_in_ms=None,
                     f"{action} — {heard}. {cost}"}
 
 
+# ---------------------------------------------------------------------------
+# Dead air, and the order the two levers are pulled in.
+# ---------------------------------------------------------------------------
+# A read that runs long has two things wrong with it and only one of them is
+# the performance. Before anybody is asked to speed a read up -- which costs a
+# take, or costs the pitch -- the silence should come out, because that is free
+# and nobody can hear it go. A :32 read with six half-second gaps in it is a
+# :29 read somebody recorded with pauses.
+#
+# So the order is fixed: **measure, trim the dead air, measure again, and only
+# then offer a rate.** Offering a rate first spends money to fix something a
+# gap edit would have fixed for nothing.
+#
+# There is no ffmpeg, pydub or numpy in this runtime, so none of this happens
+# here. The browser already decodes audio for the mix through the Web Audio
+# API, which means it can decode an upload in any format it supports, find the
+# quiet runs in the samples and hand back a WAV -- and a WAV is the one thing
+# this runtime CAN measure, off its own header. That is why an upload is
+# decoded and re-encoded on the way in rather than stored as it arrived: it
+# turns "not measured" into measured for every file somebody uploads.
+#
+# What lives here is the vocabulary and the limits, for the same reason the dB
+# pair does: the panel that draws the advanced controls and the route that
+# validates them must not each keep their own idea of what is allowed.
+DEAD_AIR_DEFAULTS = {
+    # Below this counts as silence. Room tone on a decent home recording sits
+    # around -50 dBFS; a breath is louder. Too high and it eats the front of
+    # words, which is the one failure nobody forgives.
+    "threshold_db": -45.0,
+    # A gap shorter than this is the rhythm of the read, not dead air. Cutting
+    # at 150ms gives you a voice with no punctuation.
+    "min_gap_ms": 350.0,
+    # What a trimmed gap is shortened TO, rather than removed. A gap closed to
+    # nothing runs two sentences together and reads as a splice.
+    "keep_ms": 180.0,
+    # Leading and trailing silence, which are not gaps and are usually the
+    # biggest single win on a phone recording.
+    "head_ms": 120.0,
+    "tail_ms": 200.0,
+}
+
+# What an advanced control may be set to. Each bound is a failure somebody
+# would otherwise ship: a threshold at the loud end of this range starts cutting
+# quiet speech, a keep of 0 splices sentences together, and a min gap under
+# 150ms removes the pauses that make a read a read. The bounds are written once,
+# below, rather than restated in this sentence.
+DEAD_AIR_LIMITS = {
+    "threshold_db": (-70.0, -20.0),
+    "min_gap_ms": (150.0, 2000.0),
+    "keep_ms": (0.0, 1000.0),
+    "head_ms": (0.0, 2000.0),
+    "tail_ms": (0.0, 2000.0),
+}
+
+
+def dead_air_settings(sent=None) -> tuple[dict, list]:
+    """The trim settings to actually use, and what was refused.
+
+    Every value is clamped to `DEAD_AIR_LIMITS` and anything unparseable falls
+    back to the default -- with a sentence naming it, because a control that
+    silently ignores what somebody typed is the slider that does nothing, and
+    this codebase has already paid for one of those.
+    """
+    out, notes = dict(DEAD_AIR_DEFAULTS), []
+    for key, (low, high) in DEAD_AIR_LIMITS.items():
+        if not isinstance(sent, dict) or key not in sent:
+            continue
+        raw = sent.get(key)
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            notes.append(f"{key} was not a number, so the default "
+                         f"{DEAD_AIR_DEFAULTS[key]:g} was used.")
+            continue
+        if not math.isfinite(value):
+            notes.append(f"{key} was not a number, so the default "
+                         f"{DEAD_AIR_DEFAULTS[key]:g} was used.")
+            continue
+        clamped = min(high, max(low, value))
+        if clamped != value:
+            notes.append(f"{key} {value:g} is outside {low:g}–{high:g}, "
+                         f"so {clamped:g} was used.")
+        out[key] = clamped
+    return out, notes
+
+
 def speed_ok(speed) -> tuple[float, str]:
     """A rate a caller sent, or a sentence. ``1.0`` means no time compression."""
     if speed in (None, "", "1", "1.0"):

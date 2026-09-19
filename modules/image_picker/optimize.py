@@ -88,8 +88,25 @@ FETCH_TIMEOUT = 30
 # The one-minute load average, as a multiple of the core count, above which
 # the sweep steps aside. 1.5 on a two-core box is three runnable processes
 # on average: the two workers answering pages plus something else, which is
-# a box with no spare second for a re-encode.
+# a box with no spare second for a re-encode. Read through hub/config.py
+# (IMAGE_OPTIMIZE_LOAD_FACTOR) rather than fixed here: inside a container
+# the load average is usually the host's while the core count may be the
+# container's, so the right factor is only known after watching the
+# scheduler row on Diagnostics for a day.
 LOAD_FACTOR = 1.5
+
+
+def load_factor() -> float:
+    try:
+        return float(settings.image_optimize_load_factor)
+    except Exception:                                     # noqa: BLE001
+        return LOAD_FACTOR
+
+
+# How many galleries one run backfills with rows for images recorded before
+# this feature existed. Bounded so a Hub with a thousand old uploads fills
+# in over a few runs rather than one run scanning every image it holds.
+BACKFILL_GALLERIES = 20
 
 _NEVER = re.compile(r"\.(svg|gif)$", re.I)
 
@@ -98,21 +115,35 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def load_reading() -> dict:
+    """The number the deferral decides on, and the limit it is held to.
+
+    Reported on every run so the Diagnostics scheduler row shows what the
+    box actually reads and somebody can tell whether the factor fits it.
+    `measured` is False where the platform has no load average.
+    """
+    cores = max(1, os.cpu_count() or 1)
+    try:
+        one_minute = os.getloadavg()[0]
+    except (AttributeError, OSError):
+        return {"measured": False, "cores": cores, "factor": load_factor()}
+    return {"measured": True, "one_minute": round(one_minute, 2), "cores": cores,
+            "factor": load_factor(), "limit": round(cores * load_factor(), 2)}
+
+
 def busy() -> tuple[bool, str]:
     """Whether the instance has no spare second right now, and why.
 
     Never raises: a platform without `os.getloadavg` (Windows) is simply
     never busy by this measure, and says nothing.
     """
-    try:
-        one_minute = os.getloadavg()[0]
-    except (AttributeError, OSError):
+    reading = load_reading()
+    if not reading["measured"]:
         return False, ""
-    cores = max(1, os.cpu_count() or 1)
-    limit = cores * LOAD_FACTOR
-    if one_minute > limit:
-        return True, (f"load average {one_minute:.2f} is above {limit:.2f} "
-                      f"on {cores} core{'s' if cores != 1 else ''}")
+    if reading["one_minute"] > reading["limit"]:
+        cores = reading["cores"]
+        return True, (f"load average {reading['one_minute']:.2f} is above "
+                      f"{reading['limit']:.2f} on {cores} core{'s' if cores != 1 else ''}")
     return False, ""
 
 
@@ -152,6 +183,28 @@ def enqueue(db, image: SavedImage) -> ImageOptimization | None:
         log.warning("image_picker: could not queue optimization for %s: %s",
                     getattr(image, "id", "?"), exc)
         return None
+
+
+def backfill(db, limit: int = BACKFILL_GALLERIES) -> dict:
+    """Queue images recorded before this feature existed, a few galleries at a time.
+
+    The sweep only ever saw uploads that came through `/api/uploads` after
+    the row was added, so every gallery filled before then read "0 of 0" on
+    the counter and never got a copy. Galleries with the oldest unqueued
+    image go first, the same oldest-first rule the sweep itself keeps.
+    Returns how many galleries were touched and rows queued.
+    """
+    queued_ids = select(ImageOptimization.image_id)
+    galleries = db.execute(
+        select(SavedImage.client_id, func.min(SavedImage.created_at))
+        .where(SavedImage.id.not_in(queued_ids))
+        .group_by(SavedImage.client_id)
+        .order_by(func.min(SavedImage.created_at).asc())
+        .limit(max(1, int(limit)))).all()
+    rows = 0
+    for client_id, _oldest in galleries:
+        rows += enqueue_missing(db, client_id)
+    return {"galleries": len(galleries), "rows": rows}
 
 
 def enqueue_missing(db, client_id: int) -> int:
@@ -301,17 +354,31 @@ def run_backlog(limit: int = BATCH, *, max_seconds: int = BUDGET_SECONDS,
     """
     if not _configured():
         return {"skipped": "CLOUDINARY_URL is not set", "optimized": 0}
+    reading = load_reading()
     if not force:
         is_busy, why = busy()
         if is_busy:
-            return {"deferred": True, "why": why, "optimized": 0}
+            return {"deferred": True, "why": why, "optimized": 0, "load": reading}
 
     started = time.time()
     optimized = failed = gave_up = 0
     finished_clients: dict[int, str] = {}
     errors: list[str] = []
+    backfilled = {"galleries": 0, "rows": 0}
     try:
         with session() as db:
+            # Images from before this feature existed are queued here, a few
+            # galleries per run, so old galleries fill in without anybody
+            # pressing anything. Its own try: a backfill that fails must not
+            # stop the copies already queued from being made.
+            try:
+                backfilled = backfill(db)
+            except Exception as exc:                      # noqa: BLE001
+                log.warning("image_picker: optimization backfill failed: %s", exc)
+                try:
+                    db.rollback()
+                except Exception:                         # noqa: BLE001
+                    pass
             todo = db.scalars(
                 select(ImageOptimization)
                 .where(ImageOptimization.state == "pending")
@@ -379,7 +446,9 @@ def run_backlog(limit: int = BATCH, *, max_seconds: int = BUDGET_SECONDS,
             log.warning("image_picker: could not announce optimization for %s", name)
 
     out = {"ok": True, "optimized": optimized, "failed": failed, "gave_up": gave_up,
-           "seconds": round(time.time() - started, 1), "actor": actor}
+           "seconds": round(time.time() - started, 1), "actor": actor, "load": reading}
+    if backfilled["rows"]:
+        out["backfilled"] = backfilled
     if errors:
         out["last_error"] = errors[-1]
     return out
@@ -403,22 +472,30 @@ def pending_count() -> dict:
                 "error": f"{type(exc).__name__}: {exc}"}
 
 
-def forget(db, image: SavedImage) -> None:
+def forget(db, image: SavedImage):
     """Remove the copy when its original goes. Never raises.
 
     The row cascades with the image on Postgres; the Cloudinary object does
     not, and a copy of a deleted photograph left in the account is exactly
     the orphan `cloudinary_sink.destroy` exists to avoid.
+
+    Returns True when a stored copy was destroyed, False when Cloudinary
+    refused, and None when there was no stored copy to remove -- so a
+    gallery delete can count the copies beside the originals rather than
+    report a clean deletion with files still in the account.
     """
     try:
         row = db.execute(select(ImageOptimization)
                          .where(ImageOptimization.image_id == image.id)).scalar_one_or_none()
         if row is None:
-            return
+            return None
+        outcome = None
         if row.optimized_public_id:
             from . import cloudinary_sink
-            cloudinary_sink.destroy(row.optimized_public_id, "image")
+            outcome = bool(cloudinary_sink.destroy(row.optimized_public_id, "image"))
         db.delete(row)
+        return outcome
     except Exception as exc:                              # noqa: BLE001
         log.warning("image_picker: could not remove the SEO copy for %s: %s",
                     getattr(image, "id", "?"), exc)
+        return None

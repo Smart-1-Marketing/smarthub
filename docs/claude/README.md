@@ -7,7 +7,7 @@ say "above" or "below" mean earlier or later files in this list.
 
 | File | Topic | Lines |
 |---|---|---|
-| [`03-traps-every-one-of-these-has-cost-a-working-feature.md`](03-traps-every-one-of-these-has-cost-a-working-feature.md) | Traps — every one of these has cost a working feature | 1526 |
+| [`03-traps-every-one-of-these-has-cost-a-working-feature.md`](03-traps-every-one-of-these-has-cost-a-working-feature.md) | Traps — every one of these has cost a working feature | 1589 |
 | [`04-a-fallback-secret-in-the-source-is-a-forgeable-token.md`](04-a-fallback-secret-in-the-source-is-a-forgeable-token.md) | A fallback secret in the source is a forgeable token | 3523 |
 | [`05-data-sources-and-which-are-stale.md`](05-data-sources-and-which-are-stale.md) | Data sources, and which are stale | 1178 |
 | [`06-wiring-four-call-sites-is-not-wiring-the-module.md`](06-wiring-four-call-sites-is-not-wiring-the-module.md) | Wiring four call sites is not wiring the module | 93 |
@@ -61,12 +61,12 @@ say "above" or "below" mean earlier or later files in this list.
 | [`52-microsoft-advertising-one-consent-and-the-reports-module-pul.md`](52-microsoft-advertising-one-consent-and-the-reports-module-pul.md) | Microsoft Advertising: one consent, and the reports module pulls | 191 |
 | [`53-groundtruth-the-key-arrived-before-the-document.md`](53-groundtruth-the-key-arrived-before-the-document.md) | GroundTruth: the key arrived before the document | 84 |
 | [`54-one-industry-taxonomy-resolved-and-written-down.md`](54-one-industry-taxonomy-resolved-and-written-down.md) | One industry taxonomy, resolved and written down | 33 |
-| [`56-verifying-a-change.md`](56-verifying-a-change.md) | Verifying a change | 1150 |
+| [`56-verifying-a-change.md`](56-verifying-a-change.md) | Verifying a change | 1163 |
 | [`57-smartforecast-moved-to-the-hub-database.md`](57-smartforecast-moved-to-the-hub-database.md) | SmartForecast moved to the Hub database, and what the move found | 133 |
 | [`58-the-check-that-reported-no-json-on-the-disk.md`](58-the-check-that-reported-no-json-on-the-disk.md) | The check that reported no JSON on the disk | 181 |
 | [`59-leads-in-a-table-not-a-file-on-one-instance.md`](59-leads-in-a-table-not-a-file-on-one-instance.md) | Leads in a table, not a file on one instance | 136 |
 | [`60-a-clients-email-campaigns-read-from-their-own-sub-account.md`](60-a-clients-email-campaigns-read-from-their-own-sub-account.md) | A client's email campaigns, read from their own sub-account | 65 |
-| [`61-amazon-dsp-five-claims-and-four-of-them-fail-as-a-working.md`](61-amazon-dsp-five-claims-and-four-of-them-fail-as-a-working.md) | Amazon DSP: five claims, and four of them fail as a working configuration | 182 |
+| [`61-amazon-dsp-five-claims-and-four-of-them-fail-as-a-working.md`](61-amazon-dsp-five-claims-and-four-of-them-fail-as-a-working.md) | Amazon DSP: five claims, and four of them fail as a working configuration | 216 |
 | [`62-a-scanned-business-that-is-not-a-client-is-a-lead.md`](62-a-scanned-business-that-is-not-a-client-is-a-lead.md) | A scanned business that is not a client is a lead | 119 |
 | [`63-the-google-tokens-off-their-own-sqlite-file.md`](63-the-google-tokens-off-their-own-sqlite-file.md) | The Google tokens, off their own SQLite file | 120 |
 | [`64-ask-smarthub-reads-the-fact-table.md`](64-ask-smarthub-reads-the-fact-table.md) | Ask SmartHub reads the fact table: named periods, decided flags, recipes | 174 |
@@ -76,7 +76,7 @@ say "above" or "below" mean earlier or later files in this list.
 | [`68-the-upload-url-that-nothing-ever-served.md`](68-the-upload-url-that-nothing-ever-served.md) | The upload URL that nothing ever served | 110 |
 | [`69-the-third-question-bytes-on-the-disk.md`](69-the-third-question-bytes-on-the-disk.md) | The third question: bytes on the disk | 120 |
 | [`70-client-360s-header-said-the-same-thing-twice.md`](70-client-360s-header-said-the-same-thing-twice.md) | Client 360's header said the same thing twice, and nothing about who to call | 124 |
-| [`71-a-clients-asset-home-has-five-folders-and-the-uploads-get-a-web-ready-copy.md`](71-a-clients-asset-home-has-five-folders-and-the-uploads-get-a-web-ready-copy.md) | A client's asset home has five folders, and the uploads get a web-ready copy | 162 |
+| [`71-a-clients-asset-home-has-five-folders-and-the-uploads-get-a-web-ready-copy.md`](71-a-clients-asset-home-has-five-folders-and-the-uploads-get-a-web-ready-copy.md) | A client's asset home has five folders, and the uploads get a web-ready copy | 195 |
 | [`72-nothing-built-the-image-that-deploys.md`](72-nothing-built-the-image-that-deploys.md) | Nothing built the image that deploys | 103 |
 | [`73-one-page-per-provider-and-the-fields-left-on-the-table.md`](73-one-page-per-provider-and-the-fields-left-on-the-table.md) | One page per provider, and the fields left on the table | 88 |
 | [`74-every-link-that-works-without-a-hub-login.md`](74-every-link-that-works-without-a-hub-login.md) | Every link that works without a Hub login | 153 |
@@ -84,10 +84,13 @@ say "above" or "below" mean earlier or later files in this list.
 | [`76-the-optimizers-bytes-cross-the-instance-boundary.md`](76-the-optimizers-bytes-cross-the-instance-boundary.md) | The optimizer's bytes cross the instance boundary | 190 |
 | [`77-a-half-hour-job-on-the-shared-thread-stalled-every-job-behind-it.md`](77-a-half-hour-job-on-the-shared-thread-stalled-every-job-behind-it.md) | A half-hour job on the shared thread stalled every job behind it | 64 |
 | [`78-last-month-was-not-in-the-fact-table.md`](78-last-month-was-not-in-the-fact-table.md) | Last month was not in the fact table | 72 |
-| [`79-callrail-a-phone-call-is-an-outcome-not-a-conversion.md`](79-callrail-a-phone-call-is-an-outcome-not-a-conversion.md) | CallRail: a phone call is an outcome, not a conversion | 111 |
+| [`79-callrail-a-phone-call-is-an-outcome-not-a-conversion.md`](79-callrail-a-phone-call-is-an-outcome-not-a-conversion.md) | CallRail: a phone call is an outcome, not a conversion | 146 |
 | [`80-the-clients-360-script-in-files-not-a-template.md`](80-the-clients-360-script-in-files-not-a-template.md) | The Client 360 script, in files, not a template | 53 |
 | [`81-a-copy-of-the-landed-rows-and-two-indexes-the-live-table-lacked.md`](81-a-copy-of-the-landed-rows-and-two-indexes-the-live-table-lacked.md) | A copy of the landed rows, and two indexes the live table lacked | 115 |
 | [`82-camhub-a-conditions-page-with-a-sponsor-system-behind-it.md`](82-camhub-a-conditions-page-with-a-sponsor-system-behind-it.md) | CamHub: a conditions page with a sponsor system behind it | 193 |
 | [`83-display-ad-builder-handoff-the-next-rounds.md`](83-display-ad-builder-handoff-the-next-rounds.md) | Display Ad Builder: handoff for the next rounds | 273 |
 | [`84-camhub-sprint-5-reporting-portal-the-hub-card-and-the-mcp-tool.md`](84-camhub-sprint-5-reporting-portal-the-hub-card-and-the-mcp-tool.md) | CamHub Sprint 5: reporting, the portal, the Client 360 card and the MCP tool | 105 |
 | [`85-camhub-sprint-6-the-cam-builder-and-the-second-page.md`](85-camhub-sprint-6-the-cam-builder-and-the-second-page.md) | CamHub Sprint 6: the Cam Builder wizard, re-probe, and a second location type | 80 |
+| [`86-camhub-hardening-csv-formulas-portal-rotation-and-outbox-in-health.md`](86-camhub-hardening-csv-formulas-portal-rotation-and-outbox-in-health.md) | CamHub hardening: CSV formulas, portal rotation, and the outbox in /health | 72 |
+| [`87-the-404-was-a-url-the-hub-composed.md`](87-the-404-was-a-url-the-hub-composed.md) | The 404 was a URL the Hub composed | 86 |
+| [`88-camhub-outbox-smtp-the-last-unmet-sprint-5-done-when.md`](88-camhub-outbox-smtp-the-last-unmet-sprint-5-done-when.md) | CamHub outbox: SMTP is the last unmet Sprint 5 done-when | 78 |

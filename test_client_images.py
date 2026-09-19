@@ -160,6 +160,10 @@ check("Client 360 reads d.total for the count",
       "const total=d.total||0;" in C360, True)
 check("and no longer splices brand logos into the count",
       "BRAND_LOGOS" in C360, False)
+# Upload notices go to whoever is attached; with nobody attached they go to
+# no one, and the card has to say so rather than let silence read as quiet.
+check("the card says when nobody is attached to the account",
+      "upload notices go to no one" in C360, True)
 
 
 # =====================================================================

@@ -58,8 +58,8 @@ named = {k for _t, depts in sidebar.SECTIONS for d in depts for _g, keys in d["g
 check("every key a department names is a leaf", sorted(named - set(sidebar.LEAVES)), [])
 check("every leaf is named by at least one department", sorted(set(sidebar.LEAVES) - named), [])
 check("twelve departments", len(sidebar.departments(True)), 12)
-check("six of them are Departments and six are Tools",
-      [len(d) for _t, d in sidebar.SECTIONS], [6, 6])
+check("all twelve in one section now",
+      [len(d) for _t, d in sidebar.SECTIONS], [12])
 check("General loses exactly Utilities",
       [d["slug"] for d in sidebar.departments(True) if d not in sidebar.departments(False)],
       ["utilities"])
@@ -96,7 +96,7 @@ print("\n-- the flat list the rest of the Hub reads --")
 keys = [r[0] for r in sidebar._ITEMS]
 check("no duplicate keys", len(keys), len(set(keys)))
 check("pinned rows come first", keys[:5], [r[0] for r in sidebar.PINNED])
-check("both section headers are present", [k for k in keys if k.startswith("_sec")], ["_sec0", "_sec1"])
+check("one section header now", [k for k in keys if k.startswith("_sec")], ["_sec0"])
 check("every row is a 5-tuple", all(len(r) == 5 for r in sidebar._ITEMS))
 check("/tools/ads/ is labeled PPC Builder",
       next(r[3] for r in sidebar._ITEMS if r[1] == "/tools/ads/"), "PPC Builder")
@@ -108,7 +108,10 @@ check("visible_items(General) drops them",
 
 print("\n-- rendering --")
 html = sidebar.render_sidebar("reports", is_admin=True).decode()
-check("twelve department rows", html.count('class="s1hub-dept" '), 12)
+# Counted by the data attribute, which is present on every dept and not by
+# the class -- the active department carries an extra `s1hub-pinned` class
+# now (auto-expand), so a literal `class="s1hub-dept" ` count would miss it.
+check("twelve department rows", html.count(' data-s1hub-dept="'), 12)
 check("each with a flyout", html.count('class="s1hub-fly"'), 12)
 check("each with a chevron", html.count('class="s1hub-chev"'), 12)
 check("the active leaf is lit", 'class="s1hub-leaf s1hub-on" href="/reports/"' in html)
@@ -118,9 +121,68 @@ check("a department row lights itself", 'class="s1hub-dept-row s1hub-on"' in
       sidebar.render_sidebar("dept_seo", is_admin=True).decode())
 general = sidebar.render_sidebar("", is_admin=False).decode()
 check("General does not see Utilities", 'data-s1hub-dept="utilities"' in general, False)
-check("General still sees the other eleven", general.count('class="s1hub-dept" '), 11)
+check("General still sees the other eleven", general.count(' data-s1hub-dept="'), 11)
 check("no GoHighLevel wording in the nav", "GoHighLevel" in html, False)
 check("the flyout is placed by script, not clipped by the scroll", "getBoundingClientRect" in html)
+
+# Auto-expand the active department: the tree of the dept the person came in
+# on is what they want to see the moment the page renders. Rendered directly
+# on the outer div so the existing `.s1hub-pinned` CSS rule covers it, and
+# the chevron's aria-expanded matches. A stored preference still wins.
+check("the active department is auto-pinned",
+      'class="s1hub-dept s1hub-pinned"' in html)
+check("...with an aria-expanded chevron to match",
+      'aria-expanded="true"' in html)
+check("...but only for the active one, not all twelve",
+      html.count('aria-expanded="true"'), 1)
+check("a stored preference still wins in both directions",
+      "slug in open" in html and "pin(open[slug])" in html)
+
+# Department monograms: colored 2-letter squares in place of emoji. Same 18px
+# slot as the emoji, tinted with the department's own color from
+# DEPT_COLORS, so the rail's layout is unchanged and the eye can learn
+# "the green square is Sales." A monogram declared here covers every one.
+check("every department has a monogram", len(sidebar.DEPT_MONOS), 12)
+check("...one for each slug",
+      sorted(sidebar.DEPT_MONOS.keys()),
+      sorted(d["slug"] for d in sidebar.departments(True)))
+check("...rendered as a colored square in the sidebar",
+      'class="s1hub-ico s1hub-mono"' in html)
+check("...tinted from DEPT_COLORS",
+      f'style="background:{sidebar.DEPT_COLORS["sales"]}"' in html)
+check("...with the two-letter code inline",
+      ">SL<" in html and ">CS<" in html and ">QA<" in html)
+
+# The search input at the top of the nav filters every row in place -- pinned,
+# departments, and every leaf inside them -- and Cmd/Ctrl-K from anywhere
+# focuses it. Without the box, finding a tool by name means guessing which of
+# 12 folded departments it lives in.
+check("the search input is at the top of the nav", 'class="s1hub-search-input"' in html)
+check("it has a keyboard shortcut hint", "s1hub-search-kbd" in html)
+check("Cmd/Ctrl-K focuses it", "metaKey" in html and "ctrlKey" in html)
+check("Escape and the clear button restore the nav",
+      "si.value=''" in html and "s1hub-search-clear" in html)
+check("a no-match state is announced", 's1hub-nomatch' in html and "No tool matches." in html)
+
+# The Recent section is drawn client-side from localStorage: every real click
+# on a sidebar link is pushed to the front of `s1hub:recent`, deduped by href
+# and capped at 5. The section header and container are rendered [hidden] and
+# unhide the moment the first entry lands. Search hides the whole block, since
+# search results are the answer once the person typed.
+check("the Recent placeholder is rendered hidden",
+      's1hub-recent-head" hidden' in html and 'class="s1hub-recent"' in html)
+check("...and its active leaf is threaded in for the light-up",
+      'data-s1hub-active="reports"' in html)
+check("clicks are recorded on every nav link kind",
+      'a.s1hub-item,a.s1hub-dept-link,a.s1hub-leaf,a.s1hub-g' in html)
+check("localStorage holds five entries at most", 'RECENT_MAX=5' in html)
+check("a recent-item click does not re-record itself",
+      "getAttribute('data-s1hub-recent')==='1'" in html)
+check("during a search the Recent block hides",
+      '.s1hub-searching .s1hub-recent { display: none' in html or
+      '.s1hub-searching .s1hub-recent' in html and 'display: none' in html)
+check("recent rows are excluded from the search filter's pinned iterator",
+      ":not(.s1hub-recent-item)" in html)
 
 print("\n-- the index pages --")
 from hub import create_hub_app                                   # noqa: E402

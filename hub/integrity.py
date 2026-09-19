@@ -720,6 +720,399 @@ KEY_FIX = ("Look it up by its key in the store rather than sweeping a page of "
            "ads_builder.store.deployed_account() are the worked examples.")
 
 
+# A `.first()` whose filter cannot name one row. Written down here so the
+# check and the code it reads agree about what has been looked at and settled.
+UNORDERED_FIRST_EXEMPT: dict[tuple, str] = {
+    # ("path.py", line-anchoring model): why an arbitrary row is the answer.
+}
+
+_MODEL_BASES = {"Model", "Base", "DeclarativeBase"}
+
+
+def _model_unique_keys(trees: dict) -> tuple[dict, set]:
+    """``({model: [frozenset(attrs), ...]}, {every model name})``.
+
+    The attribute names, not the column names: `filter_by()` is written in
+    attributes and `UniqueConstraint` in columns, and `Column("query", ...)`
+    under a different attribute makes those two different words for one thing
+    -- which `SEORecommendation` really does, for the reason
+    check_shadowed_model_query() exists.
+    """
+    keys: dict = {}
+    names: set = set()
+    for rel, tree in trees.items():
+        for cls in ast.walk(tree):
+            if not isinstance(cls, ast.ClassDef):
+                continue
+            if not any((isinstance(b, ast.Name) and b.id in _MODEL_BASES)
+                       or (isinstance(b, ast.Attribute) and b.attr in _MODEL_BASES)
+                       for b in cls.bases):
+                continue
+            names.add(cls.name)
+            pk, found, by_column = [], [], {}
+            for st in cls.body:
+                if not (isinstance(st, ast.Assign) and len(st.targets) == 1
+                        and isinstance(st.targets[0], ast.Name)):
+                    continue
+                attr, value = st.targets[0].id, st.value
+                if attr == "__table_args__":
+                    for c in ast.walk(value):
+                        if isinstance(c, ast.Call) and (
+                                getattr(c.func, "attr", "") == "UniqueConstraint"
+                                or getattr(c.func, "id", "") == "UniqueConstraint"):
+                            cols = [a.value for a in c.args
+                                    if isinstance(a, ast.Constant)
+                                    and isinstance(a.value, str)]
+                            if cols:
+                                found.append(cols)
+                    continue
+                # `Column(...)` and `db.Column(...)` are the same declaration.
+                # Reading only the second is how a first pass at this check
+                # reported `User.email` as unconstrained -- hub/users.py spells
+                # it bare -- and would have sent somebody to "fix" the sign-in
+                # lookup that was right all along.
+                if not (isinstance(value, ast.Call)
+                        and (getattr(value.func, "id", "") == "Column"
+                             or getattr(value.func, "attr", "") == "Column")):
+                    continue
+                dbname = attr
+                if value.args and isinstance(value.args[0], ast.Constant) \
+                        and isinstance(value.args[0].value, str):
+                    dbname = value.args[0].value
+                by_column[dbname] = attr
+                kw = {k.arg: k.value for k in value.keywords}
+                for flag, into in (("primary_key", pk), ("unique", found)):
+                    node = kw.get(flag)
+                    if isinstance(node, ast.Constant) and node.value is True:
+                        into.append(attr) if flag == "primary_key" else into.append([attr])
+            if pk:
+                found.append(pk)
+            if found:
+                keys[cls.name] = [frozenset(by_column.get(c, c) for c in k)
+                                  for k in found]
+    return keys, names
+
+
+def _module_aliases(tree) -> dict:
+    """``{name as written: class name}`` for this module.
+
+    Two indirections, both of which left a real model unnamed: `from ... import
+    Scene as CbScene` (four call sites in modules/creative_studio), and
+    `q = CsTemplate.query.filter_by(...)` followed by `q.filter_by(...).first()`
+    (three more in binder.py), where the model is only ever written on the
+    line that built the variable.
+    """
+    out: dict = {}
+    for n in ast.walk(tree):
+        if isinstance(n, ast.ImportFrom):
+            for a in n.names:
+                if a.asname:
+                    out[a.asname] = a.name
+        elif isinstance(n, ast.Assign) and len(n.targets) == 1 \
+                and isinstance(n.targets[0], ast.Name):
+            for c in ast.walk(n.value):
+                if isinstance(c, ast.Attribute) and c.attr == "query" \
+                        and isinstance(c.value, ast.Name):
+                    out.setdefault(n.targets[0].id, c.value.id)
+                    break
+    return out
+
+
+def _ordered_bindings(tree) -> set:
+    """Names bound to a query that already carries an `order_by`.
+
+    `q = Model.query.filter_by(...).order_by(...)` then `q.first()` three lines
+    down is ordered, and reading only the chain under `.first()` cannot see it
+    -- which made this check report `binder.py`'s three template picks as
+    unordered on the commit that ordered them. A check that reports a correct
+    idiom is one people learn to scroll past.
+    """
+    out = set()
+    for n in ast.walk(tree):
+        if not (isinstance(n, ast.Assign) and len(n.targets) == 1
+                and isinstance(n.targets[0], ast.Name)):
+            continue
+        if any(getattr(c, "attr", "") == "order_by" for c in ast.walk(n.value)):
+            out.add(n.targets[0].id)
+    return out
+
+
+def _chain_root(call: ast.Call):
+    """The name a query chain is built on, if it is built on one."""
+    cur = call.func.value
+    while isinstance(cur, (ast.Call, ast.Attribute, ast.Subscript)):
+        cur = cur.func if isinstance(cur, ast.Call) else cur.value
+    return cur.id if isinstance(cur, ast.Name) else None
+
+
+def _is_core_query(call: ast.Call) -> bool:
+    """A Core `select()`/`text()` run through a connection, not an ORM query.
+
+    Out of this check's scope rather than unread by it: there is no model to
+    carry a unique key, and `conn.execute(select(t).where(...)).first()` is a
+    different question. Counted apart so the coverage line below stays a
+    statement about ORM reads, which is what it claims to be.
+    """
+    for n in ast.walk(call):
+        if isinstance(n, ast.Call) and getattr(n.func, "id", "") in ("select", "text"):
+            return True
+        if isinstance(n, ast.Attribute) and n.attr in ("mappings", "scalars"):
+            return True
+    return False
+
+
+def _query_shape(call: ast.Call, aliases: dict | None = None) -> tuple:
+    """``(model, {attrs compared for equality})`` for the chain under a call."""
+    aliases = aliases or {}
+    model, cols = None, set()
+    cur = call.func.value
+    while isinstance(cur, (ast.Call, ast.Attribute, ast.Subscript)):
+        if isinstance(cur, ast.Call):
+            name = getattr(cur.func, "attr", "") or getattr(cur.func, "id", "")
+            if name == "filter_by":
+                cols |= {k.arg for k in cur.keywords if k.arg}
+            elif name == "filter":
+                for arg in cur.args:
+                    for c in ast.walk(arg):
+                        if (isinstance(c, ast.Compare) and len(c.ops) == 1
+                                and isinstance(c.ops[0], ast.Eq)
+                                and isinstance(c.left, ast.Attribute)):
+                            cols.add(c.left.attr)
+                            owner = c.left.value
+                            model = model or (owner.id if isinstance(owner, ast.Name)
+                                              else getattr(owner, "attr", None))
+            elif name == "query":
+                for arg in cur.args:
+                    if isinstance(arg, ast.Name):
+                        model = model or arg.id
+                    elif isinstance(arg, ast.Attribute):
+                        # `query(ProductionTake.id)` selects one column off a
+                        # model. The owner is the model; `.attr` is "id", and
+                        # taking it named two call sites after a column.
+                        owner = arg.value
+                        model = model or (owner.id if isinstance(owner, ast.Name)
+                                          else arg.attr)
+            cur = cur.func
+        elif isinstance(cur, ast.Subscript):
+            cur = cur.value
+        else:
+            if cur.attr == "query":
+                owner = cur.value
+                model = model or (owner.id if isinstance(owner, ast.Name)
+                                  else getattr(owner, "attr", None))
+            cur = cur.value
+    if model is None and isinstance(cur, ast.Name):
+        # The chain ends in a bare name: `q = Model.query.filter_by(...)` on an
+        # earlier line and `q.first()` here. Without this the variable is where
+        # the model's name stops being written down, and the call reads as
+        # unresolvable.
+        model = cur.id
+    while model in aliases and aliases[model] != model:
+        model = aliases[model]
+    return model, cols
+
+
+def _kept(tree, parents: dict, call: ast.Call) -> bool:
+    """Does anything read a FIELD of the row, or is any row as good as any?
+
+    `if Approval.query.filter_by(...).first():` asks whether one exists, and
+    the answer does not depend on which. So does `existing = ...` followed by
+    `if existing: skip` -- the name is a step, not a use, and reading only the
+    expression around the call reported three of those as findings.
+    """
+    node, seen = parents.get(call), 0
+    while node is not None and seen < 4:
+        if isinstance(node, (ast.If, ast.While, ast.IfExp, ast.BoolOp, ast.UnaryOp)):
+            return False
+        if isinstance(node, ast.Compare) and any(
+                isinstance(o, (ast.Is, ast.IsNot)) for o in node.ops):
+            return False
+        if isinstance(node, ast.Call) and getattr(node.func, "id", "") == "bool":
+            return False
+        if isinstance(node, ast.Assign):
+            targets = [t.id for t in node.targets if isinstance(t, ast.Name)]
+            if not targets:
+                return True
+            return any(_used_as_a_row(tree, parents, name) for name in targets)
+        if isinstance(node, ast.Return):
+            return True
+        node, seen = parents.get(node), seen + 1
+    return True
+
+
+def _used_as_a_row(tree, parents: dict, name: str) -> bool:
+    """Is this name ever used as the row, rather than only tested for one?
+
+    Reading a field off it is the obvious way, and it is not the only one:
+    `exact = q.filter_by(...).first()` followed by `return exact` keeps the row
+    without ever writing `exact.anything`. A first version looked only for
+    attribute access and so read three of `binder.py`'s template picks as
+    existence checks -- a false negative in the direction that produces an
+    empty findings list, which is the direction that looks like success.
+    """
+    for n in ast.walk(tree):
+        if not (isinstance(n, ast.Name) and n.id == name
+                and isinstance(n.ctx, ast.Load)):
+            continue
+        parent = parents.get(n)
+        if isinstance(parent, (ast.If, ast.While, ast.IfExp, ast.BoolOp,
+                               ast.UnaryOp, ast.Assert)):
+            continue                     # `if row:` -- a test, not a use
+        if isinstance(parent, ast.Compare) and any(
+                isinstance(o, (ast.Is, ast.IsNot)) for o in parent.ops):
+            continue                     # `row is None`
+        if isinstance(parent, ast.Call) and getattr(parent.func, "id", "") == "bool":
+            continue
+        return True
+    return False
+
+
+def check_unordered_first() -> list[dict]:
+    """`.first()` on a filter that cannot name one row, with no ordering.
+
+    SQL has no default order. `.first()` after a filter that matches two rows
+    returns whichever the planner hands back, and the same call can answer
+    differently on Postgres as the table grows or the plan changes -- while
+    SQLite, where everything local runs, obliges by usually returning the
+    lowest rowid. That is the family docs/claude/56 already records twice: a
+    forward foreign key SQLite resolves lazily, and a SELECT alias in HAVING.
+    Both were invisible in development by construction.
+
+    It went in with two, and neither was theoretical:
+
+      * `hub/industry.py` mirrored a client's resolved industry onto the Image
+        Picker's row for that name. `image_picker_clients.name` is not unique
+        -- only `slug` is, and a second gallery for one name is given `-2`
+        rather than refused -- so it wrote one row and left the other. In
+        production: `marco-island-rental` on "general" and
+        `marco-island-rental-2` on "tourism", one client's industry answering
+        two ways depending on which row a reader landed on. The caller's own
+        comment one line up says every write here "lands on both".
+      * `modules/sales_builder` read "has this revision been accepted" and then
+        inserted, with nothing unique on (quote_id, revision). Two requests
+        inside that gap -- a double-click on a public share link -- both read
+        nothing and both insert, and the panel then reports whichever row came
+        back as who agreed to the price.
+
+    **An existence check is not a finding.** `if Approval.query...first():`
+    asks whether one exists and any row answers it, including through a name:
+    `existing = ...` then `if existing:` is the same question spelled over two
+    lines, and a first pass that read only the expression around the call
+    reported three of those.
+
+    **What it could not read is reported too, as its own finding.** This is
+    the whole discipline of the file and it is here because this check's own
+    prototype twice announced a clean repository while resolving almost none
+    of the call sites -- once because it only understood `db.Column(...)` and
+    not the bare `Column(...)` hub/users.py uses, so `User.email` read as
+    unconstrained; once because it only followed `filter_by` and skipped every
+    `.filter(Model.col == v)` in `modules/scans`. Both times the output was an
+    empty list, which is exactly what a clean repository produces. A sweep that
+    cannot say how much it swept is not evidence, so coverage is a number this
+    check reports rather than a property somebody hopes it has.
+    """
+    trees: dict = {}
+    for rel, src in _sources():
+        try:
+            trees[rel] = ast.parse(src)
+        except SyntaxError:
+            continue
+    return unordered_first_findings(trees)
+
+
+def unordered_first_findings(trees: dict) -> list[dict]:
+    """The findings for a ``{rel: tree}`` map, split out so the check can be
+    driven over synthetic modules -- a sweep that cannot be shown to find one
+    is a sweep asserting about nothing."""
+    keys, known = _model_unique_keys(trees)
+    out, total, read, core = [], 0, 0, 0
+    unreadable: list[tuple] = []
+
+    for rel, tree in trees.items():
+        if pathlib.Path(rel).name.startswith("test_"):
+            continue
+        parents: dict = {}
+        for n in ast.walk(tree):
+            for child in ast.iter_child_nodes(n):
+                parents[child] = n
+        aliases = _module_aliases(tree)
+        ordered = _ordered_bindings(tree)
+        for n in ast.walk(tree):
+            if not (isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                    and n.func.attr == "first"):
+                continue
+            total += 1
+            if any(getattr(a, "attr", "") == "order_by" for a in ast.walk(n)) \
+                    or _chain_root(n) in ordered:
+                read += 1
+                continue
+            # Asked BEFORE anything else, because it settles the question
+            # whichever row comes back. A relationship query
+            # (`project.render_jobs.filter(...).first()`) names no model this
+            # pass can resolve, and four of those sat in the coverage line as
+            # though something were unknown about them -- when the code reads
+            # `bool(... or ...)` and any row is the same answer.
+            if not _kept(tree, parents, n):
+                read += 1
+                continue
+            if _is_core_query(n):
+                core += 1
+                continue
+            model, cols = _query_shape(n, aliases)
+            if model not in known:
+                unreadable.append((rel, n.lineno, model or "no model named"))
+                continue
+            read += 1
+            model_keys = keys.get(model)
+            if not model_keys:
+                unreadable.append((rel, n.lineno, f"{model}: declares no unique key"))
+                continue
+            if any(k <= cols for k in model_keys):
+                continue
+            if (rel, model) in UNORDERED_FIRST_EXEMPT:
+                continue
+            named = ", ".join(sorted(cols)) or "nothing"
+            out.append({
+                "file": rel, "module": _module_of(rel),
+                "detail": f"{rel}:{n.lineno} keeps the row from "
+                          f"{model}.first() filtered on {named}, which covers "
+                          f"no unique key on {model}. SQL has no default "
+                          f"order, so past the first matching row this returns "
+                          f"whichever one the planner hands back, and can "
+                          f"answer differently on Postgres than it does on the "
+                          f"SQLite everything local runs against.",
+                "fix": "Say which row you mean -- order_by() a column that "
+                       "breaks the tie -- or make the filter name one, with a "
+                       "unique constraint on the columns it uses. If every "
+                       "match should be written or read, take them all: "
+                       "hub/industry._mirror_picker() does that now. If any "
+                       "row genuinely answers the question, ask it as an "
+                       "existence check rather than keeping the row.",
+            })
+
+    # Coverage, as a finding rather than a comment. An empty findings list is
+    # worth exactly as much as the fraction of call sites behind it.
+    if unreadable:
+        shown = "; ".join(f"{r}:{ln} ({why})" for r, ln, why in unreadable[:6])
+        out.append({
+            "file": "hub/integrity.py", "module": "hub",
+            "detail": f"{len(unreadable)} of {total} `.first()` call sites "
+                      f"could not be resolved to a model with a declared "
+                      f"unique key, so this check says nothing about them: "
+                      f"{shown}{'; ...' if len(unreadable) > 6 else ''}. "
+                      f"{read} of {total} were read, and {core} are Core "
+                      f"queries with no model to carry a key. A clean result covering "
+                      f"none of the repository reads exactly like a clean "
+                      f"repository, which is how this check's own first two "
+                      f"drafts passed.",
+            "fix": "Either teach _query_shape() the chain shape, declare the "
+                   "unique key on the model so it can be checked, or -- where "
+                   "an arbitrary row is genuinely the answer -- order the read "
+                   "so it stops being arbitrary. This entry is not a defect in "
+                   "the code it names; it is the check reporting its own reach.",
+        })
+    return out
+
 def check_shadowed_routes() -> list[dict]:
     """Hub routes hidden behind a mounted module's prefix.
 
@@ -2216,6 +2609,11 @@ CHECKS = [
     # with two findings, both fixed in the same change, so it starts empty.
     ("capped_read_misuse", "A capped read counted, or searched by key",
      "medium", check_capped_read_misuse),
+    # Medium, and the coverage line it can emit is the point of it: this went
+    # in with two live findings and a check that had twice reported a clean
+    # repository while reading almost none of it.
+    ("unordered_first", "A .first() that cannot name one row",
+     "medium", check_unordered_first),
     ("shadowed_routes", "Routes hidden behind a mount", "high", check_shadowed_routes),
     # High: the model imports, the table is created, and every reader of it
     # 500s or rolls back at the first read. It went in at zero, with the one

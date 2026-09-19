@@ -258,7 +258,14 @@ def _cs_layout_context(project):
     except Exception:                                     # noqa: BLE001
         return None
     try:
-        cs_project = CsProject.query.filter_by(cb_project_id=project.id).first()
+        # Ordered: `cb_project_id` carries no unique constraint -- its own
+        # comment in modules/creative_studio/models.py says it is "nullable and
+        # unenforced" -- and binder.py is what keeps it one-to-one, by
+        # returning early on a project that already has one. That is a rule in
+        # code rather than in the schema, so this read says which row it means
+        # instead of taking whichever comes back.
+        cs_project = (CsProject.query.filter_by(cb_project_id=project.id)
+                      .order_by(CsProject.id).first())
     except Exception:                                     # noqa: BLE001
         return None
     if cs_project is None:

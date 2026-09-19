@@ -156,9 +156,13 @@ services:
         sync: false
       - key: BING_AD_REFRESH_TOKEN
         sync: false
-      # The native AudioGo pull: the Reporting API key and origin. The field
-      # map is a placeholder until the spec arrives; /reports/audiogo-check
-      # is where it is corrected from.
+      # The native AudioGo pull: the Reporting API key, and the report
+      # endpoint URL called exactly as it is set (AudioGo runs on AdsWizz's
+      # Domain API under https://api.adswizz.com/domain; https only).
+      # AUDIOGO_REPORT_PATH, AUDIOGO_METHOD and AUDIOGO_BODY shape the call
+      # meanwhile and default to appending nothing and a plain GET. The
+      # field map is a placeholder until the spec arrives;
+      # /reports/audiogo-check is where all of it is corrected from.
       - key: AUDIOGO_API_KEY
         sync: false
       - key: AUDIOGO_API_BASE
@@ -462,6 +466,27 @@ services:
       # throttles a call without one. Optional: the code sends a working
       # default when this is unset. Set it to name a mailbox somebody reads.
       - key: CAMHUB_USER_AGENT
+        sync: false
+      # CamHub sponsor outbox — the SMTP channel that mails the monthly
+      # PDF on the 1st. Optional: unset, the outbox renders and files the
+      # PDF but leaves it in `rendered` state for staff hand-off from
+      # /tools/camhub/reports. Set SMTP_HOST + SMTP_FROM (and creds if the
+      # server requires them) to switch the outbox onto real SMTP.
+      # STARTTLS is on by default for port 587; SMTP_SSL flips to SMTPS
+      # for port 465.
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: SMTP_STARTTLS
+        sync: false
+      - key: SMTP_SSL
         sync: false
       # Background jobs — exactly one worker runs them.
       - key: HUB_SCHEDULER

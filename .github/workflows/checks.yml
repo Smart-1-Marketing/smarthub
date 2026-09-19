@@ -2246,7 +2246,7 @@ jobs:
           fi
 
       - name: User account, access level and crawler tests
-        if: matrix.group == 5
+        if: matrix.group == 6
         # The census roster and the two levels it creates: that a re-run never
         # resets a password or takes back a promotion, that the starting
         # password is valid for exactly one sign-in (mounted modules included
@@ -2299,7 +2299,7 @@ jobs:
           fi
 
       - name: Environment resolution and per-module attribution tests
-        if: matrix.group == 5
+        if: matrix.group == 1
         # One setting, several variable names. This deployment's environment is
         # assembled from linked Render env groups that each named things their
         # own way, so a key set as PEXELS_API has to resolve in code written
@@ -2656,7 +2656,7 @@ jobs:
       # all, showed every job as never run. This holds the three answers it
       # could not give: overdue, a failure streak, and not-measured-here.
       - name: Background jobs report whether they are working
-        if: matrix.group == 5
+        if: matrix.group == 7
         run: python3 test_scheduler_health.py
 
       - name: Nightly reporting and historical imports
@@ -2910,7 +2910,7 @@ jobs:
       # radio_promo logged client work that never reached the client record
       # while fan_radio, doing the same job, did.
       - name: Every module's work is attributable
-        if: matrix.group == 6
+        if: matrix.group == 4
         run: python3 test_activity_logging.py
       # A reading that has to be COMPLETE and was a window instead: the image
       # audit swept a fifth of the archive, "this module never logged" was
@@ -2930,6 +2930,14 @@ jobs:
       - name: A capped read counted, or searched by key
         if: matrix.group == 6
         run: python3 test_capped_reads.py
+      # A .first() on a filter that matches two rows answers with whichever
+      # one the planner returns -- and SQLite, where all of this runs locally,
+      # hides it by usually returning the lowest rowid. Holds the shapes AND
+      # the check's own coverage, because three drafts of it reported a clean
+      # repository while reading almost none of one.
+      - name: A .first() that cannot name one row
+        if: matrix.group == 6
+        run: python3 test_unordered_first.py
       # The column that turns one client's work log from a window into a
       # question. Holds the migration on a live table and, above all, the
       # boundary a half-finished backfill leaves.
