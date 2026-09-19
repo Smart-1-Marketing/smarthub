@@ -1305,6 +1305,9 @@ def listing(client: str = "", q: str = "") -> dict:
         "views_measured": bool(counts.get("measured")),
         "views_error": counts.get("error", ""),
         "views_recent_days": counts.get("recent_days", 0),
+        # Served rather than written into the page, so the one sentence about
+        # what a number leaves out cannot be worded a second way in markup.
+        "views_counting_note": counts.get("counting_note", ""),
         # Three numbers because there are three questions, and the page was
         # printing the second under the first: `count` is how many matched and
         # the table only ever drew 300 of them, so a book past that cap read
@@ -1407,4 +1410,5 @@ def summary_for_client(client: str) -> dict:
         "conversion_measured": bool(got.get("conversion_measured")),
         "views_error": got.get("views_error", ""),
         "views_recent_days": got.get("views_recent_days", 0),
+        "views_counting_note": got.get("views_counting_note", ""),
     }
