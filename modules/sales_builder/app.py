@@ -966,36 +966,64 @@ def is_consulting(item) -> bool:
             == hub_intake.CONSULTING["product"])
 
 
-# The one join to the placeholder rate-card line WO-3e's scope maps onto --
+# The join to the three priced rate-card rows WO-3e's scope maps onto --
 # exact string, byte-for-byte the card's own "product" field
 # (hub/data/rate_card.json), never a substring: the client_key.py rule
-# applied to a product name rather than a business.
-SEO_AEO_SCOPE_PRODUCT = "SEO & AEO Scope Package"
+# applied to a product name rather than a business. Priced as three separate
+# rows rather than one custom-quote line, so a rep quotes the tier the audit
+# actually found rather than a single figure covering all three.
+SEO_AEO_SCOPE_PRODUCTS = {
+    "SEO & AEO Scope Package (Small)": "small",
+    "SEO & AEO Scope Package (Medium)": "medium",
+    "SEO & AEO Scope Package (Large)": "large",
+}
 
 
 def is_seo_aeo_scope(item) -> bool:
-    """Whether a plan line is the SEO & AEO Scope Package, the join
-    `_seo_aeo_scope_note()` uses to attach the audit's own derivation."""
-    return (str((item or {}).get("product") or "").strip()
-            == SEO_AEO_SCOPE_PRODUCT)
+    """Whether a plan line is one of the SEO & AEO Scope Package tiers, the
+    join `_seo_aeo_scope_description()` uses to attach the audit's own
+    derivation."""
+    return str((item or {}).get("product") or "").strip() in SEO_AEO_SCOPE_PRODUCTS
 
 
-def _seo_aeo_scope_note(state) -> str:
-    """The scope_for() derivation, for a media-plan row's description.
+def _seo_aeo_scope_result(state) -> dict:
+    """scope_for()'s own result, computed once per plan.
 
-    Computed once and reused for every SEO & AEO Scope Package line on one
-    proposal rather than re-derived per row -- the audit it reads does not
-    change between two lines quoting the same client's same site. Never a
-    placeholder sentence: an unmeasured scope leaves the description blank,
-    the same rule `where_you_stand()` and `scope_for()` themselves already
-    hold.
+    Reused for every SEO & AEO Scope Package line on one proposal rather
+    than re-derived per row -- the audit it reads does not change between
+    two lines quoting the same client's same site. Never raises: an
+    unreadable audit reads as unmeasured, the same rule `where_you_stand()`
+    and `scope_for()` themselves already hold.
     """
     try:
-        scope = _proposal_scan_insights.scope_for(
+        return _proposal_scan_insights.scope_for(
             str(state.get("client") or ""), str(state.get("url") or ""))
     except Exception:                                     # noqa: BLE001
+        return {"measured": False, "tier": None}
+
+
+def _seo_aeo_scope_description(item, scope: dict) -> str:
+    """The media-plan row's description for one SEO & AEO Scope Package line.
+
+    Blank wherever the audit has not run -- never a placeholder sentence
+    invented to fill the space. Where it has, the derivation leads; a line
+    quoted at a tier the audit did not find (the rep sold Medium and the
+    site now needs Large, or the reverse) gets a second sentence naming the
+    mismatch rather than printing a number beside a derivation that quietly
+    disagrees with it -- the confident-wrong-answer failure this codebase
+    keeps having to undo, one document further out.
+    """
+    if not scope.get("measured"):
         return ""
-    return scope.get("note") or "" if scope.get("measured") else ""
+    note = scope.get("note") or ""
+    if not note:
+        return ""
+    quoted_tier = SEO_AEO_SCOPE_PRODUCTS.get(str((item or {}).get("product") or "").strip())
+    measured_tier = scope.get("tier")
+    if quoted_tier and measured_tier and quoted_tier != measured_tier:
+        note += (f" This line is quoted at the {quoted_tier} tier; "
+                 f"the audit above measures {measured_tier}.")
+    return note
 
 
 def consulting_unresolved(state) -> list:
@@ -3211,9 +3239,9 @@ def expected_results(state):
     unpriced = []
     # Computed once, before the loop, rather than per row: nothing on this
     # campaign changes which client or domain the audit was run against.
-    seo_aeo_note = (_seo_aeo_scope_note(state)
-                    if any(is_seo_aeo_scope(i) for i in state.get("items") or [])
-                    else "")
+    seo_aeo_scope = (_seo_aeo_scope_result(state)
+                     if any(is_seo_aeo_scope(i) for i in state.get("items") or [])
+                     else {"measured": False, "tier": None})
 
     for item in state.get("items") or []:
         try:
@@ -3311,7 +3339,8 @@ def expected_results(state):
             # otherwise, never a placeholder line invented to fill the space.
             "description": ((str(item.get("description") or "").strip()
                             if is_consulting(item) else "")
-                            or (seo_aeo_note if is_seo_aeo_scope(item) else "")),
+                            or (_seo_aeo_scope_description(item, seo_aeo_scope)
+                                if is_seo_aeo_scope(item) else "")),
         })
 
     totals["campaign"] = round(sum(r["campaign"] for r in rows), 2)
