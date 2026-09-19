@@ -1034,6 +1034,36 @@ def create_hub_app() -> Flask:
         url = request.args.get("url", "")
         return jsonify(client_money.for_client(name, url))
 
+    @app.route("/api/client/snapshot.pdf")
+    def api_client_snapshot_pdf():
+        """The one-page snapshot download -- hub/client_snapshot_pdf.py.
+
+        Behind `_require_page()` rather than `_require_api()`: this is a
+        plain `<a href>` click, not a fetch, and a stranger following a
+        bookmark should meet the sign-in page rather than a JSON 401 body
+        served with a PDF's Content-Type. It reads the same functions the
+        health strip, the next-action line, the Account value card and
+        Coming up already call and computes nothing of its own.
+        """
+        gate = _require_page()
+        if gate:
+            return gate
+        from . import client_snapshot_pdf
+        name = (request.args.get("name") or "").strip()
+        if not name:
+            return "A client is required.", 400
+        url = request.args.get("url", "")
+        try:
+            pdf = client_snapshot_pdf.build(name, url)
+        except Exception:                                  # noqa: BLE001
+            app.logger.exception("client snapshot PDF failed")
+            return "We couldn't build that snapshot.", 500
+        resp = make_response(pdf)
+        resp.headers["Content-Type"] = "application/pdf"
+        resp.headers["Content-Disposition"] = \
+            f'attachment; filename="{client_snapshot_pdf.filename(name)}"'
+        return resp
+
     @app.route("/api/client/work")
     def api_client_work():
         """Everything the Hub has made for this client, newest first."""
