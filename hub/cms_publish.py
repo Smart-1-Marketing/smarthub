@@ -623,12 +623,3 @@ def instructions(cms: str, kind: str, items: list, *, client: str = "",
 
 
 # Thin wrappers — the two the SEO page called before there were four kinds.
-def blog_instructions(cms: str, posts: list, settings: dict,
-                      site_url: str = "", client: str = "") -> dict:
-    return instructions(cms, "blogs", posts, client=client,
-                        site_url=site_url, settings=settings)
-
-
-def schema_instructions(cms: str, pages: list, site_url: str = "",
-                        client: str = "") -> dict:
-    return instructions(cms, "schema", pages, client=client, site_url=site_url)

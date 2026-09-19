@@ -259,8 +259,14 @@ print("\npublish instructions")
 settings = seo.blog_settings(CLIENT)
 flagged_post = seo.load_store(CLIENT)["blogs"]["posts"][0]
 
-wp = cms_publish.blog_instructions("wordpress", [flagged_post], settings,
-                                   "https://www.example-hvac.com/services")
+# `instructions()` with the kind passed in, which is what the route does:
+# `blog_instructions()` and `schema_instructions()` hard-coded a kind the
+# route has always passed dynamically, and their only callers were the six
+# lines here -- so these checks proved the sugar worked while the path
+# production takes went untested.
+wp = cms_publish.instructions("wordpress", "blogs", [flagged_post],
+                              site_url="https://www.example-hvac.com/services",
+                              settings=settings)
 check("the WordPress admin is derived from the client's own site",
       wp["admin_url"] == "https://example-hvac.com/wp-admin/post-new.php", wp["admin_url"])
 labels = [f["label"] for f in wp["items"][0]["fields"]]
@@ -291,32 +297,37 @@ check("the steps are the Chrome recipe, not a retyping checklist",
       any("Claude extension" in s["title"] or "Claude extension" in s["detail"]
           for s in wp["steps"]), [s["title"] for s in wp["steps"]])
 
-nourl = cms_publish.blog_instructions("wordpress", [flagged_post], settings, "")
+nourl = cms_publish.instructions("wordpress", "blogs", [flagged_post],
+                                 site_url="", settings=settings)
 check("with no site URL there is no invented WordPress admin",
       nourl["admin_url"] == "", nourl["admin_url"])
 check("and it says why",
       any("no website url is saved" in w.lower() for w in nourl["warnings"]),
       nourl["warnings"])
 
-s1 = cms_publish.blog_instructions("smart1", [flagged_post], settings,
-                                   "https://example-hvac.com")
+s1 = cms_publish.instructions("smart1", "blogs", [flagged_post],
+                              site_url="https://example-hvac.com",
+                              settings=settings)
 check("Smart 1 Sites opens through the Hub, never a guessed Simvoly URL",
       s1["admin_url"].startswith("/sites"), s1["admin_url"])
 s1_labels = [f["label"] for f in s1["items"][0]["fields"]]
 check("a builder with no tag field says so instead of dropping the tags",
       any("no tag field" in x for x in s1_labels), s1_labels)
 
-empty = cms_publish.blog_instructions("wordpress", [], settings, "https://example-hvac.com")
+empty = cms_publish.instructions("wordpress", "blogs", [],
+                                 site_url="https://example-hvac.com",
+                                 settings=settings)
 check("selecting nothing is a warning, not an empty panel",
       any("Nothing selected" in w for w in empty["warnings"]), empty["warnings"])
 check("an unknown CMS is refused",
-      "error" in cms_publish.blog_instructions("squarespace", [], settings, ""))
+      "error" in cms_publish.instructions("squarespace", "blogs", [],
+                                          site_url="", settings=settings))
 
-sch = cms_publish.schema_instructions(
-    "wordpress",
+sch = cms_publish.instructions(
+    "wordpress", "schema",
     [{"url": "https://example-hvac.com/ac-repair", "approved": False,
       "types": ["LocalBusiness"], "schema": {"@type": "LocalBusiness"}}],
-    "https://example-hvac.com")
+    site_url="https://example-hvac.com")
 check("the schema panel hands over a ready script block",
       '<script type="application/ld+json">' in sch["items"][0]["fields"][1]["value"])
 check("an unapproved page is called out before it goes on a site",

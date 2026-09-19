@@ -529,18 +529,6 @@ def authorized_text(*sources) -> str:
     return "\n".join(p.strip() for p in parts if p and p.strip())
 
 
-def request_facts(req: dict, brief: dict | None = None) -> dict:
-    """The facts dict `social_plan.validate_copy()` is run against for a post
-    that came from a client request. The request's own words are added to the
-    batch's brief rather than replacing it — a standing "never mention" list
-    is still a standing list."""
-    facts = dict(brief or {})
-    supplied = authorized_text(req)
-    if supplied:
-        facts["notes"] = "\n".join(x for x in (facts.get("notes") or "", supplied) if x)
-    return facts
-
-
 # =====================================================================
 # Self-check — the same shape as blog_spec.check_spec()
 # =====================================================================

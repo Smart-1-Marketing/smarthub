@@ -230,8 +230,15 @@ def build_localbusiness_jsonld(business_info: dict, industry_key: str = "",
 
     Never reads the brief -- built purely from what is already in
     `business_info`, so it can never disagree with what a person pressed
-    Save on. Used by the schema generator's template fallback and by the
-    validator this file's own tests check against.
+    Save on.
+
+    It has **no caller today**, and that sentence replaces one claiming two:
+    the generator's template fallback and a validator. Neither reaches it, and
+    a docstring naming a caller that is not there is how the next reader
+    concludes the path is covered. It is kept rather than deleted because it
+    is the one node built from saved fields alone -- a screen that wants that
+    guarantee should read a function rather than assemble the dict itself --
+    and it is named in `test_unwired.TEST_ONLY_ALLOW` with that reason.
     """
     bi = business_info or {}
     node: dict[str, Any] = {

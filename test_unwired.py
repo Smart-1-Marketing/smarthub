@@ -246,6 +246,111 @@ def unwired(root=None):
     return out
 
 
+
+# =====================================================================
+# The sibling question: called ONLY by its own tests
+# =====================================================================
+# `ALLOW` above is for a function named nowhere else in the repo at all. This
+# is the other shape, the one `integrity.check_tested_but_unwired()` asks
+# about: a function whose only callers are its own tests, which `unwired()`
+# cannot see because a test file is part of the repo and five calls from
+# `test_x.py` read as thoroughly wired.
+#
+# It is a SECOND dict rather than more entries in the first, and that is the
+# whole reason this backlog sat at twenty-two: the integrity check's own fix
+# text said to add these to `ALLOW`, and doing so turns the stale half of THIS
+# file red -- every one of them is referenced, by its test, so `ALLOW` counts
+# it as an entry that has outlived what it exempted. One list answering two
+# questions cannot be stale-checked on either, which is the trap this repo
+# names about two checks asking one question and answering it differently.
+#
+# Held to the same rule in both directions: an entry naming a function that is
+# gone, that nothing calls at all (that is `ALLOW`'s question), or that a real
+# caller has since reached, fails below.
+TEST_ONLY_ALLOW = {
+    # --- a named reading of a table this module owns ------------------------
+    # One expression over a constant in the same file. Kept because the
+    # alternative is the next screen reading the table with a literal, and a
+    # literal is what drifts; deleting them buys nothing and loses the name.
+    "hub/industry.py:alias_label":
+        "names ALIAS_LABELS for the alias that decided the key",
+    "modules/commercial_builder/config.py:publisher_labels":
+        "names CTV_PUBLISHERS' labels",
+    "modules/scans/leads.py:defaults_for":
+        "names KINDS' defaults for one widget kind",
+    "hub/seo.py:social_label":
+        "names SOCIAL_LABELS first and the client's own saved label second -- "
+        "the ORDER is the rule, and a screen reading the two dicts itself is "
+        "how they come to be read in the other one",
+    "hub/seo.py:custom_social_key":
+        "the one rule for minting a custom social key: the slug, the first "
+        "character, and refusing one the catalog already owns. A second "
+        "screen writing that regex is a key the catalog silently shadows",
+    "hub/knack_websites.py:client_for_domain":
+        "names record_for_domain()'s client half, including that a row "
+        "carrying the domain and nobody's name is an ORPHAN rather than a "
+        "match -- the distinction a caller reading the record itself drops",
+    "modules/image_creator/animation.py:frame_times":
+        "names frame_count() as the timestamps to capture at; the browser "
+        "decides its own today and reads FRAME_INTERVAL_MS for it",
+
+    # --- a store's own vocabulary, complete on purpose ----------------------
+    # A store that can write but not delete is a store whose next caller
+    # writes the delete itself, somewhere else, differently.
+    "hub/master_identity.py:add_relationship":
+        "master identity store: attaching a durable relationship. The store "
+        "can mint and merge an entity; one that cannot say how two of them "
+        "are related is one whose next caller invents its own join",
+    "hub/master_identity.py:add_role": "master identity store: the role add",
+    "hub/master_links.py:for_master":
+        "master link store: every link for one id",
+    "modules/page_image_optimizer/store.py:drop_job":
+        "job store: the delete. sweep() drops what is older than the TTL, "
+        "which is a different question from dropping one job by id",
+
+    # --- a harness, and it says so ------------------------------------------
+    # A test file gets a clean start by pinning its own database, which on
+    # SQLite is a fresh file per run and on a shared Postgres is not. Something
+    # has to empty the table between files, or every check after the first
+    # reads the rows the run before it invented. Production must never call
+    # these, so "only its tests call it" is the correct state, not a finding.
+    "hub/lead_store.py:drop_for_tests": "test harness: empties the lead table",
+    "modules/page_image_optimizer/bytes_store.py:drop_table_for_tests":
+        "test harness: empties the bytes table",
+
+    # --- a hook the framework calls, not our code ---------------------------
+    # An override of a stdlib base-class method is reached by the framework
+    # through the instance, so no call site here names it and none should.
+    # Named rather than taught to the check: a rule that skipped every method
+    # would blind it to a real finding on any class we own.
+    "ui_check.py:handle_error":
+        "overrides socketserver's own hook so a dropped preview connection is "
+        "not a traceback on the console",
+
+    # --- the one place a browser mirror can be checked ----------------------
+    # Its own docstring makes this argument: `campaign_cost()` only ever reads
+    # item["dollars"] as saved by the browser, so nothing server-side prices a
+    # fresh consulting line -- and without this there is nothing to hold the
+    # wizard's `consultingPrice()` against. The test IS the caller, on purpose.
+    "modules/sales_builder/app.py:consulting_price":
+        "the formula the plan editor's mirror is checked against",
+
+    # --- computed here, for a screen nobody has built -----------------------
+    # None is a second reading of something live, which is the distinction
+    # that matters: `clients_missing` asks the INDEX who has no GA4 where
+    # `qa._google_coverage()` asks what we have RECORDED, and recorded and
+    # observed are different claims -- so pointing the no-analytics report at
+    # it would change what that report measures rather than make it cheaper.
+    "hub/google_index.py:clients_missing":
+        "who has nothing on one platform, from the stored index",
+    "hub/proposal_spec.py:audience_segments_for":
+        "the per-industry segment shortlist; no section renders one today",
+    "hub/schema_prefill.py:build_localbusiness_jsonld":
+        "a minimal LocalBusiness node from saved fields only -- its docstring "
+        "named two callers that do not exist and now says so",
+}
+
+
 section("Nothing is defined and left uncalled without a reason on it")
 
 FOUND = unwired()
@@ -258,6 +363,44 @@ check("no unreferenced function without an entry saying why", _new, [])
 # written at that path next -- check_stale_json_exemptions()'s rule.
 _gone = sorted(k for k in ALLOW if k not in FOUND)
 check("no entry naming a function that is called, or gone", _gone, [])
+
+
+section("...and the sibling list, held to the same rule on its own question")
+
+# `check_tested_but_unwired()` reads TEST_ONLY_ALLOW, so asking it with the
+# list in place only ever answers zero. It is asked with the list EMPTIED
+# instead -- the raw set of functions only their tests call -- because the
+# question worth asking of an exemption is whether the thing it exempts is
+# still there, and an entry checked against a list that contains it is the
+# assertion that cannot fail this repo names a dozen of.
+import hub.integrity as _integ                                  # noqa: E402
+
+_real_allow = _integ._test_only_allow
+_integ._test_only_allow = set          # set() with no arguments is the empty set
+try:
+    _RAW = {f"{r['file']}:{(r['detail'] or '').split('(')[0]}"
+            for r in _integ.check_tested_but_unwired()}
+finally:
+    _integ._test_only_allow = _real_allow
+
+print(f"  ({len(_RAW)} called only by their tests, "
+      f"{len(TEST_ONLY_ALLOW)} allowed)")
+
+_stale = sorted(k for k in TEST_ONLY_ALLOW if k not in _RAW)
+check("no entry naming a function that is wired, unreferenced, or gone",
+      _stale, [])
+_unlisted = sorted(k for k in _RAW if k not in TEST_ONLY_ALLOW)
+check("and nothing called only by its tests without an entry saying why",
+      _unlisted, [])
+
+# The two lists answer two questions and must not both claim one function:
+# an entry in each would leave whichever check ran second reporting nothing
+# while the other reported it, which is one function described two ways.
+check("no function is in both lists",
+      sorted(set(ALLOW) & set(TEST_ONLY_ALLOW)), [])
+check("every sibling entry says something",
+      sorted(k for k, v in TEST_ONLY_ALLOW.items() if not str(v or "").strip()),
+      [])
 
 # Every reason is a reason, not a shrug.
 _thin = sorted(k for k, v in ALLOW.items() if len(v.strip()) < 12)
@@ -343,8 +486,14 @@ check("hub/keyring.py:needs_reseal is no longer among them — it has a caller",
       "hub/keyring.py:needs_reseal" in _tbu_keys, False)
 
 # An empty answer and a scan that stopped running read the same, so the check
-# is shown finding something rather than trusted to be looking.
-check("the check still finds the shape it is for", bool(_tbu), True)
+# is shown finding something rather than trusted to be looking. Asked of the
+# RAW set -- the check with its allowlist emptied -- because the live answer
+# is zero now and this assertion would otherwise be encoding a backlog: true
+# only while one existed, and failing on the day somebody finished it, which
+# is the assertion that punishes the fix.
+check("the check still finds the shape it is for", bool(_RAW), True)
+check("...and finds nothing once the reasons are read",
+      sorted(_tbu_keys), [])
 check("and every finding says what a green test over it does not prove",
       all("proves the function works" in f["detail"] for f in _tbu), True)
 check("and offers the allowlist as one of the three ways out",
