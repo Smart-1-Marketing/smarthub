@@ -82,7 +82,6 @@ import wsgi                                                          # noqa: E40
 from werkzeug.test import Client                                     # noqa: E402
 from hub import auth, youtube, youtube_analytics as ya, quotas, scheduler  # noqa: E402
 from modules.youtube_studio import store as studio_store             # noqa: E402
-from modules.youtube_studio import youtube as studio_yt              # noqa: E402
 from modules.reports import youtube as reports_youtube               # noqa: E402
 
 TODAY = date(2026, 9, 14)
@@ -241,9 +240,6 @@ check("...with a row in the per-API table naming it a separate quota",
 # ---------------------------------------------------------------------------
 section("modules/reports/youtube.py: the Analytics half rides beside the gate, never gates it")
 # ---------------------------------------------------------------------------
-
-from modules.reports import client_view                              # noqa: E402
-from hub import knack_data, creative_needs                            # noqa: E402
 
 _real_rows = reports_youtube._product_rows
 reports_youtube._product_rows = lambda: [
