@@ -143,6 +143,30 @@ def _clean(value: Any, limit: int = 500) -> str:
     return " ".join(str(value or "").split())[:limit]
 
 
+_AUDIT_REDACTIONS = (
+    (re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I),
+     "[redacted email]"),
+    (re.compile(r"(?<!\d)\d{3}[- .]?\d{2}[- .]?\d{4}(?!\d)"),
+     "[redacted SSN]"),
+    (re.compile(r"(?<!\d)(?:\+?1[-. ()]*)?(?:\d{3}[-. ()]*){2}\d{4}(?!\d)"),
+     "[redacted phone]"),
+    (re.compile(r"(?<!\d)(?:\d[ -]?){12,18}\d(?!\d)"),
+     "[redacted payment number]"),
+    (re.compile(
+        r"\b(?:bearer|api[_ -]?key|access[_ -]?token|refresh[_ -]?token|password)"
+        r"(?:\s*[:=]\s*|\s+)[^\s,;]+", re.I),
+     "[redacted credential]"),
+)
+
+
+def _audit_question(question: Any) -> str:
+    """Keep diagnostics useful without retaining common secrets or PII."""
+    text = _clean(question, MAX_QUESTION)
+    for pattern, replacement in _AUDIT_REDACTIONS:
+        text = pattern.sub(replacement, text)
+    return text[:160]
+
+
 def _help_terms(question: str) -> str:
     """The words in a question worth searching the help registry for.
 
@@ -777,7 +801,7 @@ def ask(question: str, *, role: str, actor: str, context: Any = None,
     checked, matches, clarification = resolve_plan_clients(checked, question)
     if clarification:
         audit.log("ask_smarthub", "question", actor=actor, role=role,
-                  question=question[:160], tools=[], source_count=0,
+                  question=_audit_question(question), tools=[], source_count=0,
                   client=ctx.get("client") or None, match_status="clarification",
                   recipe=recipe_key or None)
         return {"answer": clarification["prompt"], "sources": [], "next_steps": [],
@@ -806,7 +830,7 @@ def ask(question: str, *, role: str, actor: str, context: Any = None,
                 "status": "ok" if row.get("ok") else "error"}
                for row in results]
     audit.log("ask_smarthub", "question", actor=actor, role=role,
-              question=question[:160], tools=[s["tool"] for s in sources],
+              question=_audit_question(question), tools=[s["tool"] for s in sources],
               source_count=len(sources), client=ctx.get("client") or None,
               recipe=recipe_key or None)
     return {"answer": response, "sources": sources, "recipe": recipe_key,

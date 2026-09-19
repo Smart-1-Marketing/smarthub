@@ -7,11 +7,20 @@ without requiring production credentials.
 from __future__ import annotations
 
 import asyncio
+from importlib.metadata import version
 import os
 import unittest
 from unittest.mock import patch
 
 from mcp_gateway import server
+
+
+class SDKVersionTests(unittest.TestCase):
+    def test_mcp_sdk_includes_session_hardening(self):
+        major, minor, *_ = (int(part) for part in version("mcp").split(".")
+                            if part.isdigit())
+        self.assertEqual(major, 2)
+        self.assertGreaterEqual(minor, 2)
 
 
 class ClientResolutionTests(unittest.TestCase):

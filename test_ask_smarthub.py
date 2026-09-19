@@ -60,6 +60,29 @@ class AskExecutionTests(unittest.TestCase):
         self.assertNotIn("strict", out[0]["error"])
 
 
+class AskAuditPrivacyTests(unittest.TestCase):
+    def test_common_pii_and_secrets_are_redacted_from_diagnostics(self):
+        question = (
+            "Email pat@example.com or call (614) 555-0182. "
+            "SSN 123-45-6789 card 4111 1111 1111 1111 "
+            "Bearer top-secret api_key=also-secret password:never-log-this"
+        )
+        logged = ask_smarthub._audit_question(question)
+        self.assertNotIn("pat@example.com", logged)
+        self.assertNotIn("614", logged)
+        self.assertNotIn("123-45-6789", logged)
+        self.assertNotIn("4111", logged)
+        self.assertNotIn("top-secret", logged)
+        self.assertNotIn("also-secret", logged)
+        self.assertNotIn("never-log-this", logged)
+        self.assertIn("[redacted email]", logged)
+        self.assertIn("[redacted credential]", logged)
+
+    def test_normal_business_question_remains_useful(self):
+        question = "Show Quality Air Columbus proposals"
+        self.assertEqual(ask_smarthub._audit_question(question), question)
+
+
 class AskClientMatchingTests(unittest.TestCase):
     @staticmethod
     def _index(*names):
