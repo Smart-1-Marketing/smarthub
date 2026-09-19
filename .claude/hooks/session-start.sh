@@ -81,14 +81,30 @@ fi
 # pure-Python substitute. Installing it here means `npm test` and `npx tsc
 # --noEmit` are available too, the way checks.yml runs them.
 if command -v npm >/dev/null 2>&1 && [ -f modules/ad_builder/package.json ]; then
-  if [ -d modules/ad_builder/node_modules ]; then
+  # Whether the install MATCHES package.json, not whether the directory is
+  # there. A resumed session inherits whatever the image was built with, so
+  # "the folder exists" reported an install that predated 33 of the 36
+  # @fontsource families the renderer draws from. fonts-google.test.ts then
+  # failed two assertions with nothing saying why -- and its own docstring
+  # describes the worse half: a family that is declared and not installed is
+  # silently swapped for Poppins mid-render. The stamp is the lockfile's own
+  # hash, so adding a dependency invalidates it by construction.
+  _ad_lock="modules/ad_builder/package-lock.json"
+  [ -f "$_ad_lock" ] || _ad_lock="modules/ad_builder/package.json"
+  _ad_want="$( (sha1sum "$_ad_lock" 2>/dev/null || shasum "$_ad_lock" 2>/dev/null) | cut -d' ' -f1)"
+  _ad_stamp="modules/ad_builder/node_modules/.s1-deps-stamp"
+  if [ -d modules/ad_builder/node_modules ] && [ -n "$_ad_want" ] \
+     && [ "$(cat "$_ad_stamp" 2>/dev/null)" = "$_ad_want" ]; then
     say "Ad builder dependencies already present."
   else
     say "Installing ad builder dependencies…"
     # `install` rather than `ci`: the container image is cached after this
     # hook, and install reuses what is already there.
-    (cd modules/ad_builder && npm install --silent --no-audit --no-fund) \
-      || say "WARN: npm install failed; test_display_ads.py still covers this module."
+    if (cd modules/ad_builder && npm install --silent --no-audit --no-fund); then
+      [ -n "$_ad_want" ] && printf '%s' "$_ad_want" > "$_ad_stamp" 2>/dev/null || true
+    else
+      say "WARN: npm install failed; test_display_ads.py still covers this module."
+    fi
   fi
 fi
 

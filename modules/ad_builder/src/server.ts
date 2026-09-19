@@ -42,6 +42,7 @@ import { previewCache, previewCacheKey } from './preview-cache';
 import { noteOpen, sweepPresence } from './presence';
 import { runDiagnostics } from './diagnostics';
 import { renderDiagnostics } from './diagnostics-page';
+import { withServerIdentity } from './submission';
 import { scheduleSweep, sweep } from './retention';
 import { deliverProject, latestManifest } from './deliver';
 import { renderProof } from './proof';
@@ -525,7 +526,15 @@ const server = http.createServer(async (req, res) => {
       const requestId = `AD-${new Date().getFullYear()}-` +
         Array.from(crypto.randomBytes(8), (b) => 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'[b % 31]).join('').slice(0, 8);
       console.log(`[intake] ${requestId} accepted from ${body.email ?? '?'} — building campaign…`);
-      const record = { requestId, receivedAt: new Date().toISOString(), ...body };
+      // The spread goes FIRST and the server's own fields after it. Written
+      // the other way round, `...body` wins -- so a submission carrying its
+      // own `requestId` replaced the one generated three lines above, the id
+      // whose comment says it doubles as the proof-link capability and must
+      // not be enumerable. It reached the campaign record, and the campaigns
+      // listing reads `d.campaign?.requestId` straight back out. Same shape
+      // as `projects.save({ ...existing, ...body, projectId })` below, which
+      // has always pinned its id after the spread.
+      const record = withServerIdentity(body, { requestId, receivedAt: new Date().toISOString() });
       const dir = path.join(OUT, 'requests');
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, `${requestId}.json`), JSON.stringify(record, null, 2));
@@ -536,7 +545,7 @@ const server = http.createServer(async (req, res) => {
       // Failure here must not lose the submission — the request is already saved.
       let build: { renderable: boolean; notes: string[] } | undefined;
       try {
-        const result = await buildCampaign({ requestId, ...body } as Submission, {
+        const result = await buildCampaign(withServerIdentity(body, { requestId }) as Submission, {
           assetRoot: ROOT,
           cacheDir: path.join(OUT, 'cache', requestId),
           outputDir: OUT,

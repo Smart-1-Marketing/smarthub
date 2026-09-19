@@ -94,3 +94,4 @@ say "above" or "below" mean earlier or later files in this list.
 | [`86-camhub-hardening-csv-formulas-portal-rotation-and-outbox-in-health.md`](86-camhub-hardening-csv-formulas-portal-rotation-and-outbox-in-health.md) | CamHub hardening: CSV formulas, portal rotation, and the outbox in /health | 72 |
 | [`87-the-404-was-a-url-the-hub-composed.md`](87-the-404-was-a-url-the-hub-composed.md) | The 404 was a URL the Hub composed | 86 |
 | [`88-camhub-outbox-smtp-the-last-unmet-sprint-5-done-when.md`](88-camhub-outbox-smtp-the-last-unmet-sprint-5-done-when.md) | CamHub outbox: SMTP is the last unmet Sprint 5 done-when | 78 |
+| [`89-three-values-a-stranger-chose-rendered-into-a-staff-page.md`](89-three-values-a-stranger-chose-rendered-into-a-staff-page.md) | Three values a stranger chose, rendered into a staff page | 124 |
