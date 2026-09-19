@@ -112,6 +112,42 @@
   var msg  = document.getElementById('mr-new-msg');
   if(!form) return;
 
+  // Smart 1 Hub is one instance and redeploys often -- several times an
+  // hour some days -- so a request landing in the few seconds between the
+  // old worker draining and the new one listening is routine, not rare.
+  // Render's 502/503 page for that gap is HTML, and a bare `r.json()` on
+  // it throws a SyntaxError that used to surface as raw JS to whoever was
+  // mid-submit. This reads the body as text first, only calls it JSON
+  // once it parses, and retries a genuinely transient failure (a 502/503,
+  // a response that wasn't JSON at all, or the fetch itself rejecting)
+  // rather than a few extra seconds of waiting reading as broken.
+  function requestJSON(url, opts, attempt){
+    attempt = attempt || 1;
+    var MAX_TRIES = 4;
+    function wait(ms){ return new Promise(function(res){ window.setTimeout(res, ms); }); }
+    function retry(){
+      return wait(600 * attempt).then(function(){
+        return requestJSON(url, opts, attempt + 1);
+      });
+    }
+    return fetch(url, opts).then(function(r){
+      return r.text().then(function(text){
+        var data;
+        try { data = text ? JSON.parse(text) : {}; } catch(e){ data = null; }
+        if(data === null || (!r.ok && r.status >= 502 && r.status <= 504)){
+          if(attempt < MAX_TRIES) return retry();
+          return {ok: false, d: {error: 'The Hub did not answer normally -- ' +
+            'it redeploys often and this looks like one of those gaps. ' +
+            'Please try again in a moment.'}};
+        }
+        return {ok: r.ok, d: data};
+      });
+    }, function(err){
+      if(attempt < MAX_TRIES) return retry();
+      return {ok: false, d: {error: 'Network error: ' + err}};
+    });
+  }
+
   // A read, not an action: never fires until the field is left, and it never
   // reaches Brandfetch -- only the pick a rep already confirmed on Client
   // 360 (hub/brand_template.py). Nothing here is billed.
@@ -194,10 +230,11 @@
       window.clearTimeout(icTimer);
       if(!q){ icResults.hidden = true; return; }
       icTimer = window.setTimeout(function(){
-        fetch('api/image-creator-projects?q=' + encodeURIComponent(q))
-          .then(function(r){ return r.json(); })
-          .then(function(d){ renderIcResults(d.projects || []); })
-          .catch(function(){ icResults.hidden = true; });
+        requestJSON('api/image-creator-projects?q=' + encodeURIComponent(q))
+          .then(function(res){
+            if(!res.ok){ icResults.hidden = true; return; }
+            renderIcResults(res.d.projects || []);
+          });
       }, 250);
     });
     document.addEventListener('click', function(ev){
@@ -228,8 +265,7 @@
       uploadStatus.textContent = 'Reading ' + file.name + '…';
       var body = new FormData();
       body.append('file', file);
-      fetch('api/upload-source', {method:'POST', body: body})
-        .then(function(r){ return r.json().then(function(d){ return {ok:r.ok, d:d}; }); })
+      requestJSON('api/upload-source', {method:'POST', body: body})
         .then(function(res){
           if(!res.ok){
             uploadStatus.textContent = res.d.error || 'That could not be read.';
@@ -240,10 +276,6 @@
           uploadStatus.textContent = 'Using ' + file.name + ' (' +
             res.d.source.width + '×' + res.d.source.height +
             ') as the design to resize.';
-        })
-        .catch(function(err){
-          uploadStatus.textContent = 'That could not be read: ' + err;
-          uploadedSource = null;
         });
     });
   }
@@ -261,19 +293,22 @@
     var body = {name: fd.get('name'), client: fd.get('client'), bundle: fd.get('bundle')};
     if(uploadedSource) body.source = uploadedSource;
     else body.from_image_creator = pickedProjectId;
-    fetch('api/projects', {
+    // The design (uploaded or picked) stays in pickedProjectId/uploadedSource
+    // whether this succeeds or not, so a failure here -- retried
+    // automatically inside requestJSON, or by hand if every retry lands in
+    // a redeploy gap -- never means re-uploading or re-searching.
+    requestJSON('api/projects', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify(body)
-    }).then(function(r){ return r.json().then(function(d){ return {ok:r.ok, d:d}; }); })
-      .then(function(res){
-        if(wait) wait.done();
-        if(!res.ok){ msg.textContent = res.d.error || 'That could not be built.'; return; }
-        window.location.href = 'p/' + res.d.project.id;
-      })
-      .catch(function(err){
-        if(wait) wait.done();
-        msg.textContent = 'That could not be built: ' + err;
-      });
+    }).then(function(res){
+      if(wait) wait.done();
+      if(!res.ok){
+        msg.textContent = (res.d.error || 'That could not be built.') +
+          ' Nothing was lost -- press "Build the set" again.';
+        return;
+      }
+      window.location.href = 'p/' + res.d.project.id;
+    });
   });
 })();
 </script>
