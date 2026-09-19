@@ -258,7 +258,8 @@ with hub_app.app_context():
                             "accept": {it["id"]: True for it in items}}, actor="rep")
     plan = _plan(RUN_ID)
     check("with the supply taken as the client's and the items kept, the key is answerable as a hand-back",
-          pp.client_answerable(plan)[supply_key], {"options": ["smart1", "client", "mixed"], "handback": True})
+          pp.client_answerable(plan)[supply_key],
+          {"type": "choice", "options": ["smart1", "client", "mixed"], "handback": True})
     needs = pe.client_needs(pe.get_run(RUN_ID), base="http://hub.test/")
     check("their page lists the files and offers the hand-back on each",
           [f["handback"] for f in needs["files"]], [True] * len(needs["files"]))
@@ -312,6 +313,196 @@ r = anon.post(URL, data={"name": "x", "a:launch_date": "2026-11-02"})
 check("a revoked token is 404 on the POST", r.status_code, 404)
 with hub_app.app_context():
     check("and recorded nothing", _plan(RUN_ID)["client_answers"].get("launch_date", {}).get("by"), "Pat Client")
+
+# ---------------------------------------------------------------------------
+section("A client's answer is a date or a known word, never free text")
+# The calendar control only ever posts ISO, and a form is a courtesy to
+# somebody typing rather than a rule: a hand-made POST at the public link
+# used to land whatever it carried in `client_answers`, and from there in
+# the staff plan page's own `onclick`. Two halves, both asserted, because
+# they cover different rows -- the server half is what stops a value like
+# this landing from now on, and the template half is what makes a value
+# stored before the fix harmless.
+PAYLOAD = "x');alert(document.cookie);//"
+with hub_app.app_context():
+    pe.create_client_link(RUN_ID, actor="rep", base="http://hub.test/")     # the old one is revoked
+    TOKEN = _plan(RUN_ID)["client_link"]["token"]
+    URL = f"/proposal-execution/needs/{TOKEN}"
+    # The rep took the launch date onto the plan above, which closes the
+    # question to the client; clear it so the date is theirs to answer again.
+    pe.update_plan(RUN_ID, {"answers": {"launch_date": ""}}, actor="rep")
+    check("the launch date is open to the client again", "launch_date" in pp.client_answerable(_plan(RUN_ID)))
+    was = dict(_plan(RUN_ID)["client_answers"].get("launch_date") or {})
+r = anon.post(URL, data={"name": "Mallory", "a:launch_date": PAYLOAD})
+check("a launch date that is not a date is refused", r.status_code, 400)
+check("in words about the calendar", "could not be read" in r.get_data(as_text=True))
+with hub_app.app_context():
+    check("and nothing landed", _plan(RUN_ID)["client_answers"].get("launch_date"), was)
+r = anon.post(URL, data={"name": "Pat Client", "a:launch_date": "Nov 3, 2026"})
+check("a date typed by hand is read", r.status_code, 303)
+with hub_app.app_context():
+    check("and stored as ISO however it was written",
+          _plan(RUN_ID)["client_answers"]["launch_date"]["value"], "2026-11-03")
+r = anon.post(URL, data={"name": "Pat Client", "a:launch_date": PAYLOAD + " 2026-11-04"})
+check("a date with a payload around it is a date", r.status_code, 303)
+with hub_app.app_context():
+    check("and only the date is kept", _plan(RUN_ID)["client_answers"]["launch_date"]["value"], "2026-11-04")
+    rules = pp.client_answerable(_plan(RUN_ID))
+    check("every key a client may answer is a date or a choice", {v.get("type") for v in rules.values()} <= {"date", "choice"})
+    check("and a choice key carries its choices", all(v["options"] for v in rules.values() if v["type"] == "choice"))
+for rule in ({"type": "text"}, {"options": []}, {}):
+    try:
+        pp._client_value("k", "anything", rule)
+        check(f"a key of neither kind is refused ({rule})", False)
+    except ValueError as exc:
+        check(f"a key of neither kind is refused ({rule})", "not a question the client can answer" in str(exc))
+check("a refusal quotes a long key capped rather than whole", len(pp._said("k" * 500)) < 80)
+check("and a short one whole", pp._said("budget:display"), "'budget:display'")
+
+import json as _json                                                 # noqa: E402
+import re as _re                                                     # noqa: E402
+import subprocess as _sp                                             # noqa: E402
+tmpl = _read("hub", "templates", "proposal_execution.html")
+_esc = _re.search(r"const esc=s=>String\(s\?\?''\)\.replace\(/\[&<>\"'\]/g,c=>\(\{[^}]*\}\[c\]\)\);", tmpl)
+_cs = _re.search(r"function clientSaid\(q\)\{.*?Use their answer</button></div>`\}", tmpl, _re.S)
+check("the page's esc and clientSaid can be lifted for node", bool(_esc and _cs))
+if _esc and _cs:
+    # A value stored before the server half existed, drawn by the page's
+    # own function. `esc` turns a quote into &#39;, which an HTML attribute
+    # decodes back into a quote before the JS engine reads it -- so a
+    # client value inside a JS string in an onclick is a client value that
+    # can close the string. It rides on a data attribute now, where esc is
+    # the right escape.
+    script = (_esc.group(0) + "\n" + _cs.group(0) + "\n"
+              + "const q={key:'launch_date',client_proposed:{value:" + _json.dumps(PAYLOAD)
+              + ",by:'Pat',at:'2026-09-19',taken:false}};"
+              + "const html=clientSaid(q);const m=/onclick=\"([^\"]*)\"/.exec(html);"
+              + "console.log(JSON.stringify({onclick:m?m[1]:'',html:html}));")
+    got = _sp.run(["node", "-e", script], capture_output=True, text=True, timeout=30)
+    check("node ran the page's own function", got.returncode, 0)
+    drawn = _json.loads(got.stdout.strip() or "{}") if got.returncode == 0 else {}
+    onclick = drawn.get("onclick", "")
+    check("the press carries no client value inside a JS string", "alert" not in onclick and "&#39;" not in onclick)
+    check("it reads the value off the button's own data attribute", "this.dataset" in onclick)
+    check("where esc is the right escape", 'data-value="x&#39;);alert(document.cookie);//"' in drawn.get("html", ""))
+
+# ---------------------------------------------------------------------------
+section("A post on one worker cannot drop a decision made on the other")
+# `plan_json` is one blob written by read-modify-write. The other worker is
+# a second SQLAlchemy session on the same database: it writes a decision
+# after this session has loaded the run and before the client's post is
+# recorded, which is the interleaving two gunicorn workers produce.
+from sqlalchemy.orm import Session as _Session                       # noqa: E402
+with hub_app.app_context():
+    stale = pe.get_run(RUN_ID)
+    _ = stale.plan_json                                  # loaded here, and about to go stale
+    with _Session(pe.db.engine) as other:
+        row = other.get(pe.ProposalExecutionRun, RUN_ID)
+        moved = pp.apply_decisions(pe._loads(row.plan_json, {}),
+                                   {"add": [{"list": "launch", "title": "Decided on the other worker"}]})
+        row.plan_json = pe._dumps(moved)
+        other.commit()
+    pe.record_client_answers(stale, {"reporting_cadence": "monthly"}, name="Pat Client")
+    plan = _plan(RUN_ID)
+    check("the other worker's item survived the client's post",
+          any(it.get("title") == "Decided on the other worker" for it in plan["launch"]))
+    check("and the client's answer landed", plan["client_answers"]["reporting_cadence"]["value"], "monthly")
+    # And the other way round: a client answer written on the other worker
+    # survives a staff press on this one.
+    stale = pe.get_run(RUN_ID)
+    _ = stale.plan_json
+    with _Session(pe.db.engine) as other:
+        row = other.get(pe.ProposalExecutionRun, RUN_ID)
+        moved, _n = pp.record_client_answers(pe._loads(row.plan_json, {}),
+                                             {"reporting_cadence": "quarterly"}, name="Other Worker")
+        row.plan_json = pe._dumps(moved)
+        other.commit()
+    pe.update_plan(RUN_ID, {"answers": {"launch_date": "2026-11-05"}}, actor="rep")
+    plan = _plan(RUN_ID)
+    check("the client answer from the other worker survived the staff press",
+          plan["client_answers"]["reporting_cadence"]["by"], "Other Worker")
+    check("and the staff answer landed", plan["answers"]["launch_date"], "2026-11-05")
+    check("the write path re-reads the row under its lock",
+          "populate_existing().with_for_update()" in _read("hub", "proposal_execution.py"))
+
+# ---------------------------------------------------------------------------
+section("The link the client holds opens the plan that replaced the one it was minted for")
+with hub_app.app_context():
+    new_run, created = pe.create_run(CLIENT, "p1", owner=OWNER, actor="rep", force=True)
+    NEW_ID = new_run.id
+    check("re-analyzing superseded the run", (created, pe.get_run(RUN_ID).state), (True, pe.RUN_SUPERSEDED))
+    check("the token was carried onto the new plan", (_plan(NEW_ID).get("client_link") or {}).get("token"), TOKEN)
+    found, err = pe.run_for_client_token(TOKEN)
+    check("and the link resolves to the live run, not the superseded one",
+          (found.id if found else None, err), (NEW_ID, ""))
+r = anon.get(URL)
+check("the client's page still opens at the address they were sent", r.status_code, 200)
+r = anon.post(URL, data={"name": "Pat Client", "a:reporting_cadence": "weekly"})
+check("and a post lands", r.status_code, 303)
+with hub_app.app_context():
+    check("on the live run", _plan(NEW_ID)["client_answers"]["reporting_cadence"]["by"], "Pat Client")
+    # A link minted before the token was carried: the superseded run holds
+    # it and the live one does not. It is followed to the live run.
+    plan = _plan(NEW_ID)
+    plan.pop("client_link", None)
+    run = pe.get_run(NEW_ID)
+    run.plan_json = pe._dumps(plan)
+    pe.db.session.commit()
+    found, _err = pe.run_for_client_token(TOKEN)
+    check("a token only the superseded run holds is followed to the live run", found.id if found else None, NEW_ID)
+    check("while the live run says it has no link of its own", pe.client_link_view(run), {})
+    # Revoking on the newest holder takes every older copy with it.
+    plan["client_link"] = dict(_plan(RUN_ID)["client_link"])
+    run.plan_json = pe._dumps(plan)
+    pe.db.session.commit()
+    pe.revoke_client_link(NEW_ID, actor="rep")
+    check("revoking on the live run takes the older copy with it -- the newest holder decides",
+          pe.run_for_client_token(TOKEN), (None, ""))
+    check("even though the superseded run's own copy still reads live",
+          bool(_plan(RUN_ID)["client_link"].get("revoked_at")), False)
+r = anon.get(URL)
+check("so the address is 404", r.status_code, 404)
+with hub_app.app_context():
+    # A chain that ends nowhere live is the same 404, never a stale plan.
+    plan = _plan(NEW_ID)
+    plan["client_link"].pop("revoked_at", None)
+    plan["client_link"].pop("revoked_by", None)
+    run = pe.get_run(NEW_ID)
+    run.plan_json = pe._dumps(plan)
+    run.state = pe.RUN_SUPERSEDED
+    pe.db.session.commit()
+    check("a chain that ends nowhere live is 404", pe.run_for_client_token(TOKEN), (None, ""))
+    run.state = pe.RUN_DRAFT
+    pe.db.session.commit()
+    check("and live again once the run is", (pe.run_for_client_token(TOKEN)[0] or run).id, NEW_ID)
+
+# ---------------------------------------------------------------------------
+section("A script holding the link cannot post for ever")
+import hub.leads as leads_mod                                        # noqa: E402
+from hub import proposal_execution_routes as routes                  # noqa: E402
+leads_mod._hits.clear()
+check("the ceiling is above what a person does and below what a script would",
+      3 < routes.CLIENT_POST_LIMIT <= 100 and routes.CLIENT_POST_IP_LIMIT >= routes.CLIENT_POST_LIMIT)
+codes = {anon.post(URL, data={"name": "Pat Client", "a:reporting_cadence": "weekly"}).status_code
+         for _ in range(routes.CLIENT_POST_LIMIT)}
+check("every post inside the allowance lands", codes, {303})
+with hub_app.app_context():
+    before_limit = dict(_plan(NEW_ID)["client_answers"]["reporting_cadence"])
+r = anon.post(URL, data={"name": "Pat Client", "a:reporting_cadence": "monthly"})
+check("the next is refused", r.status_code, 429)
+check("in words, naming the way round it", "Smart 1 contact" in r.get_data(as_text=True))
+with hub_app.app_context():
+    check("and recorded nothing", _plan(NEW_ID)["client_answers"]["reporting_cadence"], before_limit)
+r = anon.get(URL)
+check("reading the page is not limited", r.status_code, 200)
+leads_mod._hits.clear()
+_rl = leads_mod.rate_limited
+leads_mod.rate_limited = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no limiter"))
+try:
+    r = anon.post(URL, data={"name": "Pat Client", "a:reporting_cadence": "monthly"})
+    check("a limiter that cannot answer costs nothing but itself", r.status_code, 303)
+finally:
+    leads_mod.rate_limited = _rl
 
 # ---------------------------------------------------------------------------
 section("Both halves of public, and the help behind the new copy")

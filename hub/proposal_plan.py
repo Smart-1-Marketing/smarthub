@@ -1214,6 +1214,13 @@ def carry_forward(new_plan: dict, old_plan: dict) -> dict:
     # campaign, and the new document has not changed who they are.
     plan["client_answers"] = {k: json.loads(json.dumps(v))
                               for k, v in (old_plan.get("client_answers") or {}).items() if k in asked}
+    # And the link they were sent. It is in an email on their side, so it
+    # has to open the plan that replaced this one rather than one marked
+    # superseded -- and a second link minted for the new run would be two
+    # live addresses for one client. Carried as it stands, revoked state
+    # included: a link somebody took back stays taken back.
+    if old_plan.get("client_link"):
+        plan["client_link"] = json.loads(json.dumps(old_plan["client_link"]))
     plan["summary"] = summarize(plan)
     return plan
 
@@ -1470,10 +1477,17 @@ def client_answerable(plan: dict) -> dict:
     other key on the plan is ours to answer, and a client naming one is
     refused by name: the page a stranger can post to must not be able to
     set a budget or answer what the model was unsure of.
+
+    Every key carries its `type`, and there are two -- `date` and
+    `choice` -- because those are the only two forms a client's answer is
+    ever kept in (`_client_value`). A key of neither kind is one the page
+    refuses, so a question added to the client's page later cannot open a
+    free-text door by default.
     """
     out: dict = {}
     for row in client_questions(plan):
-        out[row["key"]] = {"options": [o["value"] for o in row.get("options") or []], "handback": False}
+        out[row["key"]] = {"type": row.get("type") or "choice",
+                           "options": [o["value"] for o in row.get("options") or []], "handback": False}
     kept = {it.get("channel") for it in (plan or {}).get("creative") or []
             if it.get("accepted") is True and it.get("kind") != "copy"}
     for q in (plan or {}).get("questions") or []:
@@ -1481,8 +1495,43 @@ def client_answerable(plan: dict) -> dict:
         if not key.startswith("creative_supply:") or key in out:
             continue
         if key.split(":", 1)[1] in kept and _answer_of(plan, key) in ("client", "mixed"):
-            out[key] = {"options": [v for v, _l in SUPPLY_CHOICES], "handback": True}
+            out[key] = {"type": "choice", "options": [v for v, _l in SUPPLY_CHOICES], "handback": True}
     return out
+
+
+def _said(text, cap: int = 60) -> str:
+    """A client-typed string as a refusal quotes it back: capped, so a
+    refusal cannot echo a kilobyte of whatever was posted at the page."""
+    text = str(text or "")
+    return repr(text if len(text) <= cap else text[:cap] + "...")
+
+
+def _client_value(key: str, value: str, rule: dict) -> str:
+    """The one form a client's answer may take, or a ValueError by name.
+
+    Two kinds and no third. A **date** is read the way the plan reads one
+    (`parse_day`) and stored as ISO; a **choice** is one of the offered
+    values, verbatim. Nothing a client posts is ever kept as free text:
+    the value is drawn on the staff plan page, on the kickoff document and
+    on Client 360, and a string typed at a link anybody can post to must
+    arrive on those screens as a date or a known word rather than as
+    whatever was typed. The first version kept the launch date as typed,
+    because the form's calendar control only ever posts ISO -- and a form
+    is a courtesy to somebody typing, not a rule; a hand-made POST put a
+    script in a staff page's `onclick`. A key of neither kind is refused.
+    """
+    kind = rule.get("type")
+    if kind == "date":
+        day = parse_day(value)
+        if day is None:
+            raise ValueError("That date could not be read -- pick it from the calendar.")
+        return day.isoformat()
+    options = rule.get("options") or []
+    if kind == "choice" and options:
+        if value not in options:
+            raise ValueError(f"{_said(value)} is not one of the choices offered for {_said(key)}.")
+        return value
+    raise ValueError(f"{_said(key)} is not a question the client can answer on this plan.")
 
 
 def record_client_answers(plan: dict, answers: dict, *, name: str, email: str = "") -> tuple[dict, int]:
@@ -1519,10 +1568,8 @@ def record_client_answers(plan: dict, answers: dict, *, name: str, email: str = 
         if not value:
             continue
         if key not in allowed:
-            raise ValueError(f"{key!r} is not a question the client can answer on this plan.")
-        options = allowed[key].get("options") or []
-        if options and value not in options:
-            raise ValueError(f"{value!r} is not one of the choices offered for {key!r}.")
+            raise ValueError(f"{_said(key)} is not a question the client can answer on this plan.")
+        value = _client_value(key, value, allowed[key])
         stored[key] = {"value": value, "by": who, "email": addr, "at": stamp}
         taken += 1
     if not taken:

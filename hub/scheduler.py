@@ -868,11 +868,26 @@ def job_proposal_autostart(app) -> dict:
         return {"skipped": f"unavailable ({type(exc).__name__})"}
     with app.app_context():
         out = proposal_execution.start_won()
+    # A sweep that could not read the book, or that tried and landed
+    # nothing, is a failure and is *raised*: `_run_job` reads an exception
+    # as red and a returned dict as green, so handing the refusal back drew
+    # a green pill over a sweep that had read nobody -- the
+    # `seo_intelligence` rule. One quote failing beside others that started
+    # stays a row in the result, or a job red for one client's odd quote is
+    # the check people learn to skip.
+    if not out.get("measured"):
+        raise RuntimeError(out.get("error") or "the proposals could not be read")
+    if out.get("errors") and not out.get("started"):
+        first = out["errors"][0] or {}
+        raise RuntimeError(f"{len(out['errors'])} won quote(s) could not be started; "
+                           f"first: {first.get('quote')} -- {first.get('error')}")
+    if out.get("busy"):
+        return {"skipped": "a sweep was already running on the other worker"}
     # Nothing started and nothing failed is the ordinary hour, and it reads
     # as skipped rather than as an empty run -- the job_social_idea_batches
     # rule. A standing conflict is a state rather than an event, so it
     # rides in the sentence instead of making every quiet hour a result.
-    if out.get("measured") and not out.get("started") and not out.get("errors"):
+    if not out.get("started"):
         conflicts = out.get("conflicts") or []
         return {"skipped": f"nothing to start ({out.get('checked', 0)} won quote(s) checked, "
                            f"{out.get('already', 0)} already have a plan"

@@ -7004,6 +7004,84 @@ Nothing an automatic run creates is kept: it arrives as proposals for the
 client's owner to review, so its whole footprint is a `plan_review` issue on
 their desk. `test_proposal_autostart.py` asserts all of it.
 
+### A form is a courtesy to somebody typing, and the page a stranger posts to needs a rule
+
+Both halves above shipped, and reading them again as an attacker rather
+than as a client found five things, each its own way of being confidently
+wrong. The one worth leading with reached a **staff** page from the
+**public** one.
+
+**A launch date was kept as typed, and the plan page put it inside a JS
+string.** The client's calendar control only ever posts ISO, so
+`record_client_answers()` checked a choice against its options and checked
+a date against nothing -- and a hand-made POST at the link carried
+`x');alert(document.cookie);//` into `client_answers`, from where the plan
+page drew it into `onclick="useClientAnswer('key','<value>')"`. `esc()` is
+correct and did not help: it turns a quote into `&#39;`, and an HTML
+attribute decodes that back into a quote *before* the JS engine reads it,
+so a client value inside a JS string in an attribute is a client value that
+can close the string. Proved by lifting the page's own `esc` and
+`clientSaid` into node, which is now the assertion. Two halves, because
+they cover different rows. **A client's answer is a date or a known word
+and nothing else** (`_client_value()`): a date is read with `parse_day`
+and stored as ISO, a choice is one of the offered values verbatim, and a
+key of neither kind is refused, so a question added to the client's page
+later cannot open a free-text door by default -- that is what stops it
+landing from now on. And **the press reads the value off the button's own
+`data-` attribute**, where `esc` is the right escape, which is what makes a
+value stored before the fix harmless. A refusal quotes a client-typed
+string **capped** (`_said()`), or a kilobyte posted at the page comes
+straight back in the error.
+
+**`plan_json` was read-modify-write from two workers with no lock, and one
+of the two writers is anybody holding the link.** A rep keeping an item on
+one gunicorn worker while the client answers on the other, and whichever
+commit lands second drops the first -- `hub/jsonstore.update_json`'s
+failure wearing a column. Reproduced with a second SQLAlchemy session
+standing in for the other worker: the decision was gone. `_mutate_plan()`
+is the one write path now for `update_plan`, `record_client_answers` and
+the client link -- re-read under `FOR UPDATE`, which serialises the workers
+on Postgres and compiles to nothing on SQLite, and re-read with
+`populate_existing`, because without it the identity map hands back the
+copy this session already loaded, which is the stale one. `mutate`
+returning `None` writes nothing, so "already there" queues no write.
+
+**The client's link died the day somebody re-analyzed the proposal.**
+Superseding built a new plan with no `client_link`, so the address in the
+client's inbox went on opening the plan marked superseded and their answers
+landed where nobody was looking -- `carry_forward` carried the answers and
+not the door they came through. It carries the link now, revoked state
+included, and `run_for_client_token()` reads it as the **client's** rather
+than the run's: of the runs holding a token the newest decides, its
+revocation stands for every older copy, and a superseded holder is followed
+through `superseded_by_run_id` to the live run, which is how a link minted
+before the token was carried still lands on the current plan. A chain that
+ends nowhere live is the same 404.
+
+**A public POST with no ceiling writes an event row per post for as long
+as a script likes.** `hub/leads.py`'s limiter stands in front of it now,
+per link and per address, with the note that module already carries about
+being per process and therefore approximate. The address limit is the
+looser one, because a client's office is one address. A limiter that
+cannot answer costs nothing but itself.
+
+**And the job read green over a sweep that had read nobody.**
+`start_won()` never raises, by design; `job_proposal_autostart` handed its
+dict straight back, and `_run_job` reads a returned dict as success -- the
+`seo_intelligence` failure, one job over. It **raises** on `measured:
+False` and when every start failed, and returns the dict when one failed
+beside others that landed, or a job red for one client's odd quote is the
+check people learn to skip. The button on the plan page and the hourly job
+could also both be mid-sweep at once -- the job holds the leader lock and
+the button does not -- and both inside `create_run`'s model pass when the
+other commits is two runs for one quote, which `already` exists to prevent.
+`_claim_sweep()` is a non-blocking `flock` on a sidecar under the data
+directory, the way `modules/suite_panel` claims an idempotency key: busy
+answers `busy` rather than waiting behind ten model passes, and a lock that
+cannot be taken for any other reason claims and runs, because refusing the
+work over a lock file is worse than serialising less. Every new check was
+confirmed red against the code as it shipped before it was confirmed green.
+
 ## Opportunistic migration — read this before editing any module
 
 `hub/storage.py` (Cloudinary), `hub/images.py` (resize/convert),

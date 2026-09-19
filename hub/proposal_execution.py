@@ -713,6 +713,41 @@ def plan_for(run):
     return plan
 
 
+def _mutate_plan(run, mutate):
+    """Change a run's plan under the row's own lock, on the freshest copy.
+
+    `plan_json` is one blob changed by read-modify-write, and it is written
+    from two gunicorn workers by people who cannot see each other: a rep
+    keeping an item on one worker while the client answers a question on
+    the other, and whichever commit lands second silently drops the first.
+    That is the failure `hub/jsonstore.update_json` exists for, wearing a
+    column -- with the client's own post, reachable by anybody holding the
+    link, as one of the two writers. So the row is re-read under
+    `FOR UPDATE`, which serialises the two workers on Postgres and compiles
+    to nothing on SQLite, where the file is single-writer anyway; and it is
+    re-read with `populate_existing`, because without it the identity map
+    hands back the copy this session already loaded, which is the stale
+    one. `mutate` takes the fresh plan and returns the plan to store, or
+    None to store nothing (the `update_json` rule, so "already there"
+    queues no write); whatever it raises is left to surface, and the lock
+    goes with the rollback. Returns the fresh run.
+    """
+    run_id = int(run.id if hasattr(run, "id") else run)
+    try:
+        fresh = (db.session.query(ProposalExecutionRun).filter_by(id=run_id)
+                 .populate_existing().with_for_update().one_or_none())
+        if fresh is None:
+            raise ValueError("That execution run could not be found.")
+        plan = mutate(plan_for(fresh))
+        if plan is not None:
+            fresh.plan_json = _dumps(plan)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
+    return fresh
+
+
 def update_plan(run_id, decisions, *, actor=""):
     """Apply a person's review of the plan: keep/drop, add, remove, answer."""
     run = get_run(run_id)
@@ -725,9 +760,8 @@ def update_plan(run_id, decisions, *, actor=""):
         # that did not is None, and a well-formed address is then taken as
         # typed rather than every assignment refused over a blip.
         known = set(names) if names and not error else None
-    plan = proposal_plan.apply_decisions(plan_for(run), decisions or {}, known_owners=known, actor=actor)
-    run.plan_json = _dumps(plan)
-    db.session.commit()
+    run = _mutate_plan(run, lambda plan: proposal_plan.apply_decisions(
+        plan, decisions or {}, known_owners=known, actor=actor))
     what = []
     d = decisions or {}
     if d.get("accept"): what.append(f"{len(d['accept'])} item(s) reviewed")
@@ -753,9 +787,15 @@ def record_client_answers(run, answers, *, name, email=""):
     client's, so the activity strip says who answered rather than reading
     as a rep having typed it. Returns `(run, how many were recorded)`."""
     from hub import proposal_plan
-    plan, taken = proposal_plan.record_client_answers(plan_for(run), answers or {}, name=name, email=email)
-    run.plan_json = _dumps(plan)
-    db.session.commit()
+    counted = {}
+
+    def _apply(plan):
+        plan, counted["taken"] = proposal_plan.record_client_answers(
+            plan, answers or {}, name=name, email=email)
+        return plan
+
+    run = _mutate_plan(run, _apply)
+    taken = counted.get("taken", 0)
     who = " ".join(str(name or "").split())[:proposal_plan.MAX_CLIENT_NAME]
     _event(run.id, run.state,
            f"The client answered {taken} question(s) on their page ({who}); "
@@ -939,16 +979,21 @@ def create_client_link(run_id, *, actor="", base=""):
     if not run:
         raise ValueError("That execution run could not be found.")
     from hub.radio_share import new_token
-    plan = plan_for(run)
-    link = dict(plan.get("client_link") or {})
-    created = False
-    if not link.get("token") or link.get("revoked_at"):
-        link = {"token": new_token(), "created_at": _now().isoformat(timespec="seconds"),
-                "created_by": str(actor or "")[:240]}
-        created = True
-        plan["client_link"] = link
-        run.plan_json = _dumps(plan)
-        db.session.commit()
+    made = {}
+
+    def _mint(plan):
+        link = dict(plan.get("client_link") or {})
+        if link.get("token") and not link.get("revoked_at"):
+            made["plan"], made["created"] = plan, False
+            return None
+        plan["client_link"] = {"token": new_token(), "created_at": _now().isoformat(timespec="seconds"),
+                               "created_by": str(actor or "")[:240]}
+        made["plan"], made["created"] = plan, True
+        return plan
+
+    run = _mutate_plan(run, _mint)
+    plan, created = made["plan"], made["created"]
+    if created:
         _event(run.id, run.state, f"Created the client's link for {run.client}: what we need from them.",
                actor=actor)
     return run, dict(client_link_view(run, plan, base=base), created=created)
@@ -960,26 +1005,47 @@ def revoke_client_link(run_id, *, actor=""):
     run = get_run(run_id)
     if not run:
         raise ValueError("That execution run could not be found.")
-    plan = plan_for(run)
-    link = dict(plan.get("client_link") or {})
-    if not link.get("token"):
-        raise ValueError("No client link has been created for this plan.")
-    if link.get("revoked_at"):
-        return run, client_link_view(run, plan)
-    link["revoked_at"] = _now().isoformat(timespec="seconds")
-    link["revoked_by"] = str(actor or "")[:240]
-    plan["client_link"] = link
-    run.plan_json = _dumps(plan)
-    db.session.commit()
-    _event(run.id, run.state, "Revoked the client's link.", actor=actor)
+    taken = {}
+
+    def _revoke(plan):
+        link = dict(plan.get("client_link") or {})
+        if not link.get("token"):
+            raise ValueError("No client link has been created for this plan.")
+        if link.get("revoked_at"):
+            taken["plan"], taken["changed"] = plan, False
+            return None
+        link["revoked_at"] = _now().isoformat(timespec="seconds")
+        link["revoked_by"] = str(actor or "")[:240]
+        plan["client_link"] = link
+        taken["plan"], taken["changed"] = plan, True
+        return plan
+
+    run = _mutate_plan(run, _revoke)
+    plan = taken["plan"]
+    if taken["changed"]:
+        _event(run.id, run.state, "Revoked the client's link.", actor=actor)
     return run, client_link_view(run, plan)
+
+
+def _link_of(run):
+    return ((run.plan() or {}).get("client_link") or {}) if run is not None else {}
 
 
 def run_for_client_token(token):
     """`(run, error)` for a live client link. `(None, "")` for a token that
     is unknown, revoked or malformed -- all three the same answer -- and
     `(None, why)` when the store would not answer, because a client meeting
-    a 404 concludes the link expired and one meeting a 503 tries again."""
+    a 404 concludes the link expired and one meeting a 503 tries again.
+
+    The link is the client's, not the run's. A run that has been superseded
+    is a plan marked replaced, and the address in the client's inbox has to
+    open the plan that replaced it -- so `carry_forward` carries the token
+    onto the superseding plan and, of the runs holding it, the **newest**
+    decides: its revocation stands for every older copy, and a superseded
+    one is followed through `superseded_by_run_id` to the live run, which
+    is how a link minted before the token was carried still lands on the
+    current plan. A chain that ends nowhere live is the same 404.
+    """
     from hub.radio_share import is_token
     token = str(token or "")
     if not is_token(token):
@@ -987,14 +1053,20 @@ def run_for_client_token(token):
     try:
         rows = (ProposalExecutionRun.query
                 .filter(ProposalExecutionRun.plan_json.contains(token)).all())
+        hits = sorted((r for r in rows if _link_of(r).get("token") == token),
+                      key=lambda r: r.id, reverse=True)
+        if not hits or _link_of(hits[0]).get("revoked_at"):
+            return None, ""
+        run, hops = hits[0], 0
+        while run is not None and run.state == RUN_SUPERSEDED and hops < 20:
+            run = get_run(run.superseded_by_run_id) if run.superseded_by_run_id else None
+            hops += 1
     except Exception as exc:                             # noqa: BLE001
         db.session.rollback()
         return None, f"The plans could not be read ({type(exc).__name__})."
-    for run in rows:
-        link = (run.plan() or {}).get("client_link") or {}
-        if link.get("token") == token and not link.get("revoked_at"):
-            return run, ""
-    return None, ""
+    if run is None or run.state == RUN_SUPERSEDED or _link_of(run).get("revoked_at"):
+        return None, ""
+    return run, ""
 
 
 # ---------------------------------------------------------------------------
@@ -1037,6 +1109,41 @@ def _aware(value):
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
+def _claim_sweep():
+    """`(claimed, handle)`: one sweep at a time across both workers.
+
+    The hourly job holds the scheduler's leader lock; the button on the
+    plan page does not. Pressed while the job is mid-sweep on the other
+    worker, both walk the same won quotes, both find no run for one, and
+    both are inside `create_run`'s model pass when the other commits --
+    two runs for one quote, which `already` exists to prevent. The claim
+    is a non-blocking `flock` on a sidecar under the data directory, the
+    way `modules/suite_panel` claims an idempotency key. Busy answers False
+    rather than waiting, because a press that blocks behind ten model
+    passes reads as a page that hung. A lock that cannot be taken for any
+    *other* reason -- no `fcntl`, an unwritable directory -- answers True
+    and the sweep runs: refusing the work over a lock file is worse than
+    serialising less, `hub/jsonstore.py`'s rule. Closing the handle is the
+    release.
+    """
+    try:
+        import fcntl
+        from hub import jsonstore
+        path = os.path.join(jsonstore.data_dir("proposal_execution"), "start_won.lock")
+        handle = open(path, "a+")                        # noqa: SIM115
+    except Exception:                                    # noqa: BLE001
+        return True, None
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        return False, None
+    except OSError:
+        handle.close()
+        return True, None
+    return True, handle
+
+
 def start_won(*, limit=AUTOSTART_LIMIT, max_age_days=AUTOSTART_MAX_AGE_DAYS, actor="scheduler", today=None):
     """Start a run for every quote marked Approved or Converted that has
     none yet. Never raises; the scheduler reads the dict.
@@ -1050,7 +1157,8 @@ def start_won(*, limit=AUTOSTART_LIMIT, max_age_days=AUTOSTART_MAX_AGE_DAYS, act
     run open, which is **named and never superseded**, because superseding
     carries approved work and shared inputs forward and that is a person's
     press, not a sweep's. A table that would not answer is `measured:
-    False` rather than a clean sweep of nothing.
+    False` rather than a clean sweep of nothing, and a sweep already
+    running on the other worker is `busy`, with nothing started twice.
 
     The run is created the way the Analyze button creates one, and the
     plan's notes and the run's first event say it was automatic; the quote
@@ -1059,6 +1167,21 @@ def start_won(*, limit=AUTOSTART_LIMIT, max_age_days=AUTOSTART_MAX_AGE_DAYS, act
     """
     out = {"measured": True, "checked": 0, "started": [], "already": 0, "too_old": 0,
            "skipped_no_client": 0, "conflicts": [], "errors": [], "deferred": 0}
+    claimed, claim = _claim_sweep()
+    if not claimed:
+        return {**out, "busy": True,
+                "note": "A sweep is already running on another worker; nothing was started twice."}
+    try:
+        return _start_won_claimed(out, limit=limit, max_age_days=max_age_days, actor=actor, today=today)
+    finally:
+        if claim is not None:
+            try:
+                claim.close()
+            except Exception:                            # noqa: BLE001
+                pass
+
+
+def _start_won_claimed(out, *, limit, max_age_days, actor, today):
     try:
         mod = _quote_module()
         sdb = mod.SessionLocal()

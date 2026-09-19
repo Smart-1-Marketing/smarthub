@@ -120,6 +120,33 @@ def needs(token):
                            unavailable=False, thanks=request.args.get("thanks") == "1")
 
 
+# How often the client's page takes a post, per link and per address, in
+# an hour. A person answers a page like this once or twice; what the
+# ceiling is for is a script holding the link, which would otherwise write
+# an event row and rewrite the plan on every post for as long as it liked.
+# The limiter is `hub/leads.py`'s and is per process, so the true ceiling
+# is up to twice this on two workers -- approximate and cheap is the right
+# trade on a public endpoint, the note that module already carries. The
+# address limit is the looser one, because a client's office is one
+# address and several people there may be answering several links.
+CLIENT_POST_LIMIT = 30
+CLIENT_POST_IP_LIMIT = 90
+CLIENT_POST_WINDOW = 3600
+TOO_MANY_POSTS = ("That is more sends than this page takes in an hour. Wait a while and "
+                  "try again, or reply to your Smart 1 contact.")
+
+
+def _too_many(token):
+    """True when this link or this address has spent its hour's allowance.
+    Never raises: a limiter that cannot answer costs nothing but itself."""
+    try:
+        from hub import leads
+        return (leads.rate_limited("proposal_needs:" + str(token), request, CLIENT_POST_LIMIT, CLIENT_POST_WINDOW)
+                or leads.rate_limited("proposal_needs_ip", request, CLIENT_POST_IP_LIMIT, CLIENT_POST_WINDOW))
+    except Exception:                                    # noqa: BLE001
+        return False
+
+
 @bp.post("/proposal-execution/needs/<token>")
 def needs_answer(token):
     """The client answering their questions on that same page.
@@ -148,6 +175,9 @@ def needs_answer(token):
         elif key.startswith("h:") and str(value or "").strip():
             answers["creative_supply:" + key[2:]] = "smart1"
     typed = {"name": str(form.get("name") or ""), "email": str(form.get("email") or "")}
+    if _too_many(token):
+        return render_template("proposal_needs.html", doc=pe.client_needs(run, base=request.host_url),
+                               unavailable=False, error=TOO_MANY_POSTS, typed=typed), 429
     try:
         pe.record_client_answers(run, answers, name=typed["name"], email=typed["email"])
     except ValueError as exc:

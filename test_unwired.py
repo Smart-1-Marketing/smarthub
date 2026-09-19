@@ -94,15 +94,6 @@ ALLOW = {
     "modules/sites_admin/simvoly_client.py:activate_project_for_period":
         "Simvoly API surface",
     "modules/sites_admin/simvoly_client.py:set_addon": "Simvoly API surface",
-    # --- a cache reset whose caller has not arrived yet ---------------------
-    # hub/knack_api.forget_schema() drops the ten-minute schema readings, for
-    # a caller that has just written to Knack or a person who has edited it
-    # and would rather not wait out the window. No write in this Hub changes
-    # what is held -- a ticket or a website record adds no field, no choice
-    # and no connection target -- and no screen offers the press yet; the
-    # Knack Field Map report is where it would go. Named here rather than
-    # deleted, because the next reader of that cache would write it again.
-    "hub/knack_api.py:forget_schema": "the schema cache's reset, for the Field Map report to offer",
     # --- a named reading of a table this module owns ------------------------
     # Each is one expression over a constant in the same file. Kept because
     # the alternative is the next screen reading the table with a literal, and
@@ -138,10 +129,6 @@ ALLOW = {
         "the retired builder's archive is read-only today; its writer is kept "
         "beside the reader rather than half a store being left behind",
     "hub/clients_registry.py:update_house_client": "house client store: the update",
-    "hub/knack_api.py:forget_schema":
-        "Knack schema cache: explicit invalidation API kept beside the TTL "
-        "reader for callers that change schema; normal reads expire cached "
-        "values automatically, and no refresh UI is claimed",
 
     # --- computed and reported as a count rather than a list ----------------
     "hub/target_areas.py:dropped_zips":
