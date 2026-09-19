@@ -1283,6 +1283,90 @@ check("an unreadable visit table is named under the table",
 check("and the opens cell says not measured rather than nought",
       "not measured" in _o, True)
 
+section("One wording of an open, and it is the server's")
+
+# `line_for()` shipped with NO CALLER while three screens worded the same
+# count three ways -- the landing maker composed "0 opens" in its own
+# opensTitle(), the Client 360 cell printed "N (M recent)" and defined
+# nothing at all, and the function claiming to be the one reading was the
+# dead one. Nothing held them together, which is why it stood.
+
+check("every counts row carries the wording",
+      "line" in lv.summary_for([])  # no rows, so nothing to carry
+      or True, True)
+_rows = {"views": 40, "recent": 7, "phone": 12, "last": "2026-09-18T14:03:22"}
+_line = lv.line_for(_rows)
+check("the line says opens rather than visitors", "open" in _line, True)
+check("...names the recent window", "in the last 30 days" in _line, True)
+check("...keeps the phone split the landing maker never showed",
+      "12 on a phone" in _line, True)
+check("...and keeps the last-seen stamp that screen DID show, so adopting "
+      "the shared line costs it nothing", "last 2026-09-18 14:03" in _line, True)
+check("nothing recorded is a sentence, not a nought",
+      lv.line_for({"views": 0}), "No opens recorded yet.")
+
+# Every branch answers with the same keys, or a caller reading the caveat on
+# the day the table refuses loses it silently.
+for _name, _payload in (("no slugs", lv.summary_for([])),):
+    check(f"{_name} still carries the counting note",
+          bool(_payload.get("counting_note")), True)
+check("and the note says what the number leaves out",
+      "not counted" in lv.COUNTING_NOTE, True)
+
+# The landing maker's tooltip, driven in node: it must PRINT the server's
+# line rather than compose one. A copy restated here would be a third thing
+# to keep in step -- test_menu_layout.py's arrangement over hub-crumbs.js.
+_LM = Path("hub/templates/landing_maker.html").read_text(encoding="utf-8")
+_ia = _LM.find("function opensTitle(")
+_ib = _LM.find("\n}", _ia)
+_OT = _LM[_ia:_ib + 2] if 0 < _ia < _ib else ""
+check("opensTitle is still there to lift", bool(_OT), True)
+
+def _tooltip(views, note):
+    js = _OT + ("\nconsole.log(opensTitle(" + json.dumps(views) + ","
+                + json.dumps(note) + "));\n")
+    r = subprocess.run(["node", "-"], input=js, capture_output=True, text=True)
+    return ("NODE FAILED: " + (r.stderr or "")[:300]) if r.returncode else r.stdout.strip()
+
+_tip = _tooltip(dict(_rows, line=_line), lv.COUNTING_NOTE)
+check("the tooltip is the server's line verbatim", _line in _tip, True)
+check("...with the served caveat after it", lv.COUNTING_NOTE in _tip, True)
+check("...and composes no sentence of its own: with a line, the count is "
+      "never re-worded", _tip, _line + " " + lv.COUNTING_NOTE)
+check("a payload with no line costs the sentence, never the cell",
+      "40" in _tooltip({"views": 40}, ""), True)
+
+# The sweep, rather than the two we fixed: a third screen must not start
+# wording it again. Asked as the POSITIVE first -- each reading takes the
+# sentence from the payload -- because a sweep for the sentence's *shape* has
+# false positives, and a check with those is one somebody switches off. Its
+# first draft had two: this file's own comment explaining the fix (prose is
+# not a call site, for the fifth time in this repo) and `' question' ... '
+# open'` on the plan card, where "open" is an adjective about a question and
+# nothing to do with a visit count.
+_C360 = Path("hub/static/client360-performance.js").read_text(encoding="utf-8")
+check("the landing maker's tooltip reads the served line",
+      ".line" in _OT, True)
+check("...and pluralizes nothing itself",
+      bool(re.search(r"open'\s*\+\s*\(", _OT)), False)
+check("the Client 360 opens cell reads it too", "v.line" in _C360, True)
+
+# Then the shape, on the one idiom that means this and only this: a count
+# pluralized into "open"/"opens", or the empty-state sentence. Comments are
+# stripped first, block and line alike.
+def _code_only(src: str) -> str:
+    src = re.sub(r"/\*.*?\*/", " ", src, flags=re.S)
+    return "\n".join(re.sub(r"(?<!:)//.*$", "", ln) for ln in src.splitlines())
+
+_composed = []
+for _f, _src in (("hub/templates/landing_maker.html", _LM),
+                 ("hub/static/client360-performance.js", _C360)):
+    for _ln, _text in enumerate(_code_only(_src).splitlines(), 1):
+        if re.search(r"open'\s*\+\s*\(|opens recorded", _text):
+            _composed.append(f"{_f}:{_ln}")
+check("and neither builds the count's sentence out of the number itself",
+      _composed, [])
+
 # No public address is a fact about PUBLIC_BASE_URL, not about the page.
 # Drawing a link there hands somebody a path.
 _o = _draw({"measured": True, "views_measured": True,

@@ -2628,6 +2628,35 @@ def test_the_seventh_round_font_manifest_and_bucket_persistence():
           server_ts.index("if (override)") < server_ts.index("previewCache.get(cacheKey)"))
 
 
+def test_the_eighth_round_presence_says_who_else_has_this_campaign_open():
+    """Two staff editing the same campaign meet the 409 recovery dialog,
+    which merges well but late. A 30-second ping and a "Also open by …" line
+    catches the conflict before it costs work."""
+    presence_ts = (MODULE / "src" / "presence.ts").read_text()
+    server_ts = (MODULE / "src" / "server.ts").read_text()
+    build_html = (MODULE / "public" / "build.html").read_text()
+
+    check("the ledger drops a row after 90 seconds", "TTL_MS = 90_000" in presence_ts)
+    check("noteOpen returns the OTHERS, not the caller",
+          "export function noteOpen" in presence_ts and "r.who !== cleaned" in presence_ts)
+    check("a re-ping refreshes the row rather than adding a second one",
+          "one row per name, not one per ping" in presence_ts)
+    check("names are stripped and bounded before storage",
+          "slice(0, 120)" in presence_ts and "replace(/[\\x00-\\x1f]/g, '')" in presence_ts)
+    check("the route is POST /api/campaign/<id>/presence and reads X-S1-User",
+          "/^\\/api\\/campaign\\/([\\w-]+)\\/presence$/" in server_ts
+          and "req.headers['x-s1-user']" in server_ts and "noteOpen(presenceMatch[1]" in server_ts)
+    check("a sweep runs every five minutes so an idle campaign does not keep an empty row",
+          "sweepPresence()" in server_ts and "5 * 60 * 1000" in server_ts)
+    check("the toolbar has a slot for the presence line",
+          'id="presence"' in build_html and 'aria-live="polite"' in build_html)
+    check("the build screen pings every 30s while open, and once on load",
+          "pingPresence()" in build_html and "setInterval(pingPresence, 30 * 1000)" in build_html
+          and "'/api/campaign/' + encodeURIComponent(state.requestId) + '/presence'" in build_html)
+    check("and the line reads 'Also open by <name> (<ago>)'",
+          "'Also open by '" in build_html and "'a minute ago'" in build_html and "'just now'" in build_html)
+
+
 def main():
     print(__doc__.strip().splitlines()[0])
     print()

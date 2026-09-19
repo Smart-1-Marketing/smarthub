@@ -62,6 +62,7 @@ say "above" or "below" mean earlier or later files in this list.
 | [`53-groundtruth-the-key-arrived-before-the-document.md`](53-groundtruth-the-key-arrived-before-the-document.md) | GroundTruth: the key arrived before the document | 84 |
 | [`54-one-industry-taxonomy-resolved-and-written-down.md`](54-one-industry-taxonomy-resolved-and-written-down.md) | One industry taxonomy, resolved and written down | 33 |
 | [`56-verifying-a-change.md`](56-verifying-a-change.md) | Verifying a change | 1173 |
+| [`56-verifying-a-change.md`](56-verifying-a-change.md) | Verifying a change | 1179 |
 | [`57-smartforecast-moved-to-the-hub-database.md`](57-smartforecast-moved-to-the-hub-database.md) | SmartForecast moved to the Hub database, and what the move found | 133 |
 | [`58-the-check-that-reported-no-json-on-the-disk.md`](58-the-check-that-reported-no-json-on-the-disk.md) | The check that reported no JSON on the disk | 181 |
 | [`59-leads-in-a-table-not-a-file-on-one-instance.md`](59-leads-in-a-table-not-a-file-on-one-instance.md) | Leads in a table, not a file on one instance | 136 |
@@ -88,7 +89,7 @@ say "above" or "below" mean earlier or later files in this list.
 | [`80-the-clients-360-script-in-files-not-a-template.md`](80-the-clients-360-script-in-files-not-a-template.md) | The Client 360 script, in files, not a template | 53 |
 | [`81-a-copy-of-the-landed-rows-and-two-indexes-the-live-table-lacked.md`](81-a-copy-of-the-landed-rows-and-two-indexes-the-live-table-lacked.md) | A copy of the landed rows, and two indexes the live table lacked | 115 |
 | [`82-camhub-a-conditions-page-with-a-sponsor-system-behind-it.md`](82-camhub-a-conditions-page-with-a-sponsor-system-behind-it.md) | CamHub: a conditions page with a sponsor system behind it | 193 |
-| [`83-display-ad-builder-handoff-the-next-rounds.md`](83-display-ad-builder-handoff-the-next-rounds.md) | Display Ad Builder: handoff for the next rounds | 273 |
+| [`83-display-ad-builder-handoff-the-next-rounds.md`](83-display-ad-builder-handoff-the-next-rounds.md) | Display Ad Builder: handoff for the next rounds | 281 |
 | [`84-camhub-sprint-5-reporting-portal-the-hub-card-and-the-mcp-tool.md`](84-camhub-sprint-5-reporting-portal-the-hub-card-and-the-mcp-tool.md) | CamHub Sprint 5: reporting, the portal, the Client 360 card and the MCP tool | 105 |
 | [`85-camhub-sprint-6-the-cam-builder-and-the-second-page.md`](85-camhub-sprint-6-the-cam-builder-and-the-second-page.md) | CamHub Sprint 6: the Cam Builder wizard, re-probe, and a second location type | 80 |
 | [`86-camhub-hardening-csv-formulas-portal-rotation-and-outbox-in-health.md`](86-camhub-hardening-csv-formulas-portal-rotation-and-outbox-in-health.md) | CamHub hardening: CSV formulas, portal rotation, and the outbox in /health | 72 |

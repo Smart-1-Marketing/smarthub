@@ -1014,6 +1014,56 @@ def create_hub_app() -> Flask:
         url = request.args.get("url", "")
         return jsonify(next_action.for_client(name, url))
 
+    @app.route("/api/client/money")
+    def api_client_money():
+        """The Account value card on Client 360 -- hub/client_money.py.
+
+        The same two figures the Products and Invoices cards already read
+        (the group's own billing_monthly, this client's QuickBooks balance
+        through the same lookup `/api/qb/invoices?client=` makes), framed
+        as one question. Under `/api/client/` for the reason
+        `/api/client/health` gives.
+        """
+        gate = _require_api()
+        if gate:
+            return gate
+        from . import client_money
+        name = request.args.get("name", "")
+        if not name.strip():
+            return jsonify({"measured": False, "error": "A client is required."}), 400
+        url = request.args.get("url", "")
+        return jsonify(client_money.for_client(name, url))
+
+    @app.route("/api/client/snapshot.pdf")
+    def api_client_snapshot_pdf():
+        """The one-page snapshot download -- hub/client_snapshot_pdf.py.
+
+        Behind `_require_page()` rather than `_require_api()`: this is a
+        plain `<a href>` click, not a fetch, and a stranger following a
+        bookmark should meet the sign-in page rather than a JSON 401 body
+        served with a PDF's Content-Type. It reads the same functions the
+        health strip, the next-action line, the Account value card and
+        Coming up already call and computes nothing of its own.
+        """
+        gate = _require_page()
+        if gate:
+            return gate
+        from . import client_snapshot_pdf
+        name = (request.args.get("name") or "").strip()
+        if not name:
+            return "A client is required.", 400
+        url = request.args.get("url", "")
+        try:
+            pdf = client_snapshot_pdf.build(name, url)
+        except Exception:                                  # noqa: BLE001
+            app.logger.exception("client snapshot PDF failed")
+            return "We couldn't build that snapshot.", 500
+        resp = make_response(pdf)
+        resp.headers["Content-Type"] = "application/pdf"
+        resp.headers["Content-Disposition"] = \
+            f'attachment; filename="{client_snapshot_pdf.filename(name)}"'
+        return resp
+
     @app.route("/api/client/work")
     def api_client_work():
         """Everything the Hub has made for this client, newest first."""

@@ -723,7 +723,7 @@
 <body>
 
 <div class="bar">
-  <div class="lockup" style="flex:none">Ad Builder</div><span id="who" style="display:none"></span>
+  <div class="lockup" style="flex:none">Ad Builder</div><span id="who" style="display:none"></span><span id="presence" role="status" aria-live="polite" style="display:none;color:#825300;font-size:14px;margin-left:12px"></span>
   <nav class="appnav">
     <a href="/build" class="here">Build</a>
     <a href="/projects">Projects</a>
@@ -4997,6 +4997,7 @@
         refreshDeliver(); refreshOverrideNote(); refreshStage();
         loadApprovals();
         loadClientNotes();
+        pingPresence();
       });
   }
 
@@ -5230,6 +5231,33 @@
     discard.onclick = function () { try { localStorage.removeItem('s1-ad-draft:' + id); } catch (_) {} box.remove(); };
     box.append(restore, discard); $('bench').before(box);
   }
+  /* -------------------------------------------------------- presence
+     Two staff editing the same campaign meet the 409 recovery dialog,
+     which merges well but late. A ping every 30s tells the server this
+     tab is open; the reply lists everyone else on the same campaign
+     whose ping is under 90s old, and the toolbar draws a line so the
+     second person notices before the conflict costs work. */
+  function pingPresence() {
+    if (!state.requestId) { $('presence').style.display = 'none'; return; }
+    fetch('/api/campaign/' + encodeURIComponent(state.requestId) + '/presence', { method: 'POST' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (b) {
+        var el = $('presence');
+        if (!b || !b.others || !b.others.length) { el.style.display = 'none'; return; }
+        var names = b.others.map(function (o) {
+          var mins = Math.round(o.ageSec / 60);
+          var ago = o.ageSec < 60 ? 'just now'
+                  : mins <= 1 ? 'a minute ago'
+                  : mins + ' minutes ago';
+          return esc(o.who) + ' (' + ago + ')';
+        });
+        el.textContent = 'Also open by ' + names.join(', ');
+        el.style.display = '';
+      })
+      .catch(function () { /* a proxy hiccup does not need a red line */ });
+  }
+  setInterval(pingPresence, 30 * 1000);
+
   var autoSignature = '', autoChangedAt = 0;
   setInterval(function () {
     if (!state.doc || !state.requestId || !state.dirty) return;

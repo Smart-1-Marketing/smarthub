@@ -152,6 +152,7 @@ function loadBrandAndWork(name){
   loadSocialIdeas(name);
 
   loadUpcoming(name);
+  loadMoney(name);
   fetch('/api/client/analytics-ids?name='+encodeURIComponent(name),{credentials:'same-origin'})
     .then(function(r){return r.json();}).then(renderAnalyticsIds).catch(function(){});
   if(!name) return;

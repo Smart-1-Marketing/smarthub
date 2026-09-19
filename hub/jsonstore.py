@@ -1521,6 +1521,22 @@ DISK_BINARY_EXEMPT: dict[str, str] = {
         "Cloudinary holds the durable one, and /pdf/<token> says so when the "
         "local file is gone",
 
+    # ---- a copy of a database, not the only copy of anything ----
+    "modules/reports/backup.py":
+        "_write_file(), which is the reports backup writing a gzipped copy of "
+        "rows that are still in the reports Postgres -- so the bytes are "
+        "rebuildable by re-running run() against the live database, and losing "
+        "the disk loses a copy rather than the data. Where Cloudinary is "
+        "configured the same run has already put a THIRD copy off the box "
+        "through hub/storage.put; where it is not, _offsite_available() says "
+        "so, run() carries it on offsite_note and reports_index.html prints it "
+        "beside the file count -- the hub/storage.py argument, so the one "
+        "state in which this disk holds the only copy outside Postgres is the "
+        "reported thing rather than a hidden one. Sending it through "
+        "hub/storage.py instead is what run() already does when it can, and "
+        "refusing to write the disk copy when it cannot would leave a "
+        "deployment with no second copy at all",
+
     # ---- a branch with no caller ----
     "modules/commercial_builder/services/elevenlabs_service.py":
         "the out_path= branch of generate_voiceover(), and no caller passes "

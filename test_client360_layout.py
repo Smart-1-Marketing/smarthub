@@ -86,6 +86,7 @@ check("the template still yields a readable set of card titles",
 
 WANT = {
     "Products & IOs": "overview",
+    "Account value": "overview",
     "Orders we have sent": "overview",
     "Coming up": "overview",
 
@@ -412,7 +413,7 @@ check("the email contact line lives in the Client Info strip, not above the heal
 # ------------------------------------------------------------------------
 section("7. The bigger improvements: a slim Overview, rail badges, Ends, score, latest note")
 ov = [t for t, k in WANT.items() if k == "overview"]
-check("Overview holds nine cards, not thirteen", len(ov), 9)
+check("Overview holds ten cards, Account value added for the money question", len(ov), 10)
 counts_driver = """
 const esc=s=>String(s??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
 const c360RefreshButton=()=>'';

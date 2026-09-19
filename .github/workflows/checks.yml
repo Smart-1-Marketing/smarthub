@@ -2719,6 +2719,22 @@ jobs:
         if: matrix.group == 6
         run: python3 test_client360_upcoming.py
 
+      # Client 360's Account value card: the group's own already-merged
+      # billing_monthly beside the QuickBooks balance the Invoices card
+      # already reads -- no new source, absent never reads as zero.
+      - name: Client 360 account-value card
+        if: matrix.group == 6
+        run: python3 test_client_money.py
+
+      # The one-page snapshot download: every figure read from a function
+      # the record already calls, never a new source; absent stays absent
+      # on paper; any one source raising costs its own section, not the
+      # download; behind _require_page so a stranger meets sign-in, not a
+      # JSON 401 body served with a PDF's Content-Type.
+      - name: Client 360 snapshot PDF
+        if: matrix.group == 6
+        run: python3 test_client_snapshot_pdf.py
+
       # Client 360 pipeline card: the client's own Suite pipelines, counted
       # from raw rows; tri-state on the sub-account token; no token in the
       # answer; paging capped and flagged.

@@ -23,7 +23,11 @@ plus concept/size/platform so a size switch never re-renders inputs
 that have not changed, and the rate-limit buckets flush to
 `OUTPUT_DIR/limits.json` every 10s so the public proof budget actually
 is per hour, not "per deploy interval or per hour, whichever is
-shorter". Three items remain (4, 5, 7).
+shorter". An eighth pass closed **item 5**: presence, an in-memory
+90-second ledger the build screen pings every 30s, drawn as "Also open
+by Jill (2 minutes ago)" in the toolbar so the second editor notices
+before the 409 recovery dialog has to catch it. Two items remain
+(4, 7).
 
 ### Where it stands
 
@@ -182,13 +186,17 @@ three repository values, and the job runs. Say clearly in the write-up that
 the test edits the campaign it opens, so the request id must be that seeded
 one and never a client's.
 
-**5. Presence: two people on one campaign. (M)** Two staff editing the same
-campaign meet the 409 recovery dialog, which merges well but late. Add
-`POST /api/campaign/<id>/presence` (who, when; kept in memory, 90-second
-expiry) called by the build screen every 30s while open, and a line under
-the campaign name: "Also open by Todd, 2 minutes ago". No locking; the
-recovery dialog stays the safety net. Prove with the editor harness (two
-names, one expires).
+**5. Presence: two people on one campaign. ~~(M)~~ DONE.** `src/presence.ts`
+is an in-memory ledger keyed by `requestId`; `POST /api/campaign/<id>/presence`
+reads `X-S1-User` off the header the Hub proxy already sets, refreshes the
+caller's row and returns the OTHERS whose row is under 90s old. The build
+screen pings on load and every 30s while open, and draws
+"Also open by Jill (2 minutes ago)" in the toolbar next to the campaign name.
+No locking; the 409 recovery dialog stays the safety net when a person misses
+the line. A ping past the TTL falls off; a re-ping refreshes the row rather
+than adding a second one. Proved in `tests/presence.test.ts`: two names, each
+sees the other and never itself; a re-ping is one row; a name that has been
+quiet past 90s is gone; an anonymous ping counts but is never drawn.
 
 **6. The style panel's number boxes lag the arrows and the keys. ~~(S)~~
 DONE (sixth pass).** `setBlockStyle()` now writes the shown value back to

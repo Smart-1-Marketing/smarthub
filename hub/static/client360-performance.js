@@ -241,8 +241,19 @@ function renderLandingPages(d,name){
   rows.forEach(function(p){
     var title=p.headline||p.campaign||p.slug||'Landing page';
     var v=p.views, c=p.conversion||{};
+    /* The cell stays a number -- a full sentence in a table column is not a
+       table. What it gained is the DEFINITION, as a title: this screen used
+       to print "N (M recent)" and say nowhere what an open counts, while the
+       landing maker said it in its own words and hub/landing_views.line_for()
+       -- the function written to be the one reading -- had no caller. The
+       line is the server's, so the two screens cannot word it apart again. */
+    var openTitle = [(v && v.line) || '', d && d.views_counting_note || '']
+      .filter(Boolean).join(' ');
     var opens = (v && typeof v.views!=='undefined')
-      ? esc(String(v.views))+(v.recent?' <span class="muted" style="font-size:11.5px">('+esc(String(v.recent))+' recent)</span>':'')
+      ? '<span'+(openTitle?' title="'+esc(openTitle)+'"':'')+'>'
+        + esc(String(v.views))
+        + (v.recent?' <span class="muted" style="font-size:11.5px">('+esc(String(v.recent))+' recent)</span>':'')
+        + '</span>'
       : '<span class="muted">not measured</span>';
     h+='<tr><td><b>'+esc(title)+'</b>'
       + (p.campaign&&p.campaign!==title?'<div class="muted" style="font-size:12px">'+esc(p.campaign)+'</div>':'')
